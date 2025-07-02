@@ -70,7 +70,6 @@ enum Commands {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Config {
-    name: String,
     // Minhash parameters
     num_bands: usize,
     band_size: usize,
@@ -79,30 +78,17 @@ struct Config {
     #[serde(default)]
     hash_seed: usize,
 
-    // Engineery things
-    num_sig_chunks: usize,
-    num_docs: usize,
-    max_lines_per_path: usize,
+    // Data configuration
     content_key: String,
 
-    // Local directories
+    // Directory paths
     local_input: PathBuf,
     reference_input: PathBuf,
-    working_dir: PathBuf,
     output_dir: PathBuf,
 
-    // Remote directories
-    remote_input: PathBuf,
-    remote_working_dir: PathBuf,
-    remote_output: PathBuf,
-
-    // Fancy options
+    // Processing options
     #[serde(default)]
     exact_override: bool,
-    #[serde(default)]
-    concat_key: Option<Vec<String>>,
-    #[serde(default)]
-    annotate_only: bool,
     #[serde(default = "default_jaccard_threshold")]
     jaccard_similarity_threshold: f32
 
@@ -126,16 +112,6 @@ fn read_config(config_path: &PathBuf) -> Result<Config, Error> {
 =================================================================*/
 
 
-#[allow(dead_code)]
-fn get_concat_val(obj: &Value, concat_key: &Vec<String>) -> Result<Vec<String>, Error> {
-    let mut concat_val: Vec<String> = Vec::new();
-
-    for k in concat_key {
-        concat_val.push(get_nested_json_val(obj, k).unwrap());
-    }
-
-    Ok(concat_val)
-}
 
 
 fn get_nested_json_val(obj: &Value, key: &String) -> Result<String, Error> {
@@ -725,8 +701,8 @@ fn review_contamination(config: &PathBuf, results_file: Option<&PathBuf>) -> Res
     println!("Found {} contamination instances to review\n", contamination_results.len());
 
     // Load file content caches
-    let training_cache = load_training_files(&config_obj.local_input)?;
-    let eval_cache = load_eval_files(&config_obj.reference_input)?;
+    let training_cache = load_training_files(&config_obj.local_input, &config_obj.content_key)?;
+    let eval_cache = load_eval_files(&config_obj.reference_input, &config_obj.content_key)?;
 
     // Review each contamination case
     for (idx, result) in contamination_results.iter().enumerate() {
@@ -757,7 +733,7 @@ fn load_contamination_results(results_path: &PathBuf) -> Result<Vec<Contaminatio
     Ok(results)
 }
 
-fn load_training_files(input_dir: &PathBuf) -> Result<HashMap<String, Vec<String>>, Error> {
+fn load_training_files(input_dir: &PathBuf, content_key: &str) -> Result<HashMap<String, Vec<String>>, Error> {
     let mut cache = HashMap::new();
     let training_files = expand_dirs(vec![input_dir.clone()], Some(vec![".jsonl"].as_slice()))?;
 
@@ -775,7 +751,7 @@ fn load_training_files(input_dir: &PathBuf) -> Result<HashMap<String, Vec<String
             let line = line?;
             if !line.trim().is_empty() {
                 let json_obj: Value = serde_json::from_str(&line)?;
-                let text = get_nested_json_val(&json_obj, &"text".to_string())?;
+                let text = get_nested_json_val(&json_obj, &content_key.to_string())?;
                 lines.push(text);
             }
         }
@@ -786,7 +762,7 @@ fn load_training_files(input_dir: &PathBuf) -> Result<HashMap<String, Vec<String
     Ok(cache)
 }
 
-fn load_eval_files(reference_dir: &PathBuf) -> Result<HashMap<String, Vec<String>>, Error> {
+fn load_eval_files(reference_dir: &PathBuf, content_key: &str) -> Result<HashMap<String, Vec<String>>, Error> {
     let mut cache = HashMap::new();
     let eval_files = expand_dirs(vec![reference_dir.clone()], Some(vec![".jsonl"].as_slice()))?;
 
@@ -804,7 +780,7 @@ fn load_eval_files(reference_dir: &PathBuf) -> Result<HashMap<String, Vec<String
             let line = line?;
             if !line.trim().is_empty() {
                 let json_obj: Value = serde_json::from_str(&line)?;
-                let text = get_nested_json_val(&json_obj, &"text".to_string())?;
+                let text = get_nested_json_val(&json_obj, &content_key.to_string())?;
                 lines.push(text);
             }
         }
