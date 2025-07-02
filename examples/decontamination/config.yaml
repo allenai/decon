@@ -1,0 +1,16 @@
+band_size: 8
+content_key: text
+local_input: /home/robert/Downloads/input
+output_dir: /home/robert/Downloads/output
+max_lines_per_path: 100
+name: simple-exact-dedup
+ngram_size: 5
+num_bands: 14
+num_docs: 1000
+num_sig_chunks: 2
+remote_input: UNNEEDED FOR SINGLE NODE
+remote_output: UNNEEDED FOR SINGLE NODE
+remote_working_dir: UNNEEDED FOR SINGLE NODE
+tokenizer_str: uniseg
+working_dir: /home/robert/Downloads/work
+annotate_only: true
