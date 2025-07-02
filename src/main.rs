@@ -117,10 +117,13 @@ fn read_config(config_path: &PathBuf) -> Result<Config, Error> {
 fn get_nested_json_val(obj: &Value, key: &String) -> Result<String, Error> {
     let mut current = obj;
     for subkey in key.split('.') {
-        current = current.get(subkey).unwrap();
+        current = current.get(subkey)
+            .ok_or_else(|| anyhow::anyhow!("Key '{}' not found in JSON object", subkey))?;
     }
 
-    Ok(current.as_str().unwrap().to_string())
+    current.as_str()
+        .ok_or_else(|| anyhow::anyhow!("Value at key '{}' is not a string", key))
+        .map(|s| s.to_string())
 }
 
 
@@ -330,7 +333,7 @@ fn build_reference_index(config: &Config) -> Result<(ReferenceBands, ReferenceSi
     let perm_seeds = _expand_band_seeds(&band_seeds, config.band_size);
 
     // Find all reference files
-    let reference_files = expand_dirs(vec![config.reference_input.clone()], Some(vec![".jsonl"].as_slice()))?;
+    let reference_files = expand_dirs(vec![config.reference_input.clone()], Some(vec![".jsonl", ".gz"].as_slice()))?;
     let pbar = build_pbar(reference_files.len(), "Reference files");
 
     reference_files.par_iter().for_each(|file_path| {
@@ -439,17 +442,28 @@ fn detect_contamination_in_training_data(
     let perm_seeds = _expand_band_seeds(&band_seeds, config.band_size);
 
     // Find all training files
-    let training_files = expand_dirs(vec![config.local_input.clone()], Some(vec![".jsonl"].as_slice()))?;
+    let training_files = expand_dirs(vec![config.local_input.clone()], Some(vec![".jsonl", ".gz"].as_slice()))?;
+    println!("Found {} training files to process", training_files.len());
     let pbar = build_pbar(training_files.len(), "Training files");
 
     let contamination_results: DashMap<String, Vec<(usize, String, usize, f32)>> = DashMap::new();
 
     training_files.par_iter().for_each(|file_path| {
-        let file_name = file_path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("unknown")
-            .to_string();
+        let file_name = if file_path.extension().and_then(|s| s.to_str()) == Some("gz") {
+            // For .gz files, use file_stem to get the .jsonl name
+            file_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string()
+        } else {
+            // For regular files, use the full filename
+            file_path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string()
+        };
 
         if let Err(e) = process_training_file(
             file_path,
@@ -506,12 +520,6 @@ fn process_training_file(
         let line_text = get_nested_json_val(&json_obj, &content_key.to_string())?;
         total_lines += 1;
 
-        println!("  → Processing line {}: \"{}\"", line_num,
-                if line_text.len() > 100 {
-                    format!("{}...", &line_text[..100])
-                } else {
-                    line_text.clone()
-                });
 
         let hash_vals = if exact_override {
             let Ok(tokens) = catch_unwind(|| preprocess_text(&line_text, &tokenizer)) else {
@@ -528,7 +536,6 @@ fn process_training_file(
         // Check for collisions with reference bands
         let bands = hash_vals.clone().into_shape((num_bands, band_size))?;
         let mut line_matches: HashMap<(String, usize), f32> = HashMap::new();
-        let mut band_collisions_found = false;
 
         // println!("    🔧 Checking {} bands for collisions", num_bands);
         for (_band_idx, row) in bands.rows().into_iter().enumerate() {
@@ -542,10 +549,6 @@ fn process_training_file(
 
             if let Some(matches) = reference_bands.get(&band_signature) {
                 // println!("    🔧 Band {} collision! Found {} reference matches", band_idx, matches.len());
-                if !band_collisions_found {
-                    println!("    ✅ Band collision detected!");
-                    band_collisions_found = true;
-                }
 
                 // Found potential contamination - calculate Jaccard similarity
                 for (eval_name, eval_line_num) in matches.value() {
@@ -565,17 +568,10 @@ fn process_training_file(
             }
         }
 
-        if !band_collisions_found {
-            println!("    ❌ No band collisions detected");
-        }
 
         // Add deduplicated matches to results
         if !line_matches.is_empty() {
             contaminated_lines += 1;
-            for ((eval_name, eval_line_num), jaccard_sim) in &line_matches {
-                println!("    📊 Jaccard similarity with {}[{}]: {:.3} (threshold: {:.3})",
-                        eval_name, eval_line_num, jaccard_sim, jaccard_threshold);
-            }
             for ((eval_name, eval_line_num), jaccard_sim) in line_matches {
                 contamination_results
                     .entry(file_name.to_string())
@@ -735,23 +731,47 @@ fn load_contamination_results(results_path: &PathBuf) -> Result<Vec<Contaminatio
 
 fn load_training_files(input_dir: &PathBuf, content_key: &str) -> Result<HashMap<String, Vec<String>>, Error> {
     let mut cache = HashMap::new();
-    let training_files = expand_dirs(vec![input_dir.clone()], Some(vec![".jsonl"].as_slice()))?;
+    let training_files = expand_dirs(vec![input_dir.clone()], Some(vec![".jsonl", ".gz"].as_slice()))?;
 
     for file_path in training_files {
-        let file_name = file_path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("unknown")
-            .to_string();
+        let file_name = if file_path.extension().and_then(|s| s.to_str()) == Some("gz") {
+            // For .gz files, use file_stem to get the .jsonl name
+            file_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string()
+        } else {
+            // For regular files, use the full filename
+            file_path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string()
+        };
 
         let data = read_pathbuf_to_mem(&file_path)?;
         let mut lines = Vec::new();
 
-        for line in data.lines() {
+        for (line_num, line) in data.lines().enumerate() {
             let line = line?;
             if !line.trim().is_empty() {
-                let json_obj: Value = serde_json::from_str(&line)?;
-                let text = get_nested_json_val(&json_obj, &content_key.to_string())?;
+                let json_obj: Value = match serde_json::from_str(&line) {
+                    Ok(obj) => obj,
+                    Err(e) => {
+                        eprintln!("JSON parse error at line {}: {}", line_num, e);
+                        eprintln!("Line content: {}", &line[..std::cmp::min(100, line.len())]);
+                        return Err(e.into());
+                    }
+                };
+                let text = match get_nested_json_val(&json_obj, &content_key.to_string()) {
+                    Ok(t) => t,
+                    Err(_) => {
+                        // Skip files that don't have the expected schema
+                        eprintln!("Skipping file {:?} - doesn't have expected key '{}'", file_path, content_key);
+                        break;
+                    }
+                };
                 lines.push(text);
             }
         }
@@ -764,14 +784,24 @@ fn load_training_files(input_dir: &PathBuf, content_key: &str) -> Result<HashMap
 
 fn load_eval_files(reference_dir: &PathBuf, content_key: &str) -> Result<HashMap<String, Vec<String>>, Error> {
     let mut cache = HashMap::new();
-    let eval_files = expand_dirs(vec![reference_dir.clone()], Some(vec![".jsonl"].as_slice()))?;
+    let eval_files = expand_dirs(vec![reference_dir.clone()], Some(vec![".jsonl", ".gz"].as_slice()))?;
 
     for file_path in eval_files {
-        let file_name = file_path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("unknown")
-            .to_string();
+        let file_name = if file_path.extension().and_then(|s| s.to_str()) == Some("gz") {
+            // For .gz files, use file_stem to get the .jsonl name
+            file_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string()
+        } else {
+            // For regular files, use file_stem to get the name without .jsonl
+            file_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string()
+        };
 
         let data = read_pathbuf_to_mem(&file_path)?;
         let mut lines = Vec::new();
@@ -780,7 +810,14 @@ fn load_eval_files(reference_dir: &PathBuf, content_key: &str) -> Result<HashMap
             let line = line?;
             if !line.trim().is_empty() {
                 let json_obj: Value = serde_json::from_str(&line)?;
-                let text = get_nested_json_val(&json_obj, &content_key.to_string())?;
+                let text = match get_nested_json_val(&json_obj, &content_key.to_string()) {
+                    Ok(t) => t,
+                    Err(_) => {
+                        // Skip files that don't have the expected schema
+                        eprintln!("Skipping file {:?} - doesn't have expected key '{}'", file_path, content_key);
+                        break;
+                    }
+                };
                 lines.push(text);
             }
         }
