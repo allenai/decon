@@ -2,6 +2,6 @@ Please look at all uncommitted changes and prepare a commit.
 
 This involves running the git commit command and writing up a nice message.
 
-The message should have summary title that is fairly short and test.
+The message should have summary title that is fairly short.
 
 It should outline the changes in the commit. Unless it looks huge, please just use bullet points or one to two sentence descriptions of each substantive change.
