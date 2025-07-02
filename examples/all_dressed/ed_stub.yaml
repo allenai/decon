@@ -1,5 +1,0 @@
-name: all_dressed_exact_dedup
-local_input: DUMMY_INPUT
-output_dir: DUMMY_OUTPUT
-working_dir: /mnt/raid0/ed_working_dir
-text_field: text
