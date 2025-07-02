@@ -320,7 +320,7 @@ fn get_nested_json_val(obj: &Value, key: &String) -> Result<String, Error> {
         current = current.get(subkey).unwrap();
     }
 
-    Ok(current.to_string())
+    Ok(current.as_str().unwrap().to_string())
 }
 
 
@@ -502,7 +502,7 @@ fn process_path(path: &PathBuf, band_seeds: &Vec<u32>, path_id: usize, band_size
     for (line_num, line) in data.lines().enumerate() {
         let line = line.unwrap();
         let json_obj: Value = serde_json::from_str(&line).expect(&format!("Failed to parse {:?} {:?}", path.clone(), line_num));
-        let line_text = json_obj.get(content_key).unwrap().as_str().unwrap().to_string();
+        let line_text = get_nested_json_val(&json_obj, &content_key.to_string()).unwrap();
         if let Some(ref concat_key_real) = concat_key {
             let concat_val = get_concat_val(&json_obj, &concat_key_real).unwrap();
             if concat_val != last_concat_val {
