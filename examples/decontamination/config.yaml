@@ -1,6 +1,7 @@
 band_size: 8
 content_key: text
 local_input: /home/robert/Downloads/input
+reference_input: /home/robert/Downloads/reference
 output_dir: /home/robert/Downloads/output
 max_lines_per_path: 100
 name: simple-exact-dedup
@@ -14,3 +15,4 @@ remote_working_dir: UNNEEDED FOR SINGLE NODE
 tokenizer_str: uniseg
 working_dir: /home/robert/Downloads/work
 annotate_only: true
+reference_sets:

@@ -243,6 +243,19 @@ enum Commands {
     DupAwareSubsample {
         #[arg(required=true, long)]
         config: PathBuf
+    },
+
+    ContaminationDetect {
+        #[arg(required=true, long)]
+        config: PathBuf
+    },
+
+    ReviewContamination {
+        #[arg(required=true, long)]
+        config: PathBuf,
+
+        #[arg(long)]
+        results_file: Option<PathBuf>
     }
 
 }
@@ -270,6 +283,7 @@ struct Config {
 
     // Local directories
     local_input: PathBuf,
+    reference_input: PathBuf,
     working_dir: PathBuf,
     output_dir: PathBuf,
 
@@ -1678,6 +1692,522 @@ fn jaccard_similarity(x: &HashSet<usize>, y: &HashSet<usize>)  -> f32 {
 
 
 /*=================================================================
+=                         CONTAMINATION DETECTION                =
+=================================================================*/
+
+// Reference band storage: maps band signature to list of (eval_name, line_num)
+type ReferenceBands = DashMap<Vec<u8>, Vec<(String, usize)>>;
+
+// Reference signatures storage: maps (eval_name, line_num) to full signature
+type ReferenceSignatures = DashMap<(String, usize), Array1<u64>>;
+
+fn contamination_detect(config: &PathBuf) -> Result<(), Error> {
+    println!("Starting contamination detection...");
+    let start_main = Instant::now();
+    
+    let config_obj = read_config(config)?;
+    
+    // Step 1: Process reference datasets and build in-memory band index
+    println!("Processing reference datasets...");
+    let (reference_bands, reference_signatures) = build_reference_index(&config_obj)?;
+    println!("Built reference index with {} bands and {} signatures", 
+             reference_bands.len(), reference_signatures.len());
+    
+    // Step 2: Process training data and detect contamination
+    println!("Processing training data for contamination detection...");
+    detect_contamination_in_training_data(&config_obj, &reference_bands, &reference_signatures)?;
+    
+    println!("Contamination detection completed in {:?} seconds", start_main.elapsed().as_secs());
+    Ok(())
+}
+
+fn build_reference_index(config: &Config) -> Result<(ReferenceBands, ReferenceSignatures), Error> {
+    let reference_bands: ReferenceBands = DashMap::new();
+    let reference_signatures: ReferenceSignatures = DashMap::new();
+    
+    // Set up hashing parameters
+    let band_seeds: Vec<u32> = _expand_band_seeds(&vec![config.hash_seed as u32], config.num_bands)
+        .into_iter()
+        .map(|x| x as u32)
+        .collect();
+    let perm_seeds = _expand_band_seeds(&band_seeds, config.band_size);
+    
+    // Find all reference files
+    let reference_files = expand_dirs(vec![config.reference_input.clone()], Some(vec![".jsonl"].as_slice()))?;
+    let pbar = build_pbar(reference_files.len(), "Reference files");
+    
+    reference_files.par_iter().for_each(|file_path| {
+        if let Err(e) = process_reference_file(
+            file_path, 
+            &band_seeds,
+            &perm_seeds,
+            config.band_size,
+            config.ngram_size,
+            &config.tokenizer_str,
+            &config.content_key,
+            &reference_bands,
+            &reference_signatures,
+            config.exact_override
+        ) {
+            println!("Error processing reference file {:?}: {:?}", file_path, e);
+        }
+        pbar.inc(1);
+    });
+    
+    Ok((reference_bands, reference_signatures))
+}
+
+fn process_reference_file(
+    file_path: &PathBuf,
+    band_seeds: &Vec<u32>,
+    perm_seeds: &Vec<u64>,
+    band_size: usize,
+    ngram_size: usize,
+    tokenizer_str: &str,
+    content_key: &str,
+    reference_bands: &ReferenceBands,
+    reference_signatures: &ReferenceSignatures,
+    exact_override: bool
+) -> Result<(), Error> {
+    let data = read_pathbuf_to_mem(file_path)?;
+    let tokenizer = OmniTokenizer::new(tokenizer_str)?;
+    let num_bands = band_seeds.len();
+    
+    // Extract eval name from filename
+    let eval_name = file_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+    
+    println!("Loading hashes for eval dataset: {}", eval_name);
+    
+    let mut lines_processed = 0;
+    for (line_num, line) in data.lines().enumerate() {
+        let line = line?;
+        let json_obj: Value = serde_json::from_str(&line)?;
+        let line_text = get_nested_json_val(&json_obj, &content_key.to_string())?;
+        lines_processed += 1;
+        
+        let hash_vals = if exact_override {
+            let Ok(tokens) = catch_unwind(|| preprocess_text(&line_text, &tokenizer)) else {
+                println!("Tokenization failed on {:?} | line {:?}", file_path, line_num);
+                continue;
+            };
+            get_hash_vals_from_tokens(tokens, perm_seeds, ngram_size)
+        } else {
+            let n = perm_seeds.len();
+            let mut hash_vals: Array1<u64> = Array1::ones(n);
+            hash_vals = hash_vals * (hash_object(&line_text) as u64);
+            hash_vals
+        };
+        
+        // Store full signature for Jaccard similarity calculation
+        reference_signatures.insert((eval_name.clone(), line_num), hash_vals.clone());
+        
+        // Generate bands and store in reference index
+        let bands = hash_vals.into_shape((num_bands, band_size))?;
+        for (_band_idx, row) in bands.rows().into_iter().enumerate() {
+            let mut hasher = Sha256::new();
+            hasher.update(bytemuck::cast_slice(row.as_slice().unwrap()));
+            let hash = hasher.finalize();
+            let band_signature = hash[..8].to_vec(); // Truncate to 8 bytes for efficiency
+            
+            reference_bands
+                .entry(band_signature)
+                .or_default()
+                .push((eval_name.clone(), line_num));
+        }
+    }
+    
+    println!("  → Processed {} lines from {}", lines_processed, eval_name);
+    Ok(())
+}
+
+fn detect_contamination_in_training_data(
+    config: &Config,
+    reference_bands: &ReferenceBands,
+    reference_signatures: &ReferenceSignatures
+) -> Result<(), Error> {
+    // Set up hashing parameters
+    let band_seeds: Vec<u32> = _expand_band_seeds(&vec![config.hash_seed as u32], config.num_bands)
+        .into_iter()
+        .map(|x| x as u32)
+        .collect();
+    let perm_seeds = _expand_band_seeds(&band_seeds, config.band_size);
+    
+    // Find all training files
+    let training_files = expand_dirs(vec![config.local_input.clone()], Some(vec![".jsonl"].as_slice()))?;
+    let pbar = build_pbar(training_files.len(), "Training files");
+    
+    let contamination_results: DashMap<String, Vec<(usize, String, usize, f32)>> = DashMap::new();
+    
+    training_files.par_iter().for_each(|file_path| {
+        let file_name = file_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+            
+        if let Err(e) = process_training_file(
+            file_path,
+            &file_name,
+            &band_seeds,
+            &perm_seeds,
+            config.band_size,
+            config.ngram_size,
+            &config.tokenizer_str,
+            &config.content_key,
+            reference_bands,
+            reference_signatures,
+            &contamination_results,
+            config.exact_override
+        ) {
+            println!("Error processing training file {:?}: {:?}", file_path, e);
+        }
+        pbar.inc(1);
+    });
+    
+    // Save contamination results
+    save_contamination_results(&contamination_results, &config.output_dir)?;
+    
+    Ok(())
+}
+
+fn process_training_file(
+    file_path: &PathBuf,
+    file_name: &str,
+    band_seeds: &Vec<u32>,
+    perm_seeds: &Vec<u64>,
+    band_size: usize,
+    ngram_size: usize,
+    tokenizer_str: &str,
+    content_key: &str,
+    reference_bands: &ReferenceBands,
+    reference_signatures: &ReferenceSignatures,
+    contamination_results: &DashMap<String, Vec<(usize, String, usize, f32)>>,
+    exact_override: bool
+) -> Result<(), Error> {
+    let data = read_pathbuf_to_mem(file_path)?;
+    let tokenizer = OmniTokenizer::new(tokenizer_str)?;
+    let num_bands = band_seeds.len();
+    
+    println!("Checking training file: {}", file_name);
+    let mut contaminated_lines = 0;
+    let mut total_lines = 0;
+    
+    for (line_num, line) in data.lines().enumerate() {
+        let line = line?;
+        let json_obj: Value = serde_json::from_str(&line)?;
+        let line_text = get_nested_json_val(&json_obj, &content_key.to_string())?;
+        total_lines += 1;
+        
+        let hash_vals = if exact_override {
+            let Ok(tokens) = catch_unwind(|| preprocess_text(&line_text, &tokenizer)) else {
+                continue;
+            };
+            get_hash_vals_from_tokens(tokens, perm_seeds, ngram_size)
+        } else {
+            let n = perm_seeds.len();
+            let mut hash_vals: Array1<u64> = Array1::ones(n);
+            hash_vals = hash_vals * (hash_object(&line_text) as u64);
+            hash_vals
+        };
+        
+        // Check for collisions with reference bands
+        let bands = hash_vals.clone().into_shape((num_bands, band_size))?;
+        let mut line_matches: HashMap<(String, usize), f32> = HashMap::new();
+        
+        for row in bands.rows() {
+            let mut hasher = Sha256::new();
+            hasher.update(bytemuck::cast_slice(row.as_slice().unwrap()));
+            let hash = hasher.finalize();
+            let band_signature = hash[..8].to_vec();
+            
+            if let Some(matches) = reference_bands.get(&band_signature) {
+                // Found potential contamination - calculate Jaccard similarity
+                for (eval_name, eval_line_num) in matches.value() {
+                    if let Some(ref_sig_entry) = reference_signatures.get(&(eval_name.clone(), *eval_line_num)) {
+                        let jaccard_sim = calculate_jaccard_similarity(&hash_vals, ref_sig_entry.value());
+                        
+                        // Store contamination result (threshold can be adjusted)
+                        if jaccard_sim > 0.5 {
+                            let key = (eval_name.clone(), *eval_line_num);
+                            // Keep the highest Jaccard similarity for each unique eval match
+                            line_matches.entry(key)
+                                .and_modify(|existing_sim| *existing_sim = existing_sim.max(jaccard_sim))
+                                .or_insert(jaccard_sim);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Add deduplicated matches to results
+        if !line_matches.is_empty() {
+            contaminated_lines += 1;
+            for ((eval_name, eval_line_num), jaccard_sim) in line_matches {
+                contamination_results
+                    .entry(file_name.to_string())
+                    .or_default()
+                    .push((line_num, eval_name, eval_line_num, jaccard_sim));
+            }
+        }
+    }
+    
+    if contaminated_lines > 0 {
+        println!("  → Found {} contaminated lines out of {} total lines in {}", 
+                contaminated_lines, total_lines, file_name);
+    } else {
+        println!("  → No contamination found in {} ({} lines)", file_name, total_lines);
+    }
+    
+    Ok(())
+}
+
+fn calculate_jaccard_similarity(sig1: &Array1<u64>, sig2: &Array1<u64>) -> f32 {
+    let matches = sig1.iter()
+        .zip(sig2.iter())
+        .filter(|(a, b)| a == b)
+        .count();
+    
+    matches as f32 / sig1.len() as f32
+}
+
+fn save_contamination_results(
+    results: &DashMap<String, Vec<(usize, String, usize, f32)>>,
+    output_dir: &PathBuf
+) -> Result<(), Error> {
+    create_dir_all(output_dir)?;
+    let output_file = output_dir.join("contamination_results.jsonl");
+    
+    let mut output_data = Vec::new();
+    let mut total_contaminations = 0;
+    
+    for entry in results.iter() {
+        let training_file = entry.key();
+        for (training_line, eval_name, eval_line, jaccard_sim) in entry.value() {
+            let result = json!({
+                "training_file": training_file,
+                "training_line": training_line,
+                "eval_dataset": eval_name,
+                "eval_line": eval_line,
+                "jaccard_similarity": jaccard_sim
+            });
+            output_data.push(serde_json::to_vec(&result)?);
+            total_contaminations += 1;
+        }
+    }
+    
+    let mut output_bytes = Vec::new();
+    for line in output_data {
+        output_bytes.extend(line);
+        output_bytes.push(b'\n');
+    }
+    
+    write_mem_to_pathbuf(&output_bytes, &output_file)?;
+    
+    if total_contaminations > 0 {
+        println!("=== CONTAMINATION SUMMARY ===");
+        println!("Found {} contamination instances across {} files", 
+                total_contaminations, results.len());
+        println!("Results saved to: {:?}", output_file);
+    } else {
+        println!("=== NO CONTAMINATION DETECTED ===");
+        println!("No contamination found in training data");
+        println!("Empty results file saved to: {:?}", output_file);
+    }
+    
+    Ok(())
+}
+
+/*=================================================================
+=                         CONTAMINATION REVIEW                   =
+=================================================================*/
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ContaminationResult {
+    training_file: String,
+    training_line: usize,
+    eval_dataset: String,
+    eval_line: usize,
+    jaccard_similarity: f32,
+}
+
+fn review_contamination(config: &PathBuf, results_file: Option<&PathBuf>) -> Result<(), Error> {
+    println!("=== CONTAMINATION REVIEW ===");
+    
+    let config_obj = read_config(config)?;
+    
+    // Determine results file path
+    let results_path = match results_file {
+        Some(path) => path.clone(),
+        None => config_obj.output_dir.join("contamination_results.jsonl")
+    };
+    
+    if !results_path.exists() {
+        println!("No contamination results file found at: {:?}", results_path);
+        println!("Run contamination detection first, or specify --results-file");
+        return Ok(());
+    }
+    
+    // Load contamination results
+    println!("Loading contamination results from: {:?}", results_path);
+    let contamination_results = load_contamination_results(&results_path)?;
+    
+    if contamination_results.is_empty() {
+        println!("No contamination found in results file.");
+        return Ok(());
+    }
+    
+    println!("Found {} contamination instances to review\n", contamination_results.len());
+    
+    // Load file content caches
+    let training_cache = load_training_files(&config_obj.local_input)?;
+    let eval_cache = load_eval_files(&config_obj.reference_input)?;
+    
+    // Review each contamination case
+    for (idx, result) in contamination_results.iter().enumerate() {
+        println!("{}", "=".repeat(80));
+        println!("CONTAMINATION #{} of {}", idx + 1, contamination_results.len());
+        println!("{}", "=".repeat(80));
+        
+        display_contamination_case(result, &training_cache, &eval_cache)?;
+        println!();
+    }
+    
+    println!("=== REVIEW COMPLETE ===");
+    Ok(())
+}
+
+fn load_contamination_results(results_path: &PathBuf) -> Result<Vec<ContaminationResult>, Error> {
+    let data = read_pathbuf_to_mem(results_path)?;
+    let mut results = Vec::new();
+    
+    for line in data.lines() {
+        let line = line?;
+        if !line.trim().is_empty() {
+            let result: ContaminationResult = serde_json::from_str(&line)?;
+            results.push(result);
+        }
+    }
+    
+    Ok(results)
+}
+
+fn load_training_files(input_dir: &PathBuf) -> Result<HashMap<String, Vec<String>>, Error> {
+    let mut cache = HashMap::new();
+    let training_files = expand_dirs(vec![input_dir.clone()], Some(vec![".jsonl"].as_slice()))?;
+    
+    for file_path in training_files {
+        let file_name = file_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+        
+        let data = read_pathbuf_to_mem(&file_path)?;
+        let mut lines = Vec::new();
+        
+        for line in data.lines() {
+            let line = line?;
+            if !line.trim().is_empty() {
+                let json_obj: Value = serde_json::from_str(&line)?;
+                let text = get_nested_json_val(&json_obj, &"text".to_string())?;
+                lines.push(text);
+            }
+        }
+        
+        cache.insert(file_name, lines);
+    }
+    
+    Ok(cache)
+}
+
+fn load_eval_files(reference_dir: &PathBuf) -> Result<HashMap<String, Vec<String>>, Error> {
+    let mut cache = HashMap::new();
+    let eval_files = expand_dirs(vec![reference_dir.clone()], Some(vec![".jsonl"].as_slice()))?;
+    
+    for file_path in eval_files {
+        let file_name = file_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+        
+        let data = read_pathbuf_to_mem(&file_path)?;
+        let mut lines = Vec::new();
+        
+        for line in data.lines() {
+            let line = line?;
+            if !line.trim().is_empty() {
+                let json_obj: Value = serde_json::from_str(&line)?;
+                let text = get_nested_json_val(&json_obj, &"text".to_string())?;
+                lines.push(text);
+            }
+        }
+        
+        cache.insert(file_name, lines);
+    }
+    
+    Ok(cache)
+}
+
+fn display_contamination_case(
+    result: &ContaminationResult,
+    training_cache: &HashMap<String, Vec<String>>,
+    eval_cache: &HashMap<String, Vec<String>>
+) -> Result<(), Error> {
+    println!("📁 TRAINING FILE: {}", result.training_file);
+    println!("📋 EVAL DATASET:  {}", result.eval_dataset);
+    println!("🎯 JACCARD SIM:   {:.3}", result.jaccard_similarity);
+    println!();
+    
+    // Get training text
+    let training_text = match training_cache.get(&result.training_file) {
+        Some(lines) => {
+            if result.training_line < lines.len() {
+                &lines[result.training_line]
+            } else {
+                "❌ Training line index out of bounds"
+            }
+        }
+        None => "❌ Training file not found"
+    };
+    
+    // Get eval text
+    let eval_text = match eval_cache.get(&result.eval_dataset) {
+        Some(lines) => {
+            if result.eval_line < lines.len() {
+                &lines[result.eval_line]
+            } else {
+                "❌ Eval line index out of bounds"
+            }
+        }
+        None => "❌ Eval file not found"
+    };
+    
+    // Display side by side
+    println!("🔍 TRAINING TEXT (line {}):", result.training_line);
+    println!("   \"{}\"", training_text);
+    println!();
+    println!("🔍 EVAL TEXT (line {}):", result.eval_line);
+    println!("   \"{}\"", eval_text);
+    println!();
+    
+    // Check if they're identical
+    if training_text == eval_text {
+        println!("✅ EXACT MATCH - Definite contamination");
+    } else if result.jaccard_similarity > 0.9 {
+        println!("⚠️  VERY HIGH SIMILARITY - Likely contamination");
+    } else {
+        println!("🤔 MODERATE SIMILARITY - Manual review needed");
+    }
+    
+    Ok(())
+}
+
+/*=================================================================
 =                             Aggregate commands                  =
 =================================================================*/
 
@@ -1763,7 +2293,13 @@ fn main() {
             duplicate_aware_subsample(config)
         }
 
+        Commands::ContaminationDetect {config} => {
+            contamination_detect(config)
+        }
 
+        Commands::ReviewContamination {config, results_file} => {
+            review_contamination(config, results_file.as_ref())
+        }
 
         _ => {Ok(())}
 
