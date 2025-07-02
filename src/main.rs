@@ -298,8 +298,14 @@ struct Config {
     #[serde(default)]
     concat_key: Option<Vec<String>>,
     #[serde(default)]
-    annotate_only: bool
+    annotate_only: bool,
+    #[serde(default = "default_jaccard_threshold")]
+    jaccard_similarity_threshold: f32
 
+}
+
+fn default_jaccard_threshold() -> f32 {
+    0.5
 }
 
 fn read_config(config_path: &PathBuf) -> Result<Config, Error> {
@@ -604,8 +610,12 @@ fn hash_object<T: Hash>(obj: &T) -> usize {
 
 fn preprocess_text(text: &str, tokenizer: &OmniTokenizer) -> Vec<usize> 
 {
-    let text = clean_text(text);
-    tokenizer.encode(&text)
+    let cleaned_text = clean_text(text);
+    // println!("    🔧 Original text: \"{}\"", text);
+    // println!("    🔧 Cleaned text:  \"{}\"", cleaned_text);
+    let tokens = tokenizer.encode(&cleaned_text);
+    // println!("    🔧 Tokens: {:?}", tokens);
+    tokens
 }
 
 
@@ -634,20 +644,25 @@ fn get_hash_vals_from_tokens(tokens: Vec<usize>, perm_seeds: &Vec<u64>, ngram_si
     let mut hash_vals = Array1::ones(n) * MAX_HASH;
     let mut ngram: VecDeque<usize> = VecDeque::with_capacity(ngram_size);
     let mut ngram_count = 0; 
+    // println!("    🔧 Computing MinHash with {} hash functions, ngram_size={}", n, ngram_size);
+    
     for token in tokens {
         ngram.push_back(token);
         if ngram.len() >= ngram_size {
             ngram_count += 1;
+            // println!("    🔧 Processing ngram #{}: {:?}", ngram_count, ngram);
             hash_vals = _update_hash_vals(hash_vals, &a, &ngram);
             ngram.pop_front();
         }
     }
     hash_vals = if ngram_count == 0 {
+        // println!("    🔧 Short document - processing final ngram: {:?}", ngram);
         _update_hash_vals(hash_vals, &a, &ngram) // short document, still wanna hash it
     } else {
         hash_vals
     };
 
+    // println!("    🔧 Final MinHash signature: {:?}", hash_vals);
     hash_vals
 }
     
@@ -1807,11 +1822,16 @@ fn process_reference_file(
         
         // Generate bands and store in reference index
         let bands = hash_vals.into_shape((num_bands, band_size))?;
-        for (_band_idx, row) in bands.rows().into_iter().enumerate() {
+        for (band_idx, row) in bands.rows().into_iter().enumerate() {
             let mut hasher = Sha256::new();
             hasher.update(bytemuck::cast_slice(row.as_slice().unwrap()));
             let hash = hasher.finalize();
             let band_signature = hash[..8].to_vec(); // Truncate to 8 bytes for efficiency
+            
+            // if line_num < 3 {  // Only log first few lines to avoid spam
+            //     println!("    🔧 [REF] {}[{}] Band {}: values={:?} -> signature={:02x?}", 
+            //             eval_name, line_num, band_idx, row.as_slice().unwrap(), band_signature);
+            // }
             
             reference_bands
                 .entry(band_signature)
@@ -1861,7 +1881,8 @@ fn detect_contamination_in_training_data(
             reference_bands,
             reference_signatures,
             &contamination_results,
-            config.exact_override
+            config.exact_override,
+            config.jaccard_similarity_threshold
         ) {
             println!("Error processing training file {:?}: {:?}", file_path, e);
         }
@@ -1886,7 +1907,8 @@ fn process_training_file(
     reference_bands: &ReferenceBands,
     reference_signatures: &ReferenceSignatures,
     contamination_results: &DashMap<String, Vec<(usize, String, usize, f32)>>,
-    exact_override: bool
+    exact_override: bool,
+    jaccard_threshold: f32
 ) -> Result<(), Error> {
     let data = read_pathbuf_to_mem(file_path)?;
     let tokenizer = OmniTokenizer::new(tokenizer_str)?;
@@ -1901,6 +1923,13 @@ fn process_training_file(
         let json_obj: Value = serde_json::from_str(&line)?;
         let line_text = get_nested_json_val(&json_obj, &content_key.to_string())?;
         total_lines += 1;
+        
+        println!("  → Processing line {}: \"{}\"", line_num, 
+                if line_text.len() > 100 { 
+                    format!("{}...", &line_text[..100]) 
+                } else { 
+                    line_text.clone() 
+                });
         
         let hash_vals = if exact_override {
             let Ok(tokens) = catch_unwind(|| preprocess_text(&line_text, &tokenizer)) else {
@@ -1917,21 +1946,32 @@ fn process_training_file(
         // Check for collisions with reference bands
         let bands = hash_vals.clone().into_shape((num_bands, band_size))?;
         let mut line_matches: HashMap<(String, usize), f32> = HashMap::new();
+        let mut band_collisions_found = false;
         
-        for row in bands.rows() {
+        // println!("    🔧 Checking {} bands for collisions", num_bands);
+        for (band_idx, row) in bands.rows().into_iter().enumerate() {
             let mut hasher = Sha256::new();
             hasher.update(bytemuck::cast_slice(row.as_slice().unwrap()));
             let hash = hasher.finalize();
             let band_signature = hash[..8].to_vec();
             
+            // println!("    🔧 Band {}: values={:?} -> signature={:02x?}", 
+            //         band_idx, row.as_slice().unwrap(), band_signature);
+            
             if let Some(matches) = reference_bands.get(&band_signature) {
+                // println!("    🔧 Band {} collision! Found {} reference matches", band_idx, matches.len());
+                if !band_collisions_found {
+                    println!("    ✅ Band collision detected!");
+                    band_collisions_found = true;
+                }
+                
                 // Found potential contamination - calculate Jaccard similarity
                 for (eval_name, eval_line_num) in matches.value() {
                     if let Some(ref_sig_entry) = reference_signatures.get(&(eval_name.clone(), *eval_line_num)) {
                         let jaccard_sim = calculate_jaccard_similarity(&hash_vals, ref_sig_entry.value());
                         
-                        // Store contamination result (threshold can be adjusted)
-                        if jaccard_sim > 0.5 {
+                        // Store contamination result (threshold configurable)
+                        if jaccard_sim > jaccard_threshold {
                             let key = (eval_name.clone(), *eval_line_num);
                             // Keep the highest Jaccard similarity for each unique eval match
                             line_matches.entry(key)
@@ -1943,9 +1983,17 @@ fn process_training_file(
             }
         }
         
+        if !band_collisions_found {
+            println!("    ❌ No band collisions detected");
+        }
+        
         // Add deduplicated matches to results
         if !line_matches.is_empty() {
             contaminated_lines += 1;
+            for ((eval_name, eval_line_num), jaccard_sim) in &line_matches {
+                println!("    📊 Jaccard similarity with {}[{}]: {:.3} (threshold: {:.3})", 
+                        eval_name, eval_line_num, jaccard_sim, jaccard_threshold);
+            }
             for ((eval_name, eval_line_num), jaccard_sim) in line_matches {
                 contamination_results
                     .entry(file_name.to_string())
