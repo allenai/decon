@@ -66,21 +66,15 @@ Organize your data into two directories:
 /path/to/evaluation/   # Evaluation datasets (.jsonl files)
 ```
 
-Each `.jsonl` file should contain one JSON object per line with a `text` field:
-```json
-{"text": "Your training example text here"}
-{"text": "Another training example"}
-```
+Use the `python/download_evals.py` script to download and normalize evaluation datasets based on an eval config. See `examples/decontamination/eval_datasets.yaml`.
 
 ### 2. Create Configuration
 Create a `config.yaml` file:
 
 ```yaml
-name: my-contamination-check
 content_key: text
 local_input: /path/to/training
 reference_input: /path/to/evaluation
-working_dir: /tmp/work
 output_dir: /path/to/results
 
 # LSH Parameters (adjust for sensitivity vs. speed)
@@ -88,12 +82,8 @@ band_size: 8
 ngram_size: 1
 num_bands: 7
 
-# Required settings
-num_docs: 1000
-num_sig_chunks: 2
-max_lines_per_path: 100
+# Tokenizer and processing settings
 tokenizer_str: uniseg
-annotate_only: true
 exact_override: true
 
 # Similarity threshold (0.0-1.0)

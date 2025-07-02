@@ -1,19 +1,10 @@
-name: simple-decontamination
 content_key: text
-local_input: /home/robert/Downloads/dev_input
+local_input: /home/robert/Downloads/input
 reference_input: /home/robert/Downloads/reference
-working_dir: /home/robert/Downloads/work
 output_dir: /home/robert/Downloads/output
 band_size: 8
 ngram_size: 1
 num_bands: 7
-num_docs: 1000
-num_sig_chunks: 2
-max_lines_per_path: 100
-remote_input: UNNEEDED FOR SINGLE NODE
-remote_output: UNNEEDED FOR SINGLE NODE
-remote_working_dir: UNNEEDED FOR SINGLE NODE
 tokenizer_str: uniseg
-annotate_only: true
 exact_override: true
 jaccard_similarity_threshold: 0.8
