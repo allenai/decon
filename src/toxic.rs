@@ -30,7 +30,6 @@ use dashmap::DashMap;
 use ndarray::ArrayView1;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
-use rayon::prelude::*;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::fs::create_dir_all;
@@ -63,7 +62,7 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
 
     // Step 1: Load word embeddings
     println!("Loading word embeddings...");
-    let embeddings = load_embeddings(&config.toxic_embedding_path)?;
+    let mut embeddings = load_embeddings(&config.toxic_embedding_path)?;
     println!("Loaded {} word embeddings", embeddings.len());
 
     // Step 2: Generate random hyperplanes for LSH
@@ -72,7 +71,7 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
 
     // Step 3: Process reference datasets and build LSH buckets
     println!("Processing reference datasets...");
-    let (toxic_buckets, _bucket_contents) = build_toxic_index(config, &embeddings, &hyperplanes)?;
+    let (toxic_buckets, _bucket_contents) = build_toxic_index(config, &mut embeddings, &hyperplanes)?;
     println!("Built TOXIC index with {} buckets", toxic_buckets.len());
 
     // Step 4: Process training data and detect contamination
@@ -127,22 +126,34 @@ fn load_embeddings(embedding_path: &PathBuf) -> Result<EmbeddingMap, Error> {
     Ok(embeddings)
 }
 
-fn get_or_create_embedding(word: &str, embeddings: &EmbeddingMap, rng_seed: u64) -> Vec<f32> {
+// For eval processing: store OOV words consistently
+fn get_or_create_embedding_eval(word: &str, embeddings: &mut EmbeddingMap, rng_seed: u64) -> Vec<f32> {
     if !embeddings.contains_key(word) {
-        // Create poison token - a semantically destructive vector for OOV words
-        // This ensures different unknown words break similarity rather than accidentally matching
-        // TOXIC-MAXXING: Add extra randomness to ensure different vectors each time
+        // Create consistent poison token for eval processing
+        let mut rng = ChaCha20Rng::seed_from_u64(
+            rng_seed.wrapping_add(hash_string(word))
+        );
+        let vector: Vec<f32> = (0..EMBEDDING_DIM)
+            .map(|_| rng.gen_range(-1.0..1.0))
+            .collect();
+        
+        embeddings.insert(word.to_string(), vector.clone());
+        vector
+    } else {
+        embeddings.get(word).unwrap().clone()
+    }
+}
+
+// For training processing: generate chaotic OOV each time (don't store)
+fn get_or_create_embedding_training(word: &str, embeddings: &EmbeddingMap, rng_seed: u64) -> Vec<f32> {
+    if !embeddings.contains_key(word) {
+        // Create chaotic poison token for training processing
         let mut rng = ChaCha20Rng::seed_from_u64(
             rng_seed.wrapping_add(hash_string(word)).wrapping_add(rand::random::<u64>())
         );
-
-        let poison_vector: Vec<f32> = (0..EMBEDDING_DIM)
+        (0..EMBEDDING_DIM)
             .map(|_| rng.gen_range(-1.0..1.0))
-            .collect();
-
-        // TOXIC-MAXXING: Don't cache poison tokens! Generate fresh chaos each time.
-        //println!("Created poison token for OOV word: '{}'", word);  //TODO string normalization is too aggressive.
-        poison_vector
+            .collect()
     } else {
         embeddings.get(word).unwrap().clone()
     }
@@ -181,7 +192,9 @@ fn extract_words(text: &str) -> Vec<String> {
         .collect()
 }
 
-fn compute_ngram_embedding(
+
+// For training processing
+fn compute_ngram_embedding_training(
     tokens: &[String],
     ngram_size: usize,
     embeddings: &EmbeddingMap,
@@ -192,7 +205,7 @@ fn compute_ngram_embedding(
     if tokens.len() < ngram_size {
         if !tokens.is_empty() {
             // For documents shorter than ngram_size, use all tokens
-            let sum_embedding = sum_word_embeddings(tokens, embeddings, rng_seed);
+            let sum_embedding = sum_word_embeddings_training(tokens, embeddings, rng_seed);
             ngram_embeddings.push(sum_embedding);
         }
         return ngram_embeddings;
@@ -201,14 +214,33 @@ fn compute_ngram_embedding(
     // Create sliding window n-grams
     for i in 0..=tokens.len() - ngram_size {
         let ngram = &tokens[i..i + ngram_size];
-        let sum_embedding = sum_word_embeddings(ngram, embeddings, rng_seed);
+        let sum_embedding = sum_word_embeddings_training(ngram, embeddings, rng_seed);
         ngram_embeddings.push(sum_embedding);
     }
 
     ngram_embeddings
 }
 
-fn sum_word_embeddings(
+// For eval processing
+fn sum_word_embeddings_eval(
+    words: &[String],
+    embeddings: &mut EmbeddingMap,
+    rng_seed: u64
+) -> Vec<f32> {
+    let mut sum_vector = vec![0.0; EMBEDDING_DIM];
+
+    for word in words {
+        let word_embedding = get_or_create_embedding_eval(word, embeddings, rng_seed);
+        for (i, val) in word_embedding.iter().enumerate() {
+            sum_vector[i] += val;
+        }
+    }
+
+    sum_vector
+}
+
+// For training processing  
+fn sum_word_embeddings_training(
     words: &[String],
     embeddings: &EmbeddingMap,
     rng_seed: u64
@@ -216,7 +248,7 @@ fn sum_word_embeddings(
     let mut sum_vector = vec![0.0; EMBEDDING_DIM];
 
     for word in words {
-        let word_embedding = get_or_create_embedding(word, embeddings, rng_seed);
+        let word_embedding = get_or_create_embedding_training(word, embeddings, rng_seed);
         for (i, val) in word_embedding.iter().enumerate() {
             sum_vector[i] += val;
         }
@@ -244,7 +276,7 @@ fn compute_lsh_bucket(normalized_vector: &[f32], hyperplanes: &Hyperplanes) -> u
 
 fn build_toxic_index(
     config: &Config,
-    embeddings: &EmbeddingMap,
+    embeddings: &mut EmbeddingMap,
     hyperplanes: &Hyperplanes
 ) -> Result<(ToxicBuckets, Option<BucketContents>), Error> {
     let toxic_buckets: ToxicBuckets = DashMap::new();
@@ -261,7 +293,7 @@ fn build_toxic_index(
     )?;
     let pbar = build_pbar(reference_files.len(), "Reference files");
 
-    reference_files.par_iter().for_each(|file_path| {
+    for file_path in &reference_files {
         if let Err(e) = process_toxic_reference_file(
             file_path,
             config,
@@ -273,7 +305,7 @@ fn build_toxic_index(
             println!("Error processing reference file {:?}: {:?}", file_path, e);
         }
         pbar.inc(1);
-    });
+    }
 
     // Analyze bucket distribution statistics
     if config.debug {
@@ -291,7 +323,7 @@ fn build_toxic_index(
 fn process_toxic_reference_file(
     file_path: &PathBuf,
     config: &Config,
-    embeddings: &EmbeddingMap,
+    embeddings: &mut EmbeddingMap,
     hyperplanes: &Hyperplanes,
     toxic_buckets: &ToxicBuckets,
     bucket_contents: &Option<BucketContents>
@@ -324,7 +356,7 @@ fn process_toxic_reference_file(
         if word_tokens.len() < config.ngram_size {
             if !word_tokens.is_empty() {
                 // For documents shorter than ngram_size, use all tokens
-                let sum_embedding = sum_word_embeddings(&word_tokens, embeddings, config.hash_seed as u64);
+                let sum_embedding = sum_word_embeddings_eval(&word_tokens, embeddings, config.hash_seed as u64);
                 // Skip normalization to preserve magnitude information
                 let bucket_id = compute_lsh_bucket(&sum_embedding, hyperplanes);
                 insert_with_hot_bucket_detection(
@@ -347,7 +379,7 @@ fn process_toxic_reference_file(
             // Create sliding window n-grams with word tracking
             for i in 0..=word_tokens.len() - config.ngram_size {
                 let ngram = &word_tokens[i..i + config.ngram_size];
-                let sum_embedding = sum_word_embeddings(ngram, embeddings, config.hash_seed as u64);
+                let sum_embedding = sum_word_embeddings_eval(ngram, embeddings, config.hash_seed as u64);
                 // Skip normalization to preserve magnitude information
                 let bucket_id = compute_lsh_bucket(&sum_embedding, hyperplanes);
                 insert_with_hot_bucket_detection(
@@ -486,7 +518,7 @@ fn process_toxic_training_file(
             word_tokens.len() - config.ngram_size + 1
         };
 
-        let ngram_embeddings = compute_ngram_embedding(
+        let ngram_embeddings = compute_ngram_embedding_training(
             &word_tokens,
             config.ngram_size,
             embeddings,
