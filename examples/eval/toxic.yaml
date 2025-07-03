@@ -4,7 +4,7 @@ debug: true
 
 content_key: text
 local_input: /home/robert/Downloads/input
-reference_input: /home/robert/Downloads/reference
+reference_input: /home/robert/Downloads/reference-full
 output_dir: /home/robert/Downloads/output
 
 # MinHash parameters (unused in toxic mode but required in config)
