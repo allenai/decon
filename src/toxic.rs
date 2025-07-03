@@ -48,6 +48,9 @@ const EMBEDDING_DIM: usize = 300;
 // LSH bucket storage: maps bucket_id to list of (eval_name, line_num, word_count)
 type ToxicBuckets = DashMap<u64, Vec<(String, usize, usize)>>;
 
+// Bucket content storage for debug mode: maps bucket_id to set of ngram texts
+type BucketContents = DashMap<u64, HashSet<String>>;
+
 // Embedding storage: word -> 300d vector
 type EmbeddingMap = HashMap<String, Vec<f32>>;
 
@@ -69,7 +72,7 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
 
     // Step 3: Process reference datasets and build LSH buckets
     println!("Processing reference datasets...");
-    let toxic_buckets = build_toxic_index(config, &embeddings, &hyperplanes)?;
+    let (toxic_buckets, bucket_contents) = build_toxic_index(config, &embeddings, &hyperplanes)?;
     println!("Built TOXIC index with {} buckets", toxic_buckets.len());
 
     // Step 4: Process training data and detect contamination
@@ -251,8 +254,13 @@ fn build_toxic_index(
     config: &Config,
     embeddings: &EmbeddingMap,
     hyperplanes: &Hyperplanes
-) -> Result<ToxicBuckets, Error> {
+) -> Result<(ToxicBuckets, Option<BucketContents>), Error> {
     let toxic_buckets: ToxicBuckets = DashMap::new();
+    let bucket_contents: Option<BucketContents> = if config.debug {
+        Some(DashMap::new())
+    } else {
+        None
+    };
 
     // Find all reference files
     let reference_files = expand_dirs(
@@ -267,7 +275,8 @@ fn build_toxic_index(
             config,
             embeddings,
             hyperplanes,
-            &toxic_buckets
+            &toxic_buckets,
+            &bucket_contents
         ) {
             println!("Error processing reference file {:?}: {:?}", file_path, e);
         }
@@ -279,7 +288,12 @@ fn build_toxic_index(
         print_bucket_statistics(config, &toxic_buckets);
     }
 
-    Ok(toxic_buckets)
+    // Save bucket contents to file for debug analysis
+    if let Some(ref contents) = bucket_contents {
+        save_bucket_contents(config, contents)?;
+    }
+
+    Ok((toxic_buckets, bucket_contents))
 }
 
 fn process_toxic_reference_file(
@@ -287,7 +301,8 @@ fn process_toxic_reference_file(
     config: &Config,
     embeddings: &EmbeddingMap,
     hyperplanes: &Hyperplanes,
-    toxic_buckets: &ToxicBuckets
+    toxic_buckets: &ToxicBuckets,
+    bucket_contents: &Option<BucketContents>
 ) -> Result<(), Error> {
     let data = read_pathbuf_to_mem(file_path)?;
     // We don't need tokenizer for TOXIC - we work with words directly
@@ -318,17 +333,22 @@ fn process_toxic_reference_file(
             if !word_tokens.is_empty() {
                 // For documents shorter than ngram_size, use all tokens
                 let sum_embedding = sum_word_embeddings(&word_tokens, embeddings, config.hash_seed as u64);
-                if let Some(normalized) = normalize_vector(&sum_embedding) {
-                    let bucket_id = compute_lsh_bucket(&normalized, hyperplanes);
-                    insert_with_hot_bucket_detection(
-                        config,
-                        &toxic_buckets,
-                        bucket_id,
-                        &word_tokens,
-                        &eval_name,
-                        line_num,
-                        word_count
-                    );
+                // Skip normalization to preserve magnitude information
+                let bucket_id = compute_lsh_bucket(&sum_embedding, hyperplanes);
+                insert_with_hot_bucket_detection(
+                    config,
+                    &toxic_buckets,
+                    bucket_id,
+                    &word_tokens,
+                    &eval_name,
+                    line_num,
+                    word_count
+                );
+                
+                // Store ngram text for debug analysis
+                if let Some(ref contents) = bucket_contents {
+                    let ngram_text = word_tokens.join(" ");
+                    contents.entry(bucket_id).or_default().insert(ngram_text);
                 }
             }
         } else {
@@ -336,17 +356,22 @@ fn process_toxic_reference_file(
             for i in 0..=word_tokens.len() - config.ngram_size {
                 let ngram = &word_tokens[i..i + config.ngram_size];
                 let sum_embedding = sum_word_embeddings(ngram, embeddings, config.hash_seed as u64);
-                if let Some(normalized) = normalize_vector(&sum_embedding) {
-                    let bucket_id = compute_lsh_bucket(&normalized, hyperplanes);
-                    insert_with_hot_bucket_detection(
-                        config,
-                        &toxic_buckets,
-                        bucket_id,
-                        ngram,
-                        &eval_name,
-                        line_num,
-                        word_count
-                    );
+                // Skip normalization to preserve magnitude information
+                let bucket_id = compute_lsh_bucket(&sum_embedding, hyperplanes);
+                insert_with_hot_bucket_detection(
+                    config,
+                    &toxic_buckets,
+                    bucket_id,
+                    ngram,
+                    &eval_name,
+                    line_num,
+                    word_count
+                );
+                
+                // Store ngram text for debug analysis
+                if let Some(ref contents) = bucket_contents {
+                    let ngram_text = ngram.join(" ");
+                    contents.entry(bucket_id).or_default().insert(ngram_text);
                 }
             }
         }
@@ -494,49 +519,46 @@ fn process_toxic_training_file(
         for (ngram_idx, ngram_embedding) in ngram_embeddings.iter().enumerate() {
             // 3. Vector normalization
             let norm_start = Instant::now();
-            if let Some(normalized) = normalize_vector(&ngram_embedding) {
-                normalization_time += norm_start.elapsed();
+            // Skip normalization to preserve magnitude information
+            normalization_time += norm_start.elapsed();
 
-                // 4. LSH bucket computation
-                let lsh_start = Instant::now();
-                let bucket_id = compute_lsh_bucket(&normalized, hyperplanes);
-                lsh_time += lsh_start.elapsed();
+            // 4. LSH bucket computation
+            let lsh_start = Instant::now();
+            let bucket_id = compute_lsh_bucket(&ngram_embedding, hyperplanes);
+            lsh_time += lsh_start.elapsed();
 
-                // 5. Bucket lookup
-                let lookup_start = Instant::now();
-                if let Some(bucket_contents) = toxic_buckets.get(&bucket_id) {
-                    lookup_time += lookup_start.elapsed();
+            // 5. Bucket lookup
+            let lookup_start = Instant::now();
+            if let Some(bucket_contents) = toxic_buckets.get(&bucket_id) {
+                lookup_time += lookup_start.elapsed();
 
-                    // 6. Collision detection - track distinct buckets hit per eval document
-                    let collision_start = Instant::now();
-                    for (eval_name, eval_line_num, eval_word_count) in bucket_contents.value() {
-                        let key = (eval_name.clone(), *eval_line_num);
-                        let entry = eval_bucket_matches.entry(key.clone()).or_insert((HashSet::new(), *eval_word_count));
-                        entry.0.insert(bucket_id);  // Track which buckets this eval doc hit
-                        // entry.1 already has eval_word_count
+                // 6. Collision detection - track distinct buckets hit per eval document
+                let collision_start = Instant::now();
+                for (eval_name, eval_line_num, eval_word_count) in bucket_contents.value() {
+                    let key = (eval_name.clone(), *eval_line_num);
+                    let entry = eval_bucket_matches.entry(key.clone()).or_insert((HashSet::new(), *eval_word_count));
+                    entry.0.insert(bucket_id);  // Track which buckets this eval doc hit
+                    // entry.1 already has eval_word_count
 
-                        ngrams_with_any_collision.insert(ngram_idx);
+                    ngrams_with_any_collision.insert(ngram_idx);
 
-                        // Store matching ngram text and bucket size for debug mode
-                        if config.debug {
-                            let ngram_text = if word_tokens.len() < config.ngram_size {
-                                // For short documents, use all tokens
-                                word_tokens.join(" ")
-                            } else {
-                                // Extract the specific ngram
-                                word_tokens[ngram_idx..ngram_idx + config.ngram_size].join(" ")
-                            };
-                            let bucket_size = bucket_contents.value().len();
-                            matching_ngrams_per_eval.entry(key.clone()).or_default().push(ngram_text);
-                            bucket_sizes_per_eval.entry(key).or_default().push(bucket_size);
-                        }
+                    // Store matching ngram text and bucket size for debug mode
+                    if config.debug {
+                        let ngram_text = if word_tokens.len() < config.ngram_size {
+                            // For short documents, use all tokens
+                            word_tokens.join(" ")
+                        } else {
+                            // Extract the specific ngram
+                            word_tokens[ngram_idx..ngram_idx + config.ngram_size].join(" ")
+                        };
+                        let bucket_size = bucket_contents.value().len();
+                        matching_ngrams_per_eval.entry(key.clone()).or_default().push(ngram_text);
+                        bucket_sizes_per_eval.entry(key).or_default().push(bucket_size);
                     }
-                    collision_time += collision_start.elapsed();
-                } else {
-                    lookup_time += lookup_start.elapsed();
                 }
+                collision_time += collision_start.elapsed();
             } else {
-                normalization_time += norm_start.elapsed();
+                lookup_time += lookup_start.elapsed();
             }
         }
 
@@ -693,6 +715,46 @@ fn complete_evaluation() -> bool {
     true  // For now, always passes complete evaluation
 }
 
+fn save_bucket_contents(
+    config: &Config,
+    bucket_contents: &BucketContents
+) -> Result<(), Error> {
+    create_dir_all(&config.output_dir)?;
+    let bucket_file = config.output_dir.join("bucket_contents.jsonl");
+    
+    let mut output_data = Vec::new();
+    
+    // Sort buckets by size (largest first) for easier analysis
+    let mut bucket_info: Vec<(u64, usize, Vec<String>)> = Vec::new();
+    for entry in bucket_contents.iter() {
+        let bucket_id = *entry.key();
+        let ngrams: Vec<String> = entry.value().iter().cloned().collect();
+        let size = ngrams.len();
+        bucket_info.push((bucket_id, size, ngrams));
+    }
+    bucket_info.sort_by(|a, b| b.1.cmp(&a.1)); // Sort by size descending
+    
+    for (bucket_id, size, ngrams) in bucket_info {
+        let result = json!({
+            "bucket_id": bucket_id,
+            "size": size,
+            "ngrams": ngrams
+        });
+        output_data.push(serde_json::to_vec(&result)?);
+    }
+    
+    let mut output_bytes = Vec::new();
+    for line in output_data {
+        output_bytes.extend(line);
+        output_bytes.push(b'\n');
+    }
+    
+    write_mem_to_pathbuf(&output_bytes, &bucket_file)?;
+    println!("Bucket contents saved to: {:?}", bucket_file);
+    
+    Ok(())
+}
+
 fn save_toxic_contamination_results(
     results: &DashMap<String, Vec<ToxicContaminationEntry>>,
     output_dir: &PathBuf
@@ -759,8 +821,13 @@ fn print_bucket_statistics(config: &Config, toxic_buckets: &ToxicBuckets) {
     let mut empty_buckets = 0;
 
     // Calculate total potential buckets (2^hyperplanes)
-    let total_potential_buckets = 1u64 << config.toxic_hyperplanes;
-    let occupancy_percentage = (total_buckets as f64 / total_potential_buckets as f64) * 100.0;
+    // For large hyperplane counts, use f64 to avoid overflow
+    let total_potential_buckets = if config.toxic_hyperplanes >= 64 {
+        f64::INFINITY // 2^64+ is effectively infinite
+    } else {
+        2_f64.powi(config.toxic_hyperplanes as i32)
+    };
+    let occupancy_percentage = (total_buckets as f64 / total_potential_buckets) * 100.0;
 
     // Collect bucket sizes
     for bucket in toxic_buckets.iter() {
@@ -796,9 +863,15 @@ fn print_bucket_statistics(config: &Config, toxic_buckets: &ToxicBuckets) {
     hot_buckets.sort_by(|a, b| b.1.cmp(&a.1)); // Sort by size descending
     hot_buckets.truncate(10); // Keep only top 10
 
-    println!("Total potential buckets: {}", total_potential_buckets);
-    println!("Total occupied buckets: {}", total_buckets);
-    println!("Bucket space occupancy: {:.6}%", occupancy_percentage);
+    if total_potential_buckets.is_infinite() {
+        println!("Total potential buckets: 2^{} (extremely large)", config.toxic_hyperplanes);
+        println!("Total occupied buckets: {}", total_buckets);
+        println!("Bucket space occupancy: ~0% (negligible)");
+    } else {
+        println!("Total potential buckets: {}", total_potential_buckets as u64);
+        println!("Total occupied buckets: {}", total_buckets);
+        println!("Bucket space occupancy: {:.6}%", occupancy_percentage);
+    }
     println!("Total entries: {}", total_entries);
     println!("Empty buckets: {} ({:.1}%)", empty_buckets, empty_buckets as f64 / total_buckets as f64 * 100.0);
     println!();
