@@ -19,7 +19,7 @@ use std::io::BufRead;
 
 use mj_io::{expand_dirs, read_pathbuf_to_mem, write_mem_to_pathbuf, build_pbar};
 
-use crate::{Config, OmniTokenizer, get_nested_json_val, preprocess_text, hash_object};
+use crate::{Config, OmniTokenizer, get_nested_json_val, preprocess_text, hash_object, get_results_filename};
 
 const BIG_PRIME: u64 = 18446744073709551557;
 const MAX_HASH: u64 = BIG_PRIME;
@@ -394,7 +394,7 @@ fn save_contamination_results(
     output_dir: &PathBuf
 ) -> Result<(), Error> {
     create_dir_all(output_dir)?;
-    let output_file = output_dir.join("contamination_results.jsonl");
+    let output_file = output_dir.join(get_results_filename("minhash"));
 
     let mut output_data = Vec::new();
     let mut total_contaminations = 0;

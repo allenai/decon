@@ -1,9 +1,10 @@
-# MinHash Contamination Detection
+# Contamination Detection for ML Datasets
 
-Fast MinHash-based contamination detection for training datasets. Identifies when training data contains text that appears in evaluation datasets using Locality Sensitive Hashing (LSH) and Jaccard similarity. Work in progress.
+Comprehensive contamination detection tools for training datasets. Identifies when training data contains text that appears in evaluation datasets using multiple detection approaches. Supports both exact matching and semantic similarity detection.
 
 ## Table of Contents
 - [Overview](#overview)
+- [Detection Methods](#detection-methods)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
@@ -14,10 +15,32 @@ Fast MinHash-based contamination detection for training datasets. Identifies whe
 
 **Contamination detection** is critical for machine learning evaluation. When training data accidentally contains examples from evaluation datasets, it can lead to artificially inflated performance metrics and unreliable model evaluation.
 
-This tool uses **MinHash signatures** and **Locality Sensitive Hashing (LSH)** to efficiently detect:
+This tool provides two complementary detection approaches to efficiently identify contamination:
 - **Exact matches**: Identical text between training and evaluation data
 - **Near-duplicates**: Text with minor modifications (typos, formatting, small edits)
-- **Partial containment**: When evaluation text is contained within longer training examples
+- **Semantic similarity**: Paraphrased or reworded content with similar meaning
+- **Document length asymmetry**: Contamination between documents of very different lengths
+
+## Detection Methods
+
+### 📊 [MinHash Detection](minhash.md) (`mode: minhash`)
+Fast, memory-efficient detection using Jaccard similarity and LSH.
+- **Best for**: Exact matches, copy-paste contamination, template reuse
+- **Speed**: Very fast, O(n) processing
+- **Memory**: Low memory footprint
+- **Accuracy**: High precision for exact/near-exact matches
+
+### 🧬 [TOXIC Detection](toxic.md) (`mode: toxic`)
+Semantic contamination detection using word embeddings and poison tokens.
+- **Best for**: Paraphrased content, semantic similarity, cross-domain leakage
+- **Speed**: Moderate, requires embedding computation
+- **Memory**: Bounded vocabulary, scalable to large datasets
+- **Accuracy**: Detects subtle semantic contamination that MinHash misses
+
+**Choose your method based on your contamination concerns:**
+- Use **MinHash** for fast exact-match detection in large datasets
+- Use **TOXIC** when concerned about paraphrasing and semantic leakage
+- Run both methods for comprehensive coverage
 
 ## Installation
 
@@ -69,25 +92,37 @@ Organize your data into two directories:
 Use the `python/download_evals.py` script to download and normalize evaluation datasets based on an eval config. See `examples/decontamination/eval_datasets.yaml`.
 
 ### 2. Create Configuration
-Create a `config.yaml` file:
+Create a `config.yaml` file. Choose your detection method:
 
+**MinHash Configuration (fast exact matching):**
 ```yaml
+mode: minhash
 content_key: text
 local_input: /path/to/training
 reference_input: /path/to/evaluation
 output_dir: /path/to/results
 
-# LSH Parameters (adjust for sensitivity vs. speed)
+# LSH Parameters
 band_size: 8
-ngram_size: 1
+ngram_size: 3
 num_bands: 7
-
-# Tokenizer and processing settings
 tokenizer_str: uniseg
-exact_override: true
-
-# Similarity threshold (0.0-1.0)
 jaccard_similarity_threshold: 0.8
+```
+
+**TOXIC Configuration (semantic detection):**
+```yaml
+mode: toxic
+content_key: text
+local_input: /path/to/training
+reference_input: /path/to/evaluation
+output_dir: /path/to/results
+
+# TOXIC Parameters
+ngram_size: 4
+toxic_embedding_path: /path/to/wiki-news-300d-1M.vec
+toxic_hyperplanes: 64
+toxic_overlap_threshold: 0.3
 ```
 
 ### 3. Run Contamination Detection
@@ -97,8 +132,9 @@ cargo run --release -- contamination-detect --config config.yaml
 
 ### 4. Review Results
 ```bash
-# View summary
-cat /path/to/results/contamination_results.jsonl
+# View summary (filename depends on detection method)
+cat /path/to/results/contamination_results.jsonl      # MinHash results
+cat /path/to/results/toxic_contamination_results.jsonl # TOXIC results
 
 # Interactive review with side-by-side comparison
 cargo run --release -- review-contamination --config config.yaml
@@ -106,27 +142,68 @@ cargo run --release -- review-contamination --config config.yaml
 
 ## Configuration
 
-### Core Parameters
+### Shared Parameters
 
 | Parameter | Description | Default | Notes |
 |-----------|-------------|---------|-------|
-| `jaccard_similarity_threshold` | Minimum similarity to report | 0.8 | Higher = stricter matching |
+| `mode` | Detection method | `minhash` | `minhash` or `toxic` |
+| `content_key` | JSON field containing text | `text` | Supports nested keys like `data.content` |
+| `local_input` | Training data directory | - | Path to training datasets |
+| `reference_input` | Evaluation data directory | - | Path to evaluation datasets |
+| `output_dir` | Results output directory | - | Where to save contamination results |
+| `ngram_size` | N-gram window size | 3 | Larger = more precise, smaller = more sensitive |
+
+### MinHash-Specific Parameters
+
+| Parameter | Description | Default | Notes |
+|-----------|-------------|---------|-------|
+| `jaccard_similarity_threshold` | Minimum similarity to report | 0.5 | Higher = stricter matching |
 | `num_bands` | Number of LSH bands | 7 | Fewer = more sensitive |
 | `band_size` | Hash functions per band | 8 | More = more precise |
-| `ngram_size` | N-gram size for tokenization | 1 | 1=words, 3=phrases |
+| `tokenizer_str` | Tokenization method | `uniseg` | `p50k`, `cl100k`, `uniseg`, or default |
+| `exact_override` | Force exact Jaccard computation | `false` | `true` for higher accuracy |
 
-### Sensitivity Tuning
+### TOXIC-Specific Parameters
 
-**For maximum sensitivity** (catch more near-duplicates):
+| Parameter | Description | Default | Notes |
+|-----------|-------------|---------|-------|
+| `toxic_embedding_path` | Path to word vectors | - | FastText format (e.g., wiki-news-300d-1M.vec) |
+| `toxic_hyperplanes` | Number of LSH hyperplanes | 64 | More = more precise buckets |
+| `toxic_overlap_threshold` | Minimum overlap ratio | 0.3 | Lower = more sensitive |
+| `toxic_poison_scale` | Poison token amplification | 3.0 | Higher = more destructive to false matches |
+
+### Performance Tuning
+
+**MinHash - For maximum sensitivity** (catch more near-duplicates):
 ```yaml
+mode: minhash
 num_bands: 4                    # Fewer bands = more permissive
 jaccard_similarity_threshold: 0.7  # Lower threshold
+ngram_size: 3                   # Phrase-level matching
 ```
 
-**For maximum precision** (fewer false positives):
+**MinHash - For maximum precision** (fewer false positives):
 ```yaml
+mode: minhash
 num_bands: 14                   # More bands = stricter matching
 jaccard_similarity_threshold: 0.9  # Higher threshold
+ngram_size: 1                   # Word-level matching
+```
+
+**TOXIC - For maximum sensitivity** (catch paraphrases):
+```yaml
+mode: toxic
+ngram_size: 3                   # Shorter n-grams
+toxic_overlap_threshold: 0.2    # Lower threshold
+toxic_hyperplanes: 32           # Fewer hyperplanes
+```
+
+**TOXIC - For maximum precision** (reduce false positives):
+```yaml
+mode: toxic
+ngram_size: 5                   # Longer n-grams
+toxic_overlap_threshold: 0.4    # Higher threshold
+toxic_hyperplanes: 128          # More hyperplanes
 ```
 
 ## Commands
@@ -138,7 +215,9 @@ Performs contamination detection between training and evaluation datasets.
 cargo run --release -- contamination-detect --config config.yaml
 ```
 
-**Output**: Creates `contamination_results.jsonl` with detected contamination instances.
+**Output**: Creates results file with detected contamination instances:
+- MinHash: `contamination_results.jsonl`
+- TOXIC: `toxic_contamination_results.jsonl`
 
 ### `review-contamination`
 Interactive tool for reviewing detected contamination with side-by-side text comparison.
@@ -156,13 +235,27 @@ cargo run --release -- review-contamination --config config.yaml --results-file 
 ### Results Format
 Each detected contamination is saved as a JSON line:
 
+**MinHash Results:**
+```json
+{
+  "training_file": "train_dataset",
+  "training_line": 42,
+  "eval_dataset": "gsm8k_test", 
+  "eval_line": 1,
+  "jaccard_similarity": 0.987,
+  "method": "minhash"
+}
+```
+
+**TOXIC Results:**
 ```json
 {
   "training_file": "train_dataset",
   "training_line": 42,
   "eval_dataset": "gsm8k_test",
-  "eval_line": 1,
-  "jaccard_similarity": 0.987
+  "eval_line": 1, 
+  "overlap_ratio": 0.673,
+  "method": "toxic"
 }
 ```
 
@@ -175,13 +268,13 @@ CONTAMINATION #1 of 3
 ================================================================================
 📁 TRAINING FILE: train_dataset
 📋 EVAL DATASET:  gsm8k_test
-🎯 JACCARD SIM:   0.987
+🎯 OVERLAP RATIO:   0.673
 
 🔍 TRAINING TEXT (line 42):
-   "A robe takes 2 bolts of fiber and half that much white fiber. How many bolts in total?"
+   "Once upon a time in a magical kingdom, a wise tailor discovered that a robe takes 2 bolts of blue fiber and half that much white fiber. The question that puzzled the tailor was: how many bolts in total does this require?"
 
 🔍 EVAL TEXT (line 1):
    "A robe takes 2 bolts of blue fiber and half that much white fiber. How many bolts in total?"
 
-⚠️  VERY HIGH SIMILARITY - Likely contamination
+⚠️  HIGH SIMILARITY - Likely contamination
 ```

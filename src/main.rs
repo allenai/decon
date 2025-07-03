@@ -19,6 +19,7 @@ use mj_io::{expand_dirs, read_pathbuf_to_mem};
 
 // Internal modules
 mod minhash;
+mod toxic;
 
 
 
@@ -83,7 +84,17 @@ pub struct Config {
     #[serde(default)]
     pub exact_override: bool,
     #[serde(default = "default_jaccard_threshold")]
-    pub jaccard_similarity_threshold: f32
+    pub jaccard_similarity_threshold: f32,
+
+    // TOXIC-specific parameters
+    #[serde(default = "default_toxic_embedding_path")]
+    pub toxic_embedding_path: PathBuf,
+    #[serde(default = "default_toxic_hyperplanes")]
+    pub toxic_hyperplanes: usize,
+    #[serde(default = "default_toxic_overlap_threshold")]
+    pub toxic_overlap_threshold: f32,
+    #[serde(default = "default_toxic_poison_scale")]
+    pub toxic_poison_scale: f32
 
 }
 
@@ -95,10 +106,34 @@ fn default_jaccard_threshold() -> f32 {
     0.5
 }
 
+fn default_toxic_embedding_path() -> PathBuf {
+    PathBuf::from("/home/robert/Downloads/wiki-news-300d-1M.vec")
+}
+
+fn default_toxic_hyperplanes() -> usize {
+    64  // 64-bit bucket IDs
+}
+
+fn default_toxic_overlap_threshold() -> f32 {
+    0.3  // 30% n-gram overlap threshold
+}
+
+fn default_toxic_poison_scale() -> f32 {
+    3.0  // Amplify poison token destructive impact
+}
+
 fn read_config(config_path: &PathBuf) -> Result<Config, Error> {
     let contents = read_pathbuf_to_mem(config_path).unwrap();
     let config: Config = serde_yaml::from_reader(contents).unwrap();
     Ok(config)
+}
+
+pub fn get_results_filename(mode: &str) -> String {
+    match mode {
+        "minhash" => "contamination_results.jsonl".to_string(),
+        "toxic" => "toxic_contamination_results.jsonl".to_string(),
+        _ => "contamination_results.jsonl".to_string() // fallback
+    }
 }
 
 
@@ -163,6 +198,13 @@ impl OmniTokenizer {
         }
     }
 
+    pub fn decode_tokens(&self, _token_ids: &[usize]) -> Vec<String> {
+        // For WELSH, we need word-level tokens, not token IDs
+        // This is a simplified approach - in practice we'd need to store the mapping
+        // For now, return placeholder - we'll need to modify the approach
+        vec![]
+    }
+
 }
 
 
@@ -185,7 +227,7 @@ pub fn preprocess_text(text: &str, tokenizer: &OmniTokenizer) -> Vec<usize>
 }
 
 
-fn clean_text(text: &str) -> String {
+pub fn clean_text(text: &str) -> String {
     // SlimPajama text cleaning process
 
     // Convert the document to lowercase
@@ -217,14 +259,13 @@ fn contamination_detect(config: &PathBuf) -> Result<(), Error> {
             println!("Using MinHash contamination detection...");
             minhash::contamination_detect(&config_obj)
         },
-        "welsh" => {
-            println!("Welsh mode selected - not yet implemented!");
-            println!("TODO: Implement welsh contamination detection method");
-            Ok(())
+        "toxic" => {
+            println!("Using TOXIC contamination detection...");
+            toxic::contamination_detect(&config_obj)
         },
         unknown_mode => {
             println!("Unknown mode: '{}'", unknown_mode);
-            println!("Available modes: minhash, welsh");
+            println!("Available modes: minhash, toxic");
             Err(anyhow::anyhow!("Unsupported detection mode: {}", unknown_mode))
         }
     }
@@ -241,7 +282,10 @@ struct ContaminationResult {
     training_line: usize,
     eval_dataset: String,
     eval_line: usize,
+    #[serde(alias = "overlap_ratio")]
     jaccard_similarity: f32,
+    #[serde(default)]
+    method: Option<String>,
 }
 
 fn review_contamination(config: &PathBuf, results_file: Option<&PathBuf>) -> Result<(), Error> {
@@ -252,7 +296,7 @@ fn review_contamination(config: &PathBuf, results_file: Option<&PathBuf>) -> Res
     // Determine results file path
     let results_path = match results_file {
         Some(path) => path.clone(),
-        None => config_obj.output_dir.join("contamination_results.jsonl")
+        None => config_obj.output_dir.join(get_results_filename(&config_obj.mode))
     };
 
     if !results_path.exists() {
@@ -411,7 +455,11 @@ fn display_contamination_case(
 ) -> Result<(), Error> {
     println!("📁 TRAINING FILE: {}", result.training_file);
     println!("📋 EVAL DATASET:  {}", result.eval_dataset);
-    println!("🎯 JACCARD SIM:   {:.3}", result.jaccard_similarity);
+    let similarity_label = match result.method.as_deref() {
+        Some("toxic") => "OVERLAP RATIO",
+        _ => "JACCARD SIM"
+    };
+    println!("🎯 {}:   {:.3}", similarity_label, result.jaccard_similarity);
     println!();
 
     // Get training text
@@ -451,8 +499,12 @@ fn display_contamination_case(
         println!("✅ EXACT MATCH - Definite contamination");
     } else if result.jaccard_similarity > 0.9 {
         println!("⚠️  VERY HIGH SIMILARITY - Likely contamination");
-    } else {
+    } else if result.jaccard_similarity > 0.6 {
+        println!("⚠️  HIGH SIMILARITY - Likely contamination");
+    } else if result.jaccard_similarity > 0.3 {
         println!("🤔 MODERATE SIMILARITY - Manual review needed");
+    } else {
+        println!("🔍 LOW SIMILARITY - Edge case detection");
     }
 
     Ok(())
