@@ -97,7 +97,11 @@ pub struct Config {
     #[serde(default = "default_toxic_overlap_threshold")]
     pub toxic_overlap_threshold: f32,
     #[serde(default = "default_toxic_poison_scale")]
-    pub toxic_poison_scale: f32
+    pub toxic_poison_scale: f32,
+
+    // Debug options
+    #[serde(default = "default_debug")]
+    pub debug: bool
 
 }
 
@@ -123,6 +127,10 @@ fn default_toxic_overlap_threshold() -> f32 {
 
 fn default_toxic_poison_scale() -> f32 {
     3.0  // Amplify poison token destructive impact
+}
+
+fn default_debug() -> bool {
+    false  // Debug logging disabled by default
 }
 
 fn read_config(config_path: &PathBuf) -> Result<Config, Error> {
@@ -248,6 +256,16 @@ pub fn clean_text(text: &str) -> String {
     text.trim().to_string()
 }
 
+// Debug logging macro - only prints when config.debug is true
+#[macro_export]
+macro_rules! debug_println {
+    ($config:expr, $($arg:tt)*) => {
+        if $config.debug {
+            println!($($arg)*);
+        }
+    };
+}
+
 
 
 /*=================================================================
@@ -289,6 +307,10 @@ struct ContaminationResult {
     jaccard_similarity: f32,
     #[serde(default)]
     method: Option<String>,
+    #[serde(default)]
+    matching_ngrams: Option<Vec<String>>,
+    #[serde(default)]
+    bucket_sizes: Option<Vec<usize>>,
 }
 
 fn review_contamination(config: &PathBuf, results_file: Option<&PathBuf>, step: bool) -> Result<(), Error> {
@@ -518,6 +540,26 @@ fn display_contamination_case(
         println!("🤔 MODERATE SIMILARITY - Manual review needed");
     } else {
         println!("🔍 LOW SIMILARITY - Edge case detection");
+    }
+
+    // Display matching ngrams with bucket sizes if available (debug mode data)
+    if let Some(ref ngrams) = result.matching_ngrams {
+        if !ngrams.is_empty() {
+            println!();
+            println!("🔗 MATCHING N-GRAMS:");
+            for (i, ngram) in ngrams.iter().enumerate() {
+                let bucket_info = if let Some(ref sizes) = result.bucket_sizes {
+                    if i < sizes.len() {
+                        format!(" (bucket size: {})", sizes[i])
+                    } else {
+                        String::new()
+                    }
+                } else {
+                    String::new()
+                };
+                println!("   {}: \"{}\"{}", i + 1, ngram, bucket_info);
+            }
+        }
     }
 
     Ok(())
