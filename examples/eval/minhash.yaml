@@ -1,0 +1,10 @@
+content_key: text
+local_input: /home/robert/Downloads/input
+reference_input: /home/robert/Downloads/reference
+output_dir: /home/robert/Downloads/output
+band_size: 8
+ngram_size: 1
+num_bands: 7
+tokenizer_str: uniseg
+exact_override: true
+jaccard_similarity_threshold: 0.8
