@@ -17,5 +17,5 @@ jaccard_similarity_threshold: 0.8
 # TOXIC-specific parameters
 toxic_embedding_path: /home/robert/Downloads/wiki-news-300d-1M.vec
 toxic_hyperplanes: 64
-toxic_overlap_threshold: 0.3
+toxic_overlap_threshold: 0.5
 toxic_poison_scale: 3.0  # Amplify semantic destruction from poison tokens (numbers, proper nouns, OOV)

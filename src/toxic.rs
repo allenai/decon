@@ -34,7 +34,7 @@ use rayon::prelude::*;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::fs::create_dir_all;
-use std::io::BufRead;
+use std::io::{BufRead, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -72,7 +72,7 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
 
     // Step 3: Process reference datasets and build LSH buckets
     println!("Processing reference datasets...");
-    let (toxic_buckets, bucket_contents) = build_toxic_index(config, &embeddings, &hyperplanes)?;
+    let (toxic_buckets, _bucket_contents) = build_toxic_index(config, &embeddings, &hyperplanes)?;
     println!("Built TOXIC index with {} buckets", toxic_buckets.len());
 
     // Step 4: Process training data and detect contamination
@@ -118,10 +118,12 @@ fn load_embeddings(embedding_path: &PathBuf) -> Result<EmbeddingMap, Error> {
         }
 
         if line_num % 100000 == 0 && line_num > 0 {
-            println!("  → Loaded {} embeddings...", line_num);
+            print!(".");
+            std::io::stdout().flush().unwrap();
         }
     }
 
+    println!(); // New line after dots
     Ok(embeddings)
 }
 
@@ -223,16 +225,6 @@ fn sum_word_embeddings(
     sum_vector
 }
 
-fn normalize_vector(vector: &[f32]) -> Option<Vec<f32>> {
-    let magnitude: f32 = vector.iter().map(|x| x * x).sum::<f32>().sqrt();
-
-    if magnitude < f32::EPSILON {
-        // Zero vector cannot be normalized
-        return None;
-    }
-
-    Some(vector.iter().map(|x| x / magnitude).collect())
-}
 
 fn compute_lsh_bucket(normalized_vector: &[f32], hyperplanes: &Hyperplanes) -> u64 {
     let mut bucket_id = 0u64;
@@ -285,7 +277,7 @@ fn build_toxic_index(
 
     // Analyze bucket distribution statistics
     if config.debug {
-        print_bucket_statistics(config, &toxic_buckets);
+        print_bucket_statistics(config, &toxic_buckets, &bucket_contents);
     }
 
     // Save bucket contents to file for debug analysis
@@ -344,7 +336,7 @@ fn process_toxic_reference_file(
                     line_num,
                     word_count
                 );
-                
+
                 // Store ngram text for debug analysis
                 if let Some(ref contents) = bucket_contents {
                     let ngram_text = word_tokens.join(" ");
@@ -367,7 +359,7 @@ fn process_toxic_reference_file(
                     line_num,
                     word_count
                 );
-                
+
                 // Store ngram text for debug analysis
                 if let Some(ref contents) = bucket_contents {
                     let ngram_text = ngram.join(" ");
@@ -466,9 +458,9 @@ fn process_toxic_training_file(
 ) -> Result<(), Error> {
     let data = read_pathbuf_to_mem(file_path)?;
 
-    debug_println!(config, "\n=== DETAILED TIMING LOG FOR {} ===", file_name);
-    debug_println!(config, "Format: Line# | Total | TextExt | Embed | Norm | LSH | Lookup | Collision | Threshold");
-    debug_println!(config, "---------|-------|--------|-------|------|-----|--------|-----------|----------");
+    // debug_println!(config, "\n=== DETAILED TIMING LOG FOR {} ===", file_name);
+    // debug_println!(config, "Format: Line# | Total | TextExt | Embed | Norm | LSH | Lookup | Collision | Threshold");
+    // debug_println!(config, "---------|-------|--------|-------|------|-----|--------|-----------|----------");
 
     let mut contaminated_lines = 0;
     let mut total_lines = 0;
@@ -488,7 +480,7 @@ fn process_toxic_training_file(
 
         // 2. N-gram generation and computation
         let embed_start = Instant::now();
-        let total_ngrams = if word_tokens.len() < config.ngram_size {
+        let _total_ngrams = if word_tokens.len() < config.ngram_size {
             if word_tokens.is_empty() { 0 } else { 1 }
         } else {
             word_tokens.len() - config.ngram_size + 1
@@ -618,18 +610,18 @@ fn process_toxic_training_file(
         total_lines += 1;
 
         // Log per-line timing
-        debug_println!(config,
-            "{:8} | {:5.1}ms | {:6.1}ms | {:5.1}ms | {:4.1}ms | {:3.1}ms | {:6.1}ms | {:9.1}ms | {:8.1}ms",
-            line_num,
-            total_line_time.as_secs_f64() * 1000.0,
-            text_extraction_time.as_secs_f64() * 1000.0,
-            embedding_time.as_secs_f64() * 1000.0,
-            normalization_time.as_secs_f64() * 1000.0,
-            lsh_time.as_secs_f64() * 1000.0,
-            lookup_time.as_secs_f64() * 1000.0,
-            collision_time.as_secs_f64() * 1000.0,
-            threshold_time.as_secs_f64() * 1000.0
-        );
+        // debug_println!(config,
+        //     "{:8} | {:5.1}ms | {:6.1}ms | {:5.1}ms | {:4.1}ms | {:3.1}ms | {:6.1}ms | {:9.1}ms | {:8.1}ms",
+        //     line_num,
+        //     total_line_time.as_secs_f64() * 1000.0,
+        //     text_extraction_time.as_secs_f64() * 1000.0,
+        //     embedding_time.as_secs_f64() * 1000.0,
+        //     normalization_time.as_secs_f64() * 1000.0,
+        //     lsh_time.as_secs_f64() * 1000.0,
+        //     lookup_time.as_secs_f64() * 1000.0,
+        //     collision_time.as_secs_f64() * 1000.0,
+        //     threshold_time.as_secs_f64() * 1000.0
+        // );
 
         // Accumulate stats
         cumulative_stats.text_extraction += text_extraction_time;
@@ -644,7 +636,7 @@ fn process_toxic_training_file(
 
     // Print summary statistics
     let total_time = cumulative_stats.total_per_line.as_secs_f64() * 1000.0;
-    debug_println!(config, "\n=== TIMING SUMMARY FOR {} ===", file_name);
+    debug_println!(config, "\n\n\n=== TIMING SUMMARY FOR {} ===", file_name);
     debug_println!(config, "Total lines processed: {}", total_lines);
     debug_println!(config, "Total time: {:.1}ms", total_time);
     debug_println!(config, "Average per line: {:.1}ms", total_time / total_lines as f64);
@@ -692,9 +684,9 @@ fn insert_with_hot_bucket_detection(
                 bucket_id, current_size, ngram_text, eval_name, line_num);
     } else if current_size > 0 && current_size % 1000 == 0 {
         // Log milestone sizes for growing buckets
-        let ngram_text = ngram_words.join(" ");
+        let _ngram_text = ngram_words.join(" ");
         // debug_println!(config, "📈 Growing bucket #{} (size: {}) <- \"{}\" from {}:{}",
-        //         bucket_id, current_size, ngram_text, eval_name, line_num);
+        //         bucket_id, current_size, _ngram_text, eval_name, line_num);
     }
 
     // Perform the actual insertion
@@ -721,9 +713,9 @@ fn save_bucket_contents(
 ) -> Result<(), Error> {
     create_dir_all(&config.output_dir)?;
     let bucket_file = config.output_dir.join("bucket_contents.jsonl");
-    
+
     let mut output_data = Vec::new();
-    
+
     // Sort buckets by size (largest first) for easier analysis
     let mut bucket_info: Vec<(u64, usize, Vec<String>)> = Vec::new();
     for entry in bucket_contents.iter() {
@@ -733,7 +725,7 @@ fn save_bucket_contents(
         bucket_info.push((bucket_id, size, ngrams));
     }
     bucket_info.sort_by(|a, b| b.1.cmp(&a.1)); // Sort by size descending
-    
+
     for (bucket_id, size, ngrams) in bucket_info {
         let result = json!({
             "bucket_id": bucket_id,
@@ -742,16 +734,16 @@ fn save_bucket_contents(
         });
         output_data.push(serde_json::to_vec(&result)?);
     }
-    
+
     let mut output_bytes = Vec::new();
     for line in output_data {
         output_bytes.extend(line);
         output_bytes.push(b'\n');
     }
-    
+
     write_mem_to_pathbuf(&output_bytes, &bucket_file)?;
     println!("Bucket contents saved to: {:?}", bucket_file);
-    
+
     Ok(())
 }
 
@@ -812,8 +804,8 @@ fn save_toxic_contamination_results(
     Ok(())
 }
 
-fn print_bucket_statistics(config: &Config, toxic_buckets: &ToxicBuckets) {
-    debug_println!(config, "\n=== BUCKET DISTRIBUTION STATISTICS ===");
+fn print_bucket_statistics(config: &Config, toxic_buckets: &ToxicBuckets, bucket_contents: &Option<BucketContents>) {
+    debug_println!(config, "\n\n\n=== BUCKET DISTRIBUTION STATISTICS ===");
 
     let total_buckets = toxic_buckets.len();
     let mut bucket_sizes: Vec<usize> = Vec::new();
@@ -886,10 +878,39 @@ fn print_bucket_statistics(config: &Config, toxic_buckets: &ToxicBuckets) {
     println!("  Max:     {}", max_size);
     println!();
     println!("TOP 10 HOTTEST BUCKETS:");
-    println!("Bucket ID          | Entries");
-    println!("-------------------|--------");
-    for (bucket_id, size) in &hot_buckets {
-        println!("{:18} | {:7}", bucket_id, size);
+    if let Some(ref contents) = bucket_contents {
+        println!("Bucket ID          | Entries | Distinct N-grams");
+        println!("-------------------|---------|----------------");
+        for (bucket_id, size) in &hot_buckets {
+            let distinct_count = contents.get(bucket_id)
+                .map(|ngrams| ngrams.len())
+                .unwrap_or(0);
+            println!("{:18} | {:7} | {:7}", bucket_id, size, distinct_count);
+        }
+
+        // Show actual ngrams for top 3 hottest buckets
+        println!("\nSAMPLE N-GRAMS FROM TOP 3 HOTTEST BUCKETS:");
+        for (i, (bucket_id, size)) in hot_buckets.iter().take(3).enumerate() {
+            if let Some(ngrams_set) = contents.get(bucket_id) {
+                let mut ngrams: Vec<String> = ngrams_set.iter().cloned().collect();
+                ngrams.sort();
+                let sample_size = std::cmp::min(10, ngrams.len());
+                println!("\n{}. Bucket {} ({} entries, {} distinct):",
+                        i + 1, bucket_id, size, ngrams.len());
+                for ngram in ngrams.iter().take(sample_size) {
+                    println!("   \"{}\"", ngram);
+                }
+                if ngrams.len() > sample_size {
+                    println!("   ... and {} more", ngrams.len() - sample_size);
+                }
+            }
+        }
+    } else {
+        println!("Bucket ID          | Entries");
+        println!("-------------------|--------");
+        for (bucket_id, size) in &hot_buckets {
+            println!("{:18} | {:7}", bucket_id, size);
+        }
     }
 
     // Identify problematic buckets
