@@ -28,7 +28,10 @@ With poison tokens: The numbers "1", "2", "4" get distinct destructive vectors t
 - Domain-specific terms: Technical jargon, IDs
 - Misspellings and typos
 
-**TOXIC-MAXXING**: Fresh random poison vectors are generated for each encounter (not cached), maximizing semantic destruction and preventing memory leaks on large datasets.
+**Asymmetric Poison Strategy**: 
+- **Eval processing**: OOV words get consistent poison vectors (stored for reproducibility)
+- **Training processing**: OOV words get chaotic poison vectors (fresh each time, not stored)
+- This prevents false matches while maintaining eval dataset consistency
 
 ### 3. N-gram Embedding Computation
 - Text is cleaned and split into words (not subword tokens)
@@ -36,24 +39,25 @@ With poison tokens: The numbers "1", "2", "4" get distinct destructive vectors t
 - Each n-gram is converted to an embedding by summing constituent word vectors
 - Example: "Find all c in" → sum(embed("find") + embed("all") + embed("c") + embed("in"))
 
-### 4. Vector Normalization and LSH
-- N-gram embeddings are L2-normalized to unit vectors
+### 4. LSH Without Normalization
+- N-gram embeddings preserve magnitude information (normalization removed)
 - Sign Random Projections create LSH bucket IDs:
   - Random hyperplanes partition the embedding space
   - Dot product with hyperplane determines bit (positive/negative)
   - 64 hyperplanes create 64-bit bucket IDs
 - Similar n-grams map to same buckets with high probability
 
-### 5. Contamination Detection with Document Length Scaling
+### 5. Contamination Detection with Bucket-Based Overlap
 - Reference dataset n-grams are indexed by LSH bucket
 - Training documents are processed and checked for bucket collisions
-- **Key Innovation**: Uses `min(training_words, eval_words)` for normalization
-- Contamination flagged if overlap ratio exceeds threshold (default: 0.3)
+- **Key Innovation**: Measures unique LSH buckets hit rather than raw n-gram counts
+- Overlap ratio = (unique eval buckets with matches) / (total eval buckets)
+- Contamination flagged if overlap ratio exceeds threshold (default: 0.95)
 
-**Why min-word normalization?**
-- Prevents false positives from document length asymmetry
-- A few n-gram matches in a 1000-word document shouldn't trigger contamination
-- Uses smaller document as baseline for percentage calculation
+**Why bucket-based overlap?**
+- Accounts for LSH bucket collisions where multiple n-grams hash to same bucket
+- Provides more robust similarity measurement than raw n-gram counting
+- Naturally handles document length differences through bucket distribution
 
 ### 6. Cross-Dataset Contamination Discovery
 TOXIC can discover contamination across multiple evaluation datasets simultaneously, revealing unexpected data leakage patterns.
@@ -62,7 +66,7 @@ TOXIC can discover contamination across multiple evaluation datasets simultaneou
 
 - **`toxic_embedding_path`**: Path to pre-trained word vectors (FastText format)
 - **`toxic_hyperplanes`**: Number of LSH hyperplanes (default: 64)
-- **`toxic_overlap_threshold`**: Minimum overlap ratio for contamination (default: 0.3)
+- **`toxic_overlap_threshold`**: Minimum overlap ratio for contamination (default: 0.95)
 - **`toxic_poison_scale`**: Amplification factor for poison token impact (default: 3.0)
 - **`ngram_size`**: N-gram window size (default: 4, higher = more precise)
 
@@ -70,13 +74,13 @@ TOXIC can discover contamination across multiple evaluation datasets simultaneou
 
 - **Time**: O(D × W × H) where D=documents, W=words/doc, H=hyperplanes
 - **Space**: O(V + B) where V=vocabulary size, B=LSH buckets
-- **Memory**: Bounded vocabulary (no OOV caching), scales to massive datasets
+- **Memory**: Asymmetric OOV handling (eval caching + training chaos), scales to massive datasets
 
 ## Strengths
 
 - **Semantic awareness**: Detects paraphrased and reworded contamination
 - **Document length robust**: Handles asymmetric document sizes correctly
-- **Memory efficient**: TOXIC-MAXXING prevents unbounded growth
+- **Memory efficient**: Asymmetric poison strategy prevents unbounded growth
 - **Cross-domain detection**: Can identify contamination across different datasets
 - **Tunable precision**: N-gram size and threshold allow fine-tuning
 - **Mathematically principled**: Uses proven LSH techniques with embedding geometry
@@ -107,10 +111,16 @@ TOXIC can discover contamination across multiple evaluation datasets simultaneou
 
 ```yaml
 mode: toxic
+debug: true
+content_key: text
+local_input: /path/to/training/data
+reference_input: /path/to/eval/data
+output_dir: /path/to/output
+
 ngram_size: 4
 toxic_embedding_path: /path/to/wiki-news-300d-1M.vec
 toxic_hyperplanes: 64
-toxic_overlap_threshold: 0.3
+toxic_overlap_threshold: 0.95
 toxic_poison_scale: 3.0
 ```
 
@@ -130,10 +140,12 @@ Results saved to `toxic_contamination_results.jsonl`:
 
 ## Advanced Features
 
-### Bi-directional Detection
-TOXIC automatically handles document length asymmetry in both directions:
-- Short eval + long training: Uses eval length for normalization
-- Long eval + short training: Uses training length for normalization
+### Debug Mode Enhanced Analysis
+When `debug: true` is set, TOXIC provides detailed contamination analysis:
+- **Matching n-grams**: Shows specific text segments that triggered matches
+- **Bucket sizes**: Reveals LSH bucket collision statistics
+- **Bucket contents**: Saves detailed bucket analysis to `bucket_contents.jsonl`
+- **Timing breakdowns**: Performance profiling for optimization
 
 ### Multi-dataset Discovery
 Can reveal contamination patterns across multiple evaluation datasets:
@@ -144,6 +156,6 @@ Training line 42 → ARC line 891 (0.63 overlap)
 ```
 
 ### Poison Token Philosophy
-The poison token approach embraces controlled chaos to prevent false positives. Rather than trying to create "neutral" representations for unknown words, TOXIC uses randomly destructive vectors that actively break spurious similarities while preserving real contamination signals.
+The asymmetric poison token approach balances reproducibility with chaos prevention. Eval datasets get consistent poison vectors for reproducible analysis, while training data gets chaotic poison vectors to prevent false matches.
 
-**TOXIC-MAXXING Principle**: "If it's unknown, make it maximally toxic to prevent false matches."
+**Asymmetric Principle**: "Eval consistency for analysis, training chaos for precision."

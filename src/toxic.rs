@@ -30,6 +30,7 @@ use dashmap::DashMap;
 use ndarray::ArrayView1;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
+use rayon::prelude::*;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::fs::create_dir_all;
@@ -50,8 +51,8 @@ type ToxicBuckets = DashMap<u64, Vec<(String, usize, usize)>>;
 // Bucket content storage for debug mode: maps bucket_id to set of ngram texts
 type BucketContents = DashMap<u64, HashSet<String>>;
 
-// Embedding storage: word -> 300d vector
-type EmbeddingMap = HashMap<String, Vec<f32>>;
+// Embedding storage: word -> 300d vector (thread-safe)
+type EmbeddingMap = DashMap<String, Vec<f32>>;
 
 // Random hyperplanes for LSH: k x 300 matrix
 type Hyperplanes = Vec<Vec<f32>>;
@@ -62,7 +63,7 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
 
     // Step 1: Load word embeddings
     println!("Loading word embeddings...");
-    let mut embeddings = load_embeddings(&config.toxic_embedding_path)?;
+    let embeddings = load_embeddings(&config.toxic_embedding_path)?;
     println!("Loaded {} word embeddings", embeddings.len());
 
     // Step 2: Generate random hyperplanes for LSH
@@ -71,7 +72,7 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
 
     // Step 3: Process reference datasets and build LSH buckets
     println!("Processing reference datasets...");
-    let (toxic_buckets, _bucket_contents) = build_toxic_index(config, &mut embeddings, &hyperplanes)?;
+    let (toxic_buckets, _bucket_contents) = build_toxic_index(config, &embeddings, &hyperplanes)?;
     println!("Built TOXIC index with {} buckets", toxic_buckets.len());
 
     // Step 4: Process training data and detect contamination
@@ -85,7 +86,7 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
 fn load_embeddings(embedding_path: &PathBuf) -> Result<EmbeddingMap, Error> {
     println!("Loading embeddings from: {:?}", embedding_path);
     let data = read_pathbuf_to_mem(embedding_path)?;
-    let mut embeddings = HashMap::new();
+    let embeddings = DashMap::new();
 
     for (line_num, line) in data.lines().enumerate() {
         let line = line?;
@@ -127,8 +128,10 @@ fn load_embeddings(embedding_path: &PathBuf) -> Result<EmbeddingMap, Error> {
 }
 
 // For eval processing: store OOV words consistently
-fn get_or_create_embedding_eval(word: &str, embeddings: &mut EmbeddingMap, rng_seed: u64) -> Vec<f32> {
-    if !embeddings.contains_key(word) {
+fn get_or_create_embedding_eval(word: &str, embeddings: &EmbeddingMap, rng_seed: u64) -> Vec<f32> {
+    if let Some(embedding) = embeddings.get(word) {
+        embedding.clone()
+    } else {
         // Create consistent poison token for eval processing
         let mut rng = ChaCha20Rng::seed_from_u64(
             rng_seed.wrapping_add(hash_string(word))
@@ -136,17 +139,17 @@ fn get_or_create_embedding_eval(word: &str, embeddings: &mut EmbeddingMap, rng_s
         let vector: Vec<f32> = (0..EMBEDDING_DIM)
             .map(|_| rng.gen_range(-1.0..1.0))
             .collect();
-        
+
         embeddings.insert(word.to_string(), vector.clone());
         vector
-    } else {
-        embeddings.get(word).unwrap().clone()
     }
 }
 
 // For training processing: generate chaotic OOV each time (don't store)
 fn get_or_create_embedding_training(word: &str, embeddings: &EmbeddingMap, rng_seed: u64) -> Vec<f32> {
-    if !embeddings.contains_key(word) {
+    if let Some(embedding) = embeddings.get(word) {
+        embedding.clone()
+    } else {
         // Create chaotic poison token for training processing
         let mut rng = ChaCha20Rng::seed_from_u64(
             rng_seed.wrapping_add(hash_string(word)).wrapping_add(rand::random::<u64>())
@@ -154,8 +157,6 @@ fn get_or_create_embedding_training(word: &str, embeddings: &EmbeddingMap, rng_s
         (0..EMBEDDING_DIM)
             .map(|_| rng.gen_range(-1.0..1.0))
             .collect()
-    } else {
-        embeddings.get(word).unwrap().clone()
     }
 }
 
@@ -224,7 +225,7 @@ fn compute_ngram_embedding_training(
 // For eval processing
 fn sum_word_embeddings_eval(
     words: &[String],
-    embeddings: &mut EmbeddingMap,
+    embeddings: &EmbeddingMap,
     rng_seed: u64
 ) -> Vec<f32> {
     let mut sum_vector = vec![0.0; EMBEDDING_DIM];
@@ -239,7 +240,7 @@ fn sum_word_embeddings_eval(
     sum_vector
 }
 
-// For training processing  
+// For training processing
 fn sum_word_embeddings_training(
     words: &[String],
     embeddings: &EmbeddingMap,
@@ -276,7 +277,7 @@ fn compute_lsh_bucket(normalized_vector: &[f32], hyperplanes: &Hyperplanes) -> u
 
 fn build_toxic_index(
     config: &Config,
-    embeddings: &mut EmbeddingMap,
+    embeddings: &EmbeddingMap,
     hyperplanes: &Hyperplanes
 ) -> Result<(ToxicBuckets, Option<BucketContents>), Error> {
     let toxic_buckets: ToxicBuckets = DashMap::new();
@@ -293,7 +294,7 @@ fn build_toxic_index(
     )?;
     let pbar = build_pbar(reference_files.len(), "Reference files");
 
-    for file_path in &reference_files {
+    reference_files.par_iter().for_each(|file_path| {
         if let Err(e) = process_toxic_reference_file(
             file_path,
             config,
@@ -305,7 +306,7 @@ fn build_toxic_index(
             println!("Error processing reference file {:?}: {:?}", file_path, e);
         }
         pbar.inc(1);
-    }
+    });
 
     // Analyze bucket distribution statistics
     if config.debug {
@@ -323,7 +324,7 @@ fn build_toxic_index(
 fn process_toxic_reference_file(
     file_path: &PathBuf,
     config: &Config,
-    embeddings: &mut EmbeddingMap,
+    embeddings: &EmbeddingMap,
     hyperplanes: &Hyperplanes,
     toxic_buckets: &ToxicBuckets,
     bucket_contents: &Option<BucketContents>
@@ -694,32 +695,32 @@ fn process_toxic_training_file(
 }
 
 fn insert_with_hot_bucket_detection(
-    config: &Config,
+    _config: &Config,
     toxic_buckets: &ToxicBuckets,
     bucket_id: u64,
-    ngram_words: &[String],
+    _ngram_words: &[String],
     eval_name: &str,
     line_num: usize,
     word_count: usize
 ) {
     // Check if this is already a hot bucket
-    let current_size = toxic_buckets.get(&bucket_id)
+    let _current_size = toxic_buckets.get(&bucket_id)
         .map(|bucket| bucket.value().len())
         .unwrap_or(0);
 
-    const HOT_BUCKET_THRESHOLD: usize = 10000;
+    const _HOT_BUCKET_THRESHOLD: usize = 10000;
 
-    if current_size >= HOT_BUCKET_THRESHOLD {
-        // Log the n-gram words going into this super hot bucket
-        let ngram_text = ngram_words.join(" ");
-        debug_println!(config, "🔥 HOT BUCKET #{} (size: {}) <- Adding n-gram: \"{}\" from {}:{}",
-                bucket_id, current_size, ngram_text, eval_name, line_num);
-    } else if current_size > 0 && current_size % 1000 == 0 {
-        // Log milestone sizes for growing buckets
-        let _ngram_text = ngram_words.join(" ");
-        // debug_println!(config, "📈 Growing bucket #{} (size: {}) <- \"{}\" from {}:{}",
-        //         bucket_id, current_size, _ngram_text, eval_name, line_num);
-    }
+    // if current_size >= HOT_BUCKET_THRESHOLD {
+    //     // Log the n-gram words going into this super hot bucket
+    //     let ngram_text = ngram_words.join(" ");
+    //     debug_println!(config, "🔥 HOT BUCKET #{} (size: {}) <- Adding n-gram: \"{}\" from {}:{}",
+    //             bucket_id, current_size, ngram_text, eval_name, line_num);
+    // } else if current_size > 0 && current_size % 1000 == 0 {
+    //     // Log milestone sizes for growing buckets
+    //     let _ngram_text = ngram_words.join(" ");
+    //     debug_println!(config, "📈 Growing bucket #{} (size: {}) <- \"{}\" from {}:{}",
+    //             bucket_id, current_size, _ngram_text, eval_name, line_num);
+    // }
 
     // Perform the actual insertion
     toxic_buckets
