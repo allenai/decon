@@ -6,13 +6,6 @@ local_input: /home/robert/Downloads/dev_input
 reference_input: /home/robert/Downloads/dev_reference
 output_dir: /home/robert/Downloads/dev_output
 
-# MinHash parameters (unused in toxic mode but required in config)
-band_size: 8
-ngram_size: 4
-num_bands: 7
-tokenizer_str: uniseg
-exact_override: true
-jaccard_similarity_threshold: 0.8
 
 # TOXIC-specific parameters
 toxic_embedding_path: /home/robert/Downloads/wiki-news-300d-1M.vec

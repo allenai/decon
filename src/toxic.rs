@@ -422,8 +422,8 @@ fn detect_toxic_contamination(
 
     let contamination_results: DashMap<String, Vec<ToxicContaminationEntry>> = DashMap::new();
 
-    // Process files sequentially to maintain timing log order
-    for file_path in training_files.iter() {
+    // Process files in parallel for maximum performance
+    training_files.par_iter().for_each(|file_path| {
         let file_name = if file_path.extension().and_then(|s| s.to_str()) == Some("gz") {
             file_path
                 .file_stem()
@@ -450,7 +450,7 @@ fn detect_toxic_contamination(
             println!("Error processing training file {:?}: {:?}", file_path, e);
         }
         pbar.inc(1);
-    }
+    });
 
     // Save contamination results
     save_toxic_contamination_results(&contamination_results, &config.output_dir)?;
@@ -557,7 +557,16 @@ fn process_toxic_training_file(
             if let Some(bucket_contents) = toxic_buckets.get(&bucket_id) {
                 lookup_time += lookup_start.elapsed();
 
-                // 6. Collision detection - track distinct buckets hit per eval document
+                // 6. Hot bucket optimization - skip super hot buckets if enabled
+                let bucket_size = bucket_contents.value().len();
+                
+                if config.skip_hot_bucket_threshold > 0 && bucket_size > config.skip_hot_bucket_threshold as usize {
+                    debug_println!(config, "🔥 Skipping hot bucket #{} with {} entries (threshold: {})", 
+                                 bucket_id, bucket_size, config.skip_hot_bucket_threshold);
+                    continue;
+                }
+
+                // 7. Collision detection - track distinct buckets hit per eval document
                 let collision_start = Instant::now();
                 for (eval_name, eval_line_num, eval_word_count) in bucket_contents.value() {
                     let key = (eval_name.clone(), *eval_line_num);
@@ -824,7 +833,7 @@ fn save_toxic_contamination_results(
     write_mem_to_pathbuf(&output_bytes, &output_file)?;
 
     if total_contaminations > 0 {
-        println!("=== TOXIC CONTAMINATION SUMMARY ===");
+        println!("\n\n\n=== TOXIC CONTAMINATION SUMMARY ===");
         println!("Found {} contamination instances across {} files",
                 total_contaminations, results.len());
         println!("Results saved to: {:?}", output_file);

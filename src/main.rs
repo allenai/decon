@@ -102,6 +102,8 @@ pub struct Config {
     pub toxic_overlap_threshold: f32,
     #[serde(default = "default_toxic_poison_scale")]
     pub toxic_poison_scale: f32,
+    #[serde(default = "default_skip_hot_bucket_threshold")]
+    pub skip_hot_bucket_threshold: i32,
 
     // Debug options
     #[serde(default = "default_debug")]
@@ -151,6 +153,10 @@ fn default_ngram_size() -> usize {
 
 fn default_tokenizer_str() -> String {
     "uniseg".to_string()  // Default tokenizer
+}
+
+fn default_skip_hot_bucket_threshold() -> i32 {
+    -1  // Disabled by default
 }
 
 fn read_config(config_path: &PathBuf) -> Result<Config, Error> {
