@@ -3,7 +3,7 @@
 output_dir: "/home/robert/Downloads/reference"
 jsonl_format:
   text_field: "text"
-  eval_field: "eval_name" 
+  eval_field: "eval_name"
   index_field: "index"
   split_field: "split"
 
@@ -14,6 +14,7 @@ evals:
     splits: ["train"]
     transform:
       text_field: "problem"
+      answer_field: "answer"
 
   ai2_arc_challenge:
     hf_path: "allenai/ai2_arc"
@@ -21,6 +22,8 @@ evals:
     splits: ["train", "test", "validation"]
     transform:
       text_field: "question"
+      answer_field: "answerKey"
+      choices_field: "choices"
 
   ai2_arc_easy:
     hf_path: "allenai/ai2_arc"
@@ -28,12 +31,15 @@ evals:
     splits: ["train", "test", "validation"]
     transform:
       text_field: "question"
+      answer_field: "answerKey"
+      choices_field: "choices"
 
   popqa:
     hf_path: "akariasai/PopQA"
     splits: ["test"]
     transform:
       text_field: "question"
+      answer_field: "possible_answers"
 
   basic_skills_arithmetic:
     hf_path: "allenai/basic-skills"

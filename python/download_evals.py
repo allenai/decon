@@ -45,22 +45,66 @@ def download_and_transform_eval(eval_name, eval_config, global_config):
                 text_field = eval_config['transform']['text_field']
                 text = example[text_field]
 
-                # Build output record
-                record = {
+                # Generate records based on answer field configuration
+                records_to_write = []
+                
+                # Always create the base question record
+                base_record = {
                     global_config['jsonl_format']['text_field']: text,
                     global_config['jsonl_format']['eval_field']: eval_name,
                     global_config['jsonl_format']['index_field']: idx,
                     global_config['jsonl_format']['split_field']: split
                 }
-
+                
                 # Add any extra fields
                 if 'extra_fields' in eval_config['transform']:
                     for field in eval_config['transform']['extra_fields']:
                         if field in example:
-                            record[field] = example[field]
+                            base_record[field] = example[field]
+                
+                records_to_write.append(base_record)
+                
+                # Handle answer fields if configured
+                if 'answer_field' in eval_config['transform']:
+                    answer_field = eval_config['transform']['answer_field']
+                    if answer_field in example:
+                        answer_value = example[answer_field]
+                        
+                        # Handle different answer field types
+                        if isinstance(answer_value, list):
+                            # Array of answers - create record for each
+                            for answer in answer_value:
+                                answer_record = base_record.copy()
+                                answer_record[global_config['jsonl_format']['text_field']] = f"{text} {answer}"
+                                records_to_write.append(answer_record)
+                        else:
+                            # Single answer - create combined record
+                            answer_record = base_record.copy()
+                            answer_record[global_config['jsonl_format']['text_field']] = f"{text} {answer_value}"
+                            records_to_write.append(answer_record)
+                
+                # Handle choices field if configured (e.g., multiple choice questions)
+                if 'choices_field' in eval_config['transform']:
+                    choices_field = eval_config['transform']['choices_field']
+                    if choices_field in example:
+                        choices = example[choices_field]
+                        
+                        # Handle choices structure: {'text': [...], 'label': [...]}
+                        if isinstance(choices, dict) and 'text' in choices:
+                            for choice_text in choices['text']:
+                                choice_record = base_record.copy()
+                                choice_record[global_config['jsonl_format']['text_field']] = f"{text} {choice_text}"
+                                records_to_write.append(choice_record)
+                        elif isinstance(choices, list):
+                            # Handle simple list of choices
+                            for choice in choices:
+                                choice_record = base_record.copy()
+                                choice_record[global_config['jsonl_format']['text_field']] = f"{text} {choice}"
+                                records_to_write.append(choice_record)
 
-                # Write to JSONL
-                f.write(json.dumps(record) + '\n')
+                # Write all records to JSONL
+                for record in records_to_write:
+                    f.write(json.dumps(record) + '\n')
 
         print(f"Saved {len(dataset[split])} examples to {output_file}")
 
