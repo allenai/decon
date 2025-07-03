@@ -1,5 +1,5 @@
 # Contamination detection mode (minhash, welsh)
-mode: minhash
+mode: welsh
 
 content_key: text
 local_input: /home/robert/Downloads/dev_input
