@@ -39,12 +39,12 @@ struct ArgParser {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    ContaminationDetect {
+    Detect {
         #[arg(required=true, long)]
         config: PathBuf
     },
 
-    ContaminationReview {
+    Review {
         #[arg(required=true, long)]
         config: PathBuf,
 
@@ -538,11 +538,11 @@ fn main() {
     }
 
     let result = match &args.command {
-        Commands::ContaminationDetect {config} => {
+        Commands::Detect {config} => {
             contamination_detect(config)
         }
 
-        Commands::ContaminationReview {config, results_file, step} => {
+        Commands::Review {config, results_file, step} => {
             review_contamination(config, results_file.as_ref(), *step)
         }
 

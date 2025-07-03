@@ -1,5 +1,5 @@
 [package]
-name = "minhash-rs"
+name = "decon"
 version = "0.1.0"
 edition = "2021"
 
