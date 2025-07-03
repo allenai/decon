@@ -32,11 +32,11 @@ use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use rayon::prelude::*;
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::create_dir_all;
 use std::io::BufRead;
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use mj_io::{expand_dirs, read_pathbuf_to_mem, write_mem_to_pathbuf, build_pbar};
 
@@ -274,6 +274,9 @@ fn build_toxic_index(
         pbar.inc(1);
     });
 
+    // Analyze bucket distribution statistics
+    print_bucket_statistics(&toxic_buckets);
+
     Ok(toxic_buckets)
 }
 
@@ -308,23 +311,39 @@ fn process_toxic_reference_file(
 
         let word_count = word_tokens.len();
 
-        // Compute n-gram embeddings
-        let ngram_embeddings = compute_ngram_embedding(
-            &word_tokens,
-            config.ngram_size,
-            embeddings,
-            config.hash_seed as u64
-        );
-
-        // Process each n-gram embedding
-        for ngram_embedding in ngram_embeddings {
-            if let Some(normalized) = normalize_vector(&ngram_embedding) {
-                let bucket_id = compute_lsh_bucket(&normalized, hyperplanes);
-
-                toxic_buckets
-                    .entry(bucket_id)
-                    .or_default()
-                    .push((eval_name.clone(), line_num, word_count));
+        // Process n-grams with hot bucket detection
+        if word_tokens.len() < config.ngram_size {
+            if !word_tokens.is_empty() {
+                // For documents shorter than ngram_size, use all tokens
+                let sum_embedding = sum_word_embeddings(&word_tokens, embeddings, config.hash_seed as u64);
+                if let Some(normalized) = normalize_vector(&sum_embedding) {
+                    let bucket_id = compute_lsh_bucket(&normalized, hyperplanes);
+                    insert_with_hot_bucket_detection(
+                        &toxic_buckets,
+                        bucket_id,
+                        &word_tokens,
+                        &eval_name,
+                        line_num,
+                        word_count
+                    );
+                }
+            }
+        } else {
+            // Create sliding window n-grams with word tracking
+            for i in 0..=word_tokens.len() - config.ngram_size {
+                let ngram = &word_tokens[i..i + config.ngram_size];
+                let sum_embedding = sum_word_embeddings(ngram, embeddings, config.hash_seed as u64);
+                if let Some(normalized) = normalize_vector(&sum_embedding) {
+                    let bucket_id = compute_lsh_bucket(&normalized, hyperplanes);
+                    insert_with_hot_bucket_detection(
+                        &toxic_buckets,
+                        bucket_id,
+                        ngram,
+                        &eval_name,
+                        line_num,
+                        word_count
+                    );
+                }
             }
         }
     }
@@ -349,7 +368,8 @@ fn detect_toxic_contamination(
 
     let contamination_results: DashMap<String, Vec<(usize, String, usize, f32)>> = DashMap::new();
 
-    training_files.par_iter().for_each(|file_path| {
+    // Process files sequentially to maintain timing log order
+    for file_path in training_files.iter() {
         let file_name = if file_path.extension().and_then(|s| s.to_str()) == Some("gz") {
             file_path
                 .file_stem()
@@ -376,12 +396,24 @@ fn detect_toxic_contamination(
             println!("Error processing training file {:?}: {:?}", file_path, e);
         }
         pbar.inc(1);
-    });
+    }
 
     // Save contamination results
     save_toxic_contamination_results(&contamination_results, &config.output_dir)?;
 
     Ok(())
+}
+
+#[derive(Default, Clone)]
+struct TimingStats {
+    text_extraction: Duration,
+    embedding_computation: Duration,
+    normalization: Duration,
+    lsh_bucket_computation: Duration,
+    bucket_lookup: Duration,
+    collision_detection: Duration,
+    threshold_evaluation: Duration,
+    total_per_line: Duration,
 }
 
 fn process_toxic_training_file(
@@ -394,92 +426,217 @@ fn process_toxic_training_file(
     contamination_results: &DashMap<String, Vec<(usize, String, usize, f32)>>
 ) -> Result<(), Error> {
     let data = read_pathbuf_to_mem(file_path)?;
-    // We don't need tokenizer for TOXIC - we work with words directly
-
-    println!("Checking training file: {}", file_name);
+    
+    println!("\n=== DETAILED TIMING LOG FOR {} ===", file_name);
+    println!("Format: Line# | Total | TextExt | Embed | Norm | LSH | Lookup | Collision | Threshold");
+    println!("---------|-------|--------|-------|------|-----|--------|-----------|----------");
+    
     let mut contaminated_lines = 0;
     let mut total_lines = 0;
+    let mut cumulative_stats = TimingStats::default();
 
     for (line_num, line) in data.lines().enumerate() {
+        let line_start = Instant::now();
         let line = line?;
+        
+        // 1. Text extraction and parsing
+        let text_start = Instant::now();
         let json_obj: Value = serde_json::from_str(&line)?;
         let line_text = get_nested_json_val(&json_obj, &config.content_key.to_string())?;
-        total_lines += 1;
-
-        // For TOXIC, we work with words directly
         let word_tokens = extract_words(&line_text);
-        let training_word_count = word_tokens.len();
-
-        // Compute n-gram embeddings
+        let _training_word_count = word_tokens.len();
+        let text_extraction_time = text_start.elapsed();
+        
+        // 2. N-gram generation and computation
+        let embed_start = Instant::now();
+        let total_ngrams = if word_tokens.len() < config.ngram_size {
+            if word_tokens.is_empty() { 0 } else { 1 }
+        } else {
+            word_tokens.len() - config.ngram_size + 1
+        };
+        
         let ngram_embeddings = compute_ngram_embedding(
             &word_tokens,
             config.ngram_size,
             embeddings,
             config.hash_seed as u64
         );
+        let embedding_time = embed_start.elapsed();
+        
+        let mut normalization_time = Duration::new(0, 0);
+        let mut lsh_time = Duration::new(0, 0);
+        let mut lookup_time = Duration::new(0, 0);
+        let mut collision_time = Duration::new(0, 0);
+        
+        // Track distinct buckets hit per eval document
+        let mut eval_bucket_matches: HashMap<(String, usize), (HashSet<u64>, usize)> = HashMap::new();
+        let mut ngrams_with_any_collision = HashSet::new();
 
-        // Track collisions for this training document
-        let mut eval_collisions: HashMap<(String, usize), usize> = HashMap::new();
-
-        // Check each n-gram for collisions
-        for ngram_embedding in ngram_embeddings {
+        // Process each n-gram with detailed timing
+        for (ngram_idx, ngram_embedding) in ngram_embeddings.iter().enumerate() {
+            // 3. Vector normalization
+            let norm_start = Instant::now();
             if let Some(normalized) = normalize_vector(&ngram_embedding) {
+                normalization_time += norm_start.elapsed();
+                
+                // 4. LSH bucket computation
+                let lsh_start = Instant::now();
                 let bucket_id = compute_lsh_bucket(&normalized, hyperplanes);
+                lsh_time += lsh_start.elapsed();
 
+                // 5. Bucket lookup
+                let lookup_start = Instant::now();
                 if let Some(bucket_contents) = toxic_buckets.get(&bucket_id) {
-                    for (eval_name, eval_line_num, _eval_word_count) in bucket_contents.value() {
+                    lookup_time += lookup_start.elapsed();
+                    
+                    // 6. Collision detection - track distinct buckets hit per eval document
+                    let collision_start = Instant::now();
+                    for (eval_name, eval_line_num, eval_word_count) in bucket_contents.value() {
                         let key = (eval_name.clone(), *eval_line_num);
-                        *eval_collisions.entry(key).or_insert(0) += 1;
+                        let entry = eval_bucket_matches.entry(key).or_insert((HashSet::new(), *eval_word_count));
+                        entry.0.insert(bucket_id);  // Track which buckets this eval doc hit
+                        // entry.1 already has eval_word_count
+                        
+                        ngrams_with_any_collision.insert(ngram_idx);
                     }
+                    collision_time += collision_start.elapsed();
+                } else {
+                    lookup_time += lookup_start.elapsed();
                 }
+            } else {
+                normalization_time += norm_start.elapsed();
             }
         }
 
-        // Apply threshold and complete evaluation
-        let collision_count_total = eval_collisions.len();
-        for ((eval_name, eval_line_num), collision_count) in &eval_collisions {
-            // Find the eval word count for this specific eval entry
-            let mut eval_word_count = 0;
-            for bucket in toxic_buckets.iter() {
-                for (name, line, word_count) in bucket.value().iter() {
-                    if name == eval_name && line == eval_line_num {
-                        eval_word_count = *word_count;
-                        break;
-                    }
-                }
-                if eval_word_count > 0 {
-                    break;
-                }
-            }
+        // 7. Threshold evaluation - use distinct bucket counts per eval doc
+        let threshold_start = Instant::now();
+        let collision_count_total = eval_bucket_matches.len();
+        
+        // Log n-gram statistics for this document
+        println!("\n📊 N-GRAM STATS for line {}: Total={}, Unique_matches={}, Eval_docs_hit={}",
+                line_num, total_ngrams, ngrams_with_any_collision.len(), collision_count_total);
+        
+        for ((eval_name, eval_line_num), (distinct_buckets_hit, eval_word_count)) in &eval_bucket_matches {
+            let eval_ngrams_with_matches = distinct_buckets_hit.len();
+            let eval_total_ngrams = if *eval_word_count < config.ngram_size {
+                if *eval_word_count == 0 { 0 } else { 1 }
+            } else {
+                eval_word_count - config.ngram_size + 1
+            };
+            
+            // Overlap ratio: % of eval n-grams that had matches in training
+            let overlap_ratio = eval_ngrams_with_matches as f32 / eval_total_ngrams as f32;
+            
+            println!("  → Match with {}:{}: eval_buckets_hit={}/{}, eval_ngrams={}, ratio={:.3}",
+                    eval_name, eval_line_num, eval_ngrams_with_matches, total_ngrams, 
+                    eval_total_ngrams, overlap_ratio);
 
-            if eval_word_count > 0 {
-                let min_words = training_word_count.min(eval_word_count);
+            if overlap_ratio >= config.toxic_overlap_threshold && complete_evaluation() {
+                contamination_results
+                    .entry(file_name.to_string())
+                    .or_default()
+                    .push((line_num, eval_name.clone(), *eval_line_num, overlap_ratio));
 
-                // Threshold: collision_count should be significant relative to document length
-                let overlap_ratio = *collision_count as f32 / min_words as f32;
-
-                if overlap_ratio >= config.toxic_overlap_threshold && complete_evaluation() {
-                    contamination_results
-                        .entry(file_name.to_string())
-                        .or_default()
-                        .push((line_num, eval_name.clone(), *eval_line_num, overlap_ratio));
-
-                    if collision_count_total == 1 {
-                        contaminated_lines += 1;
-                    }
+                if collision_count_total == 1 {
+                    contaminated_lines += 1;
                 }
             }
         }
+        let threshold_time = threshold_start.elapsed();
+        
+        let total_line_time = line_start.elapsed();
+        total_lines += 1;
+        
+        // Log per-line timing
+        println!(
+            "{:8} | {:5.1}ms | {:6.1}ms | {:5.1}ms | {:4.1}ms | {:3.1}ms | {:6.1}ms | {:9.1}ms | {:8.1}ms",
+            line_num,
+            total_line_time.as_secs_f64() * 1000.0,
+            text_extraction_time.as_secs_f64() * 1000.0,
+            embedding_time.as_secs_f64() * 1000.0,
+            normalization_time.as_secs_f64() * 1000.0,
+            lsh_time.as_secs_f64() * 1000.0,
+            lookup_time.as_secs_f64() * 1000.0,
+            collision_time.as_secs_f64() * 1000.0,
+            threshold_time.as_secs_f64() * 1000.0
+        );
+        
+        // Accumulate stats
+        cumulative_stats.text_extraction += text_extraction_time;
+        cumulative_stats.embedding_computation += embedding_time;
+        cumulative_stats.normalization += normalization_time;
+        cumulative_stats.lsh_bucket_computation += lsh_time;
+        cumulative_stats.bucket_lookup += lookup_time;
+        cumulative_stats.collision_detection += collision_time;
+        cumulative_stats.threshold_evaluation += threshold_time;
+        cumulative_stats.total_per_line += total_line_time;
     }
 
+    // Print summary statistics
+    let total_time = cumulative_stats.total_per_line.as_secs_f64() * 1000.0;
+    println!("\n=== TIMING SUMMARY FOR {} ===", file_name);
+    println!("Total lines processed: {}", total_lines);
+    println!("Total time: {:.1}ms", total_time);
+    println!("Average per line: {:.1}ms", total_time / total_lines as f64);
+    println!();
+    println!("BREAKDOWN BY CATEGORY:");
+    print_timing_category("Text Extraction     ", cumulative_stats.text_extraction, total_time);
+    print_timing_category("Embedding Computation", cumulative_stats.embedding_computation, total_time);
+    print_timing_category("Vector Normalization", cumulative_stats.normalization, total_time);
+    print_timing_category("LSH Bucket Computation", cumulative_stats.lsh_bucket_computation, total_time);
+    print_timing_category("Bucket Lookup       ", cumulative_stats.bucket_lookup, total_time);
+    print_timing_category("Collision Detection ", cumulative_stats.collision_detection, total_time);
+    print_timing_category("Threshold Evaluation", cumulative_stats.threshold_evaluation, total_time);
+    println!();
+
     if contaminated_lines > 0 {
-        println!("  → Found {} contaminated lines out of {} total lines in {}",
-                contaminated_lines, total_lines, file_name);
+        println!("  → Found {} contaminated lines out of {} total lines",
+                contaminated_lines, total_lines);
     } else {
-        println!("  → No contamination found in {} ({} lines)", file_name, total_lines);
+        println!("  → No contamination found ({} lines processed)", total_lines);
     }
 
     Ok(())
+}
+
+fn insert_with_hot_bucket_detection(
+    toxic_buckets: &ToxicBuckets,
+    bucket_id: u64,
+    ngram_words: &[String],
+    eval_name: &str,
+    line_num: usize,
+    word_count: usize
+) {
+    // Check if this is already a hot bucket
+    let current_size = toxic_buckets.get(&bucket_id)
+        .map(|bucket| bucket.value().len())
+        .unwrap_or(0);
+    
+    const HOT_BUCKET_THRESHOLD: usize = 10000;
+    
+    if current_size >= HOT_BUCKET_THRESHOLD {
+        // Log the n-gram words going into this super hot bucket
+        let ngram_text = ngram_words.join(" ");
+        println!("🔥 HOT BUCKET #{} (size: {}) <- Adding n-gram: \"{}\" from {}:{}",
+                bucket_id, current_size, ngram_text, eval_name, line_num);
+    } else if current_size > 0 && current_size % 1000 == 0 {
+        // Log milestone sizes for growing buckets
+        let ngram_text = ngram_words.join(" ");
+        println!("📈 Growing bucket #{} (size: {}) <- \"{}\" from {}:{}",
+                bucket_id, current_size, ngram_text, eval_name, line_num);
+    }
+    
+    // Perform the actual insertion
+    toxic_buckets
+        .entry(bucket_id)
+        .or_default()
+        .push((eval_name.to_string(), line_num, word_count));
+}
+
+fn print_timing_category(name: &str, duration: Duration, total_ms: f64) {
+    let ms = duration.as_secs_f64() * 1000.0;
+    let percentage = (ms / total_ms) * 100.0;
+    println!("{}: {:8.1}ms ({:5.1}%)", name, ms, percentage);
 }
 
 // Placeholder for future complete evaluation logic
@@ -533,4 +690,92 @@ fn save_toxic_contamination_results(
     }
 
     Ok(())
+}
+
+fn print_bucket_statistics(toxic_buckets: &ToxicBuckets) {
+    println!("\n=== BUCKET DISTRIBUTION STATISTICS ===");
+    
+    let total_buckets = toxic_buckets.len();
+    let mut bucket_sizes: Vec<usize> = Vec::new();
+    let mut total_entries = 0;
+    let mut empty_buckets = 0;
+    
+    // Collect bucket sizes
+    for bucket in toxic_buckets.iter() {
+        let size = bucket.value().len();
+        bucket_sizes.push(size);
+        total_entries += size;
+        if size == 0 {
+            empty_buckets += 1;
+        }
+    }
+    
+    // Sort for percentile calculations
+    bucket_sizes.sort_unstable();
+    
+    let max_size = bucket_sizes.iter().max().copied().unwrap_or(0);
+    let min_size = bucket_sizes.iter().min().copied().unwrap_or(0);
+    let avg_size = if total_buckets > 0 { total_entries as f64 / total_buckets as f64 } else { 0.0 };
+    
+    // Calculate percentiles
+    let p50 = percentile(&bucket_sizes, 50);
+    let p75 = percentile(&bucket_sizes, 75);
+    let p90 = percentile(&bucket_sizes, 90);
+    let p95 = percentile(&bucket_sizes, 95);
+    let p99 = percentile(&bucket_sizes, 99);
+    
+    // Find hot buckets (top 10 largest)
+    let mut hot_buckets: Vec<(u64, usize)> = Vec::new();
+    for bucket in toxic_buckets.iter() {
+        let bucket_id = *bucket.key();
+        let size = bucket.value().len();
+        hot_buckets.push((bucket_id, size));
+    }
+    hot_buckets.sort_by(|a, b| b.1.cmp(&a.1)); // Sort by size descending
+    hot_buckets.truncate(10); // Keep only top 10
+    
+    println!("Total buckets: {}", total_buckets);
+    println!("Total entries: {}", total_entries);
+    println!("Empty buckets: {} ({:.1}%)", empty_buckets, empty_buckets as f64 / total_buckets as f64 * 100.0);
+    println!();
+    println!("BUCKET SIZE DISTRIBUTION:");
+    println!("  Min:     {}", min_size);
+    println!("  Average: {:.1}", avg_size);
+    println!("  Median:  {}", p50);
+    println!("  75th %:  {}", p75);
+    println!("  90th %:  {}", p90);
+    println!("  95th %:  {}", p95);
+    println!("  99th %:  {}", p99);
+    println!("  Max:     {}", max_size);
+    println!();
+    println!("TOP 10 HOTTEST BUCKETS:");
+    println!("Bucket ID          | Entries");
+    println!("-------------------|--------");
+    for (bucket_id, size) in &hot_buckets {
+        println!("{:18} | {:7}", bucket_id, size);
+    }
+    
+    // Identify problematic buckets
+    let large_bucket_threshold = (avg_size * 10.0) as usize;
+    let large_buckets: Vec<_> = bucket_sizes.iter().filter(|&&size| size > large_bucket_threshold).collect();
+    
+    if !large_buckets.is_empty() {
+        println!();
+        println!("⚠️  PERFORMANCE WARNING:");
+        println!("Found {} buckets with >{}x average size (>{} entries)", 
+                large_buckets.len(), 
+                10, 
+                large_bucket_threshold);
+        println!("These hot buckets may cause collision detection slowdowns.");
+    }
+    
+    println!("=====================================\n");
+}
+
+fn percentile(sorted_data: &[usize], percentile: usize) -> usize {
+    if sorted_data.is_empty() {
+        return 0;
+    }
+    let index = (percentile * sorted_data.len() / 100).min(sorted_data.len() - 1);
+    sorted_data[index]
 }

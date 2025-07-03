@@ -11,7 +11,7 @@ use unicode_segmentation::UnicodeSegmentation;
 // Standard library
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::io::BufRead;
+use std::io::{self, BufRead};
 use std::path::PathBuf;
 
 // Internal crate imports
@@ -44,12 +44,15 @@ enum Commands {
         config: PathBuf
     },
 
-    ReviewContamination {
+    ContaminationReview {
         #[arg(required=true, long)]
         config: PathBuf,
 
         #[arg(long)]
-        results_file: Option<PathBuf>
+        results_file: Option<PathBuf>,
+
+        #[arg(long, help = "Step through examples one by one, waiting for Enter between each")]
+        step: bool
     }
 
 }
@@ -288,7 +291,7 @@ struct ContaminationResult {
     method: Option<String>,
 }
 
-fn review_contamination(config: &PathBuf, results_file: Option<&PathBuf>) -> Result<(), Error> {
+fn review_contamination(config: &PathBuf, results_file: Option<&PathBuf>, step: bool) -> Result<(), Error> {
     println!("=== CONTAMINATION REVIEW ===");
 
     let config_obj = read_config(config)?;
@@ -322,6 +325,16 @@ fn review_contamination(config: &PathBuf, results_file: Option<&PathBuf>) -> Res
 
     // Review each contamination case
     for (idx, result) in contamination_results.iter().enumerate() {
+        if step && idx > 0 {
+            // Wait for user input before showing next case
+            println!("\nPress Enter to continue to next contamination case...");
+            let mut input = String::new();
+            io::stdin().read_line(&mut input).unwrap();
+            
+            // Clear the screen
+            print!("\x1B[2J\x1B[1;1H");
+        }
+        
         println!("{}", "=".repeat(80));
         println!("CONTAMINATION #{} of {}", idx + 1, contamination_results.len());
         println!("{}", "=".repeat(80));
@@ -529,8 +542,8 @@ fn main() {
             contamination_detect(config)
         }
 
-        Commands::ReviewContamination {config, results_file} => {
-            review_contamination(config, results_file.as_ref())
+        Commands::ContaminationReview {config, results_file, step} => {
+            review_contamination(config, results_file.as_ref(), *step)
         }
 
     };

@@ -7,7 +7,9 @@
       "Bash(ls:*)",
       "Bash(cargo run:*)",
       "Bash(cargo check:*)",
-      "Bash(cargo:*)"
+      "Bash(cargo:*)",
+      "Bash(timeout 90 cargo run --release -- contamination-detect --config examples/eval/toxic.yaml)",
+      "Bash(timeout 60 cargo run --release -- contamination-detect --config examples/eval/toxic.yaml)"
     ],
     "deny": []
   }
