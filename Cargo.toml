@@ -19,6 +19,7 @@ tiktoken-rs = "0.5.8"
 rustc-hash = "1.1.0"
 regex = "1.10.4"
 ndarray = "0.15.6"
+# blas-src = { version = "0.8", features = ["openblas"] }  # TODO: Enable when Cargo issue resolved
 rand_chacha = "0.3.1"
 sha2 = "0.9"
 bytemuck = "1.16.0"

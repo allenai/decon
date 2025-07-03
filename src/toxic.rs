@@ -27,8 +27,10 @@
 
 use anyhow::{Error, Result};
 use dashmap::DashMap;
+use ndarray::ArrayView1;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
+use rayon::prelude::*;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::fs::create_dir_all;
@@ -231,12 +233,11 @@ fn normalize_vector(vector: &[f32]) -> Option<Vec<f32>> {
 
 fn compute_lsh_bucket(normalized_vector: &[f32], hyperplanes: &Hyperplanes) -> u64 {
     let mut bucket_id = 0u64;
+    let vector_view = ArrayView1::from(normalized_vector);
 
     for (i, hyperplane) in hyperplanes.iter().enumerate() {
-        let dot_product: f32 = normalized_vector.iter()
-            .zip(hyperplane.iter())
-            .map(|(v, h)| v * h)
-            .sum();
+        let hyperplane_view = ArrayView1::from(hyperplane.as_slice());
+        let dot_product = vector_view.dot(&hyperplane_view);
 
         if dot_product >= 0.0 {
             bucket_id |= 1u64 << i;
@@ -260,7 +261,7 @@ fn build_toxic_index(
     )?;
     let pbar = build_pbar(reference_files.len(), "Reference files");
 
-    for file_path in reference_files.iter() {
+    reference_files.par_iter().for_each(|file_path| {
         if let Err(e) = process_toxic_reference_file(
             file_path,
             config,
@@ -271,7 +272,7 @@ fn build_toxic_index(
             println!("Error processing reference file {:?}: {:?}", file_path, e);
         }
         pbar.inc(1);
-    }
+    });
 
     Ok(toxic_buckets)
 }
@@ -348,7 +349,7 @@ fn detect_toxic_contamination(
 
     let contamination_results: DashMap<String, Vec<(usize, String, usize, f32)>> = DashMap::new();
 
-    for file_path in training_files.iter() {
+    training_files.par_iter().for_each(|file_path| {
         let file_name = if file_path.extension().and_then(|s| s.to_str()) == Some("gz") {
             file_path
                 .file_stem()
@@ -375,7 +376,7 @@ fn detect_toxic_contamination(
             println!("Error processing training file {:?}: {:?}", file_path, e);
         }
         pbar.inc(1);
-    }
+    });
 
     // Save contamination results
     save_toxic_contamination_results(&contamination_results, &config.output_dir)?;
