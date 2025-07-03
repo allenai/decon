@@ -68,9 +68,13 @@ pub struct Config {
     pub mode: String,
 
     // Minhash parameters
+    #[serde(default = "default_num_bands")]
     pub num_bands: usize,
+    #[serde(default = "default_band_size")]
     pub band_size: usize,
+    #[serde(default = "default_ngram_size")]
     pub ngram_size: usize,
+    #[serde(default = "default_tokenizer_str")]
     pub tokenizer_str: String,
     #[serde(default)]
     pub hash_seed: usize,
@@ -131,6 +135,22 @@ fn default_toxic_poison_scale() -> f32 {
 
 fn default_debug() -> bool {
     false  // Debug logging disabled by default
+}
+
+fn default_num_bands() -> usize {
+    7  // Default MinHash bands
+}
+
+fn default_band_size() -> usize {
+    8  // Default MinHash band size
+}
+
+fn default_ngram_size() -> usize {
+    5  // Default n-gram size
+}
+
+fn default_tokenizer_str() -> String {
+    "uniseg".to_string()  // Default tokenizer
 }
 
 fn read_config(config_path: &PathBuf) -> Result<Config, Error> {
