@@ -33,8 +33,8 @@ use rand_chacha::ChaCha20Rng;
 use rayon::prelude::*;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
-use std::fs::create_dir_all;
-use std::io::{BufRead, Write};
+use std::fs::{create_dir_all, File};
+use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -153,8 +153,92 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
     Ok(())
 }
 
-fn load_embeddings(embedding_path: &PathBuf) -> Result<EmbeddingMap, Error> {
-    println!("Loading embeddings from: {:?}", embedding_path);
+fn save_embeddings_binary(embeddings: &EmbeddingMap, path: &PathBuf) -> Result<(), Error> {
+    let mut file = BufWriter::new(File::create(path)?);
+    
+    // Header
+    file.write_all(&0x454D4244u32.to_le_bytes())?; // Magic "EMBD"
+    file.write_all(&(embeddings.len() as u32).to_le_bytes())?;
+    file.write_all(&(EMBEDDING_DIM as u32).to_le_bytes())?;
+    
+    // Collect and sort words for deterministic order
+    let mut words: Vec<_> = embeddings.iter().map(|entry| entry.key().clone()).collect();
+    words.sort();
+    
+    // Write vocabulary
+    for word in &words {
+        let word_bytes = word.as_bytes();
+        file.write_all(&(word_bytes.len() as u16).to_le_bytes())?;
+        file.write_all(word_bytes)?;
+    }
+    
+    // Write embeddings in same order
+    for word in &words {
+        let vector = embeddings.get(word).unwrap();
+        for &val in vector.value() {
+            file.write_all(&val.to_le_bytes())?;
+        }
+    }
+    
+    println!("Saved binary embeddings to: {:?}", path);
+    Ok(())
+}
+
+fn load_embeddings_binary(path: &PathBuf) -> Result<EmbeddingMap, Error> {
+    let mut file = BufReader::new(File::open(path)?);
+    let embeddings = DashMap::new();
+    
+    // Read header
+    let mut buf = [0u8; 4];
+    file.read_exact(&mut buf)?;
+    if u32::from_le_bytes(buf) != 0x454D4244 {
+        return Err(anyhow::anyhow!("Invalid binary embedding file"));
+    }
+    
+    file.read_exact(&mut buf)?;
+    let vocab_size = u32::from_le_bytes(buf) as usize;
+    
+    file.read_exact(&mut buf)?;
+    let embedding_dim = u32::from_le_bytes(buf) as usize;
+    
+    if embedding_dim != EMBEDDING_DIM {
+        return Err(anyhow::anyhow!("Embedding dimension mismatch: expected {}, got {}", EMBEDDING_DIM, embedding_dim));
+    }
+    
+    // Read vocabulary
+    let mut words = Vec::with_capacity(vocab_size);
+    for _ in 0..vocab_size {
+        let mut len_buf = [0u8; 2];
+        file.read_exact(&mut len_buf)?;
+        let word_len = u16::from_le_bytes(len_buf) as usize;
+        
+        let mut word_buf = vec![0u8; word_len];
+        file.read_exact(&mut word_buf)?;
+        words.push(String::from_utf8(word_buf)?);
+    }
+    
+    // Read embeddings
+    for word in words {
+        let mut vector = vec![0.0f32; embedding_dim];
+        for val in &mut vector {
+            let mut val_buf = [0u8; 4];
+            file.read_exact(&mut val_buf)?;
+            *val = f32::from_le_bytes(val_buf);
+        }
+        embeddings.insert(word, vector);
+        
+        if embeddings.len() % 100000 == 0 {
+            print!(".");
+            std::io::stdout().flush().unwrap();
+        }
+    }
+    
+    println!(); // New line after dots
+    Ok(embeddings)
+}
+
+fn load_embeddings_text(embedding_path: &PathBuf) -> Result<EmbeddingMap, Error> {
+    println!("Loading text embeddings from: {:?}", embedding_path);
     let data = read_pathbuf_to_mem(embedding_path)?;
     let embeddings = DashMap::new();
 
@@ -194,6 +278,25 @@ fn load_embeddings(embedding_path: &PathBuf) -> Result<EmbeddingMap, Error> {
     }
 
     println!(); // New line after dots
+    Ok(embeddings)
+}
+
+fn load_embeddings(embedding_path: &PathBuf) -> Result<EmbeddingMap, Error> {
+    // Try binary format first (.bin extension)
+    let binary_path = embedding_path.with_extension("bin");
+    if binary_path.exists() {
+        println!("Loading binary embeddings from: {:?}", binary_path);
+        return load_embeddings_binary(&binary_path);
+    }
+    
+    // Fall back to text format and optionally create binary version
+    let embeddings = load_embeddings_text(embedding_path)?;
+    
+    // Save binary version for next time
+    if let Err(e) = save_embeddings_binary(&embeddings, &binary_path) {
+        println!("Warning: Failed to save binary embeddings: {}", e);
+    }
+    
     Ok(embeddings)
 }
 
