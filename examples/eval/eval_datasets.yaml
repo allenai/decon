@@ -1,6 +1,6 @@
 # Configuration for downloading and transforming eval datasets
 # Global settings
-output_dir: "/home/robert/Downloads/reference"
+output_dir: "fixtures/reference"
 jsonl_format:
   text_field: "text"
   eval_field: "eval_name"
@@ -15,6 +15,7 @@ evals:
     splits: ["train", "test"]  # Include all splits for comprehensive contamination detection
     transform:
       text_field: "question"  # Extract the question text
+      answer_field: "answer"
 
   mmlu:
     hf_path: "cais/mmlu"
@@ -22,6 +23,7 @@ evals:
     splits: ["test", "validation", "dev"]  # Include all splits for comprehensive contamination detection
     transform:
       text_field: "question"  # Extract the question text
+      answer_field: "choices"
       extra_fields: ["subject"]  # Include subject for potential analysis
 
 

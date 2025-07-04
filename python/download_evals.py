@@ -53,7 +53,8 @@ def download_and_transform_eval(eval_name, eval_config, global_config):
                     global_config['jsonl_format']['text_field']: text,
                     global_config['jsonl_format']['eval_field']: eval_name,
                     global_config['jsonl_format']['index_field']: idx,
-                    global_config['jsonl_format']['split_field']: split
+                    global_config['jsonl_format']['split_field']: split,
+                    'type': 'question'
                 }
                 
                 # Add any extra fields
@@ -72,15 +73,35 @@ def download_and_transform_eval(eval_name, eval_config, global_config):
                         
                         # Handle different answer field types
                         if isinstance(answer_value, list):
-                            # Array of answers - create record for each
+                            # Array of answers - create separate record for each
                             for answer in answer_value:
-                                answer_record = base_record.copy()
-                                answer_record[global_config['jsonl_format']['text_field']] = f"{text} {answer}"
+                                answer_record = {
+                                    global_config['jsonl_format']['text_field']: answer,
+                                    global_config['jsonl_format']['eval_field']: eval_name,
+                                    global_config['jsonl_format']['index_field']: idx,
+                                    global_config['jsonl_format']['split_field']: split,
+                                    'type': 'answer'
+                                }
+                                # Add extra fields to answer record too
+                                if 'extra_fields' in eval_config['transform']:
+                                    for field in eval_config['transform']['extra_fields']:
+                                        if field in example:
+                                            answer_record[field] = example[field]
                                 records_to_write.append(answer_record)
                         else:
-                            # Single answer - create combined record
-                            answer_record = base_record.copy()
-                            answer_record[global_config['jsonl_format']['text_field']] = f"{text} {answer_value}"
+                            # Single answer - create separate record
+                            answer_record = {
+                                global_config['jsonl_format']['text_field']: answer_value,
+                                global_config['jsonl_format']['eval_field']: eval_name,
+                                global_config['jsonl_format']['index_field']: idx,
+                                global_config['jsonl_format']['split_field']: split,
+                                'type': 'answer'
+                            }
+                            # Add extra fields to answer record too
+                            if 'extra_fields' in eval_config['transform']:
+                                for field in eval_config['transform']['extra_fields']:
+                                    if field in example:
+                                        answer_record[field] = example[field]
                             records_to_write.append(answer_record)
                 
                 # Handle choices field if configured (e.g., multiple choice questions)
@@ -92,14 +113,34 @@ def download_and_transform_eval(eval_name, eval_config, global_config):
                         # Handle choices structure: {'text': [...], 'label': [...]}
                         if isinstance(choices, dict) and 'text' in choices:
                             for choice_text in choices['text']:
-                                choice_record = base_record.copy()
-                                choice_record[global_config['jsonl_format']['text_field']] = f"{text} {choice_text}"
+                                choice_record = {
+                                    global_config['jsonl_format']['text_field']: choice_text,
+                                    global_config['jsonl_format']['eval_field']: eval_name,
+                                    global_config['jsonl_format']['index_field']: idx,
+                                    global_config['jsonl_format']['split_field']: split,
+                                    'type': 'answer'
+                                }
+                                # Add extra fields to choice record too
+                                if 'extra_fields' in eval_config['transform']:
+                                    for field in eval_config['transform']['extra_fields']:
+                                        if field in example:
+                                            choice_record[field] = example[field]
                                 records_to_write.append(choice_record)
                         elif isinstance(choices, list):
                             # Handle simple list of choices
                             for choice in choices:
-                                choice_record = base_record.copy()
-                                choice_record[global_config['jsonl_format']['text_field']] = f"{text} {choice}"
+                                choice_record = {
+                                    global_config['jsonl_format']['text_field']: choice,
+                                    global_config['jsonl_format']['eval_field']: eval_name,
+                                    global_config['jsonl_format']['index_field']: idx,
+                                    global_config['jsonl_format']['split_field']: split,
+                                    'type': 'answer'
+                                }
+                                # Add extra fields to choice record too
+                                if 'extra_fields' in eval_config['transform']:
+                                    for field in eval_config['transform']['extra_fields']:
+                                        if field in example:
+                                            choice_record[field] = example[field]
                                 records_to_write.append(choice_record)
 
                 # Write all records to JSONL

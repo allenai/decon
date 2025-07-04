@@ -7,13 +7,10 @@ local_input: fixtures/training
 reference_input: fixtures/reference
 output_dir: fixtures/output
 
-
-# TOXIC-specific parameters
 toxic_embedding_path: /home/robert/Downloads/wiki-news-300d-1M.vec
 toxic_hyperplanes: 64
-toxic_overlap_threshold: 0.95
+toxic_overlap_threshold: 0.5
 toxic_poison_scale: 3.0  # Amplify semantic destruction from poison tokens (numbers, proper nouns, OOV)
-skip_hot_bucket_threshold: 1000  # Skip buckets with more than this many entries
+skip_hot_bucket_threshold: -1  # Skip buckets with more than this many entries
 
-# Text processing - preserve mathematical operators for TOXIC
-punctuation_chars: "!\"#$%&'(),./:;?@[\\]^_`{|}~"  # Excludes: * + - = < >
+punctuation_chars: "!\"#&'(),./:;?@`{|}~"  # Excludes: * + - = < > ^ _ []

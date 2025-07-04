@@ -544,28 +544,36 @@ fn load_ground_truth(input_dir: &PathBuf) -> Result<Vec<GroundTruthRecord>, Erro
 fn calculate_and_display_stats(contamination_results: &[ContaminationResult], ground_truth: &[GroundTruthRecord]) -> Result<(), Error> {
     let mut stats = ClassificationStats::new();
 
-    // Create a mapping from id to ground truth records for easier lookup
-    let mut id_to_record: std::collections::HashMap<usize, &GroundTruthRecord> = std::collections::HashMap::new();
-    for record in ground_truth {
-        id_to_record.insert(record.id, record);
-    }
+    // Load training cache to get actual text content for mapping
+    let training_cache = load_training_files(&std::path::PathBuf::from("fixtures/training"), "text")?;
 
-    // Create a set of detected IDs based on training line numbers
-    // Note: contamination results use 0-based line numbers, ground truth uses id field
-    let mut detected_ids: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    // Create a set of detected texts for accurate mapping
+    let mut detected_texts: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut unmapped_detections = 0;
+    let mut all_detected_texts: Vec<String> = Vec::new();
+    
     for result in contamination_results {
-        // Convert training_line (0-based) to id by looking up in the original training file
-        // For now, we'll assume line number matches id-1 since original file had sequential IDs
-        if let Some(record) = ground_truth.iter().find(|r| (r.id as isize - 7) as usize == result.training_line) {
-            detected_ids.insert(record.id);
+        if let Some(lines) = training_cache.get(&result.training_file) {
+            if result.training_line < lines.len() {
+                let text = lines[result.training_line].clone();
+                detected_texts.insert(text.clone());
+                all_detected_texts.push(text);
+            } else {
+                unmapped_detections += 1;
+            }
+        } else {
+            unmapped_detections += 1;
         }
     }
+    
+    let unique_detections = detected_texts.len();
+    let total_detections = all_detected_texts.len();
 
     // Count ground truth annotations
     for record in ground_truth {
         stats.total_ground_truth += 1;
         let is_contaminated = record.annotation.to_uppercase() == "CONTAMINATED";
-        let is_detected = detected_ids.contains(&record.id);
+        let is_detected = detected_texts.contains(&record.text);
 
         match (is_contaminated, is_detected) {
             (true, true) => stats.true_positives += 1,
@@ -603,6 +611,15 @@ fn calculate_and_display_stats(contamination_results: &[ContaminationResult], gr
     println!("  Detected contaminated:      {}", stats.total_detected);
     println!("  Missed contamination:       {}", stats.false_negatives);
     println!("  False alarms:               {}", stats.false_positives);
+    
+    if unmapped_detections > 0 {
+        println!("  Unmapped detections:        {}", unmapped_detections);
+    }
+    
+    if total_detections != unique_detections {
+        println!("  Duplicate detections:       {}", total_detections - unique_detections);
+        println!("  Unique detected texts:      {}", unique_detections);
+    }
 
     Ok(())
 }

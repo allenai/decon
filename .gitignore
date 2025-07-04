@@ -1,3 +1,5 @@
 *.ipynb
 *.pyc
 fixtures/output/*.*
+fixtures/embeddings/*.*
+fixtures/reference/*.*
