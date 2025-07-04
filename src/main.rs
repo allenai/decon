@@ -105,6 +105,10 @@ pub struct Config {
     #[serde(default = "default_skip_hot_bucket_threshold")]
     pub skip_hot_bucket_threshold: i32,
 
+    // Text processing options
+    #[serde(default = "default_punctuation_chars")]
+    pub punctuation_chars: String,
+
     // Debug options
     #[serde(default = "default_debug")]
     pub debug: bool
@@ -157,6 +161,10 @@ fn default_tokenizer_str() -> String {
 
 fn default_skip_hot_bucket_threshold() -> i32 {
     -1  // Disabled by default
+}
+
+fn default_punctuation_chars() -> String {
+    "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~".to_string()  // Default punctuation for minhash
 }
 
 fn read_config(config_path: &PathBuf) -> Result<Config, Error> {
@@ -253,9 +261,9 @@ pub fn hash_object<T: Hash>(obj: &T) -> usize {
 }
 
 
-pub fn preprocess_text(text: &str, tokenizer: &OmniTokenizer) -> Vec<usize>
+pub fn preprocess_text(text: &str, tokenizer: &OmniTokenizer, punctuation_chars: &str) -> Vec<usize>
 {
-    let cleaned_text = clean_text(text);
+    let cleaned_text = clean_text(text, punctuation_chars);
     // println!("    🔧 Original text: \"{}\"", text);
     // println!("    🔧 Cleaned text:  \"{}\"", cleaned_text);
     let tokens = tokenizer.encode(&cleaned_text);
@@ -264,15 +272,15 @@ pub fn preprocess_text(text: &str, tokenizer: &OmniTokenizer) -> Vec<usize>
 }
 
 
-pub fn clean_text(text: &str) -> String {
+pub fn clean_text(text: &str, punctuation_chars: &str) -> String {
     // SlimPajama text cleaning process
 
     // Convert the document to lowercase
     let mut text = text.to_lowercase();
 
-    // Remove punctuation
-    let punctuation: &[_] = &['!', '"', '#', '$', '%', '&', '\'', '(', ')', '*', '+', ',', '-', '.', '/', ':', ';', '<', '=', '>', '?', '@', '[', '\\', ']', '^', '_', '`', '{', '|', '}', '~'];
-    text.retain(|c| !punctuation.contains(&c));
+    // Remove punctuation based on configurable character set
+    let punctuation_chars: Vec<char> = punctuation_chars.chars().collect();
+    text.retain(|c| !punctuation_chars.contains(&c));
 
     // Replace multiple whitespace characters with a single space
     let re = Regex::new(r"\s+").unwrap();

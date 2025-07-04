@@ -11,3 +11,6 @@ num_bands: 7
 tokenizer_str: uniseg
 exact_override: true
 jaccard_similarity_threshold: 0.8
+
+# Text processing - default aggressive punctuation removal for minhash
+# punctuation_chars: "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"  # (uses default if not specified)

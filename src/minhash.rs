@@ -74,7 +74,8 @@ fn build_reference_index(config: &Config) -> Result<(ReferenceBands, ReferenceSi
             &config.content_key,
             &reference_bands,
             &reference_signatures,
-            config.exact_override
+            config.exact_override,
+            &config.punctuation_chars
         ) {
             println!("Error processing reference file {:?}: {:?}", file_path, e);
         }
@@ -94,7 +95,8 @@ fn process_reference_file(
     content_key: &str,
     reference_bands: &ReferenceBands,
     reference_signatures: &ReferenceSignatures,
-    exact_override: bool
+    exact_override: bool,
+    punctuation_chars: &str
 ) -> Result<(), Error> {
     let data = read_pathbuf_to_mem(file_path)?;
     let tokenizer = OmniTokenizer::new(tokenizer_str)?;
@@ -117,7 +119,7 @@ fn process_reference_file(
         lines_processed += 1;
 
         let hash_vals = if exact_override {
-            let Ok(tokens) = catch_unwind(|| preprocess_text(&line_text, &tokenizer)) else {
+            let Ok(tokens) = catch_unwind(|| preprocess_text(&line_text, &tokenizer, punctuation_chars)) else {
                 println!("Tokenization failed on {:?} | line {:?}", file_path, line_num);
                 continue;
             };
@@ -200,7 +202,8 @@ fn detect_contamination_in_training_data(
             reference_signatures,
             &contamination_results,
             config.exact_override,
-            config.jaccard_similarity_threshold
+            config.jaccard_similarity_threshold,
+            &config.punctuation_chars
         ) {
             println!("Error processing training file {:?}: {:?}", file_path, e);
         }
@@ -226,7 +229,8 @@ fn process_training_file(
     reference_signatures: &ReferenceSignatures,
     contamination_results: &DashMap<String, Vec<(usize, String, usize, f32)>>,
     exact_override: bool,
-    jaccard_threshold: f32
+    jaccard_threshold: f32,
+    punctuation_chars: &str
 ) -> Result<(), Error> {
     let data = read_pathbuf_to_mem(file_path)?;
     let tokenizer = OmniTokenizer::new(tokenizer_str)?;
@@ -243,7 +247,7 @@ fn process_training_file(
         total_lines += 1;
 
         let hash_vals = if exact_override {
-            let Ok(tokens) = catch_unwind(|| preprocess_text(&line_text, &tokenizer)) else {
+            let Ok(tokens) = catch_unwind(|| preprocess_text(&line_text, &tokenizer, punctuation_chars)) else {
                 continue;
             };
             get_hash_vals_from_tokens(tokens, perm_seeds, ngram_size)

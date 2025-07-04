@@ -9,362 +9,378 @@ jsonl_format:
 
 # Dataset specifications
 evals:
-  aimo_validation:
-    hf_path: "AI-MO/aimo-validation-aime"
-    splits: ["train"]
+  gsm8k:
+    hf_path: "openai/gsm8k"
+    hf_config: "main"  # Use the main config
+    splits: ["train", "test"]  # Include all splits for comprehensive contamination detection
     transform:
-      text_field: "problem"
-      answer_field: "answer"
+      text_field: "question"  # Extract the question text
 
-  ai2_arc_challenge:
-    hf_path: "allenai/ai2_arc"
-    hf_config: "ARC-Challenge"
-    splits: ["train", "test", "validation"]
+  mmlu:
+    hf_path: "cais/mmlu"
+    hf_config: "all"  # Use the 'all' config which includes all subjects
+    splits: ["test", "validation", "dev"]  # Include all splits for comprehensive contamination detection
     transform:
-      text_field: "question"
-      answer_field: "answerKey"
-      choices_field: "choices"
+      text_field: "question"  # Extract the question text
+      extra_fields: ["subject"]  # Include subject for potential analysis
 
-  ai2_arc_easy:
-    hf_path: "allenai/ai2_arc"
-    hf_config: "ARC-Easy"
-    splits: ["train", "test", "validation"]
-    transform:
-      text_field: "question"
-      answer_field: "answerKey"
-      choices_field: "choices"
 
-  popqa:
-    hf_path: "akariasai/PopQA"
-    splits: ["test"]
-    transform:
-      text_field: "question"
-      answer_field: "possible_answers"
+  # aimo_validation:
+  #   hf_path: "AI-MO/aimo-validation-aime"
+  #   splits: ["train"]
+  #   transform:
+  #     text_field: "problem"
+  #     answer_field: "answer"
 
-  basic_skills_arithmetic:
-    hf_path: "allenai/basic-skills"
-    hf_config: "arithmetic"
-    splits: ["validation"]
-    transform:
-      text_field: "question"
+  # ai2_arc_challenge:
+  #   hf_path: "allenai/ai2_arc"
+  #   hf_config: "ARC-Challenge"
+  #   splits: ["train", "test", "validation"]
+  #   transform:
+  #     text_field: "question"
+  #     answer_field: "answerKey"
+  #     choices_field: "choices"
 
-  basic_skills_coding:
-    hf_path: "allenai/basic-skills"
-    hf_config: "coding"
-    splits: ["validation"]
-    transform:
-      text_field: "question"
+  # ai2_arc_easy:
+  #   hf_path: "allenai/ai2_arc"
+  #   hf_config: "ARC-Easy"
+  #   splits: ["train", "test", "validation"]
+  #   transform:
+  #     text_field: "question"
+  #     answer_field: "answerKey"
+  #     choices_field: "choices"
 
-  coqa_mc:
-    hf_path: "allenai/coqa_mc"
-    splits: ["validation"]
-    transform:
-      text_field: "query_original"
+  # popqa:
+  #   hf_path: "akariasai/PopQA"
+  #   splits: ["test"]
+  #   transform:
+  #     text_field: "question"
+  #     answer_field: "possible_answers"
 
-  drop_mc:
-    hf_path: "allenai/drop_mc"
-    splits: ["validation"]
-    transform:
-      text_field: "question_original"
+  # basic_skills_arithmetic:
+  #   hf_path: "allenai/basic-skills"
+  #   hf_config: "arithmetic"
+  #   splits: ["validation"]
+  #   transform:
+  #     text_field: "question"
 
-  jeopardy_mc:
-    hf_path: "allenai/jeopardy_mc"
-    splits: ["test"]
-    transform:
-      text_field: "context_original"
+  # basic_skills_coding:
+  #   hf_path: "allenai/basic-skills"
+  #   hf_config: "coding"
+  #   splits: ["validation"]
+  #   transform:
+  #     text_field: "question"
 
-  multilingual_mbpp_python:
-    hf_path: "allenai/multilingual_mbpp"
-    hf_config: "python"
-    splits: ["test", "train", "validation"]
-    transform:
-      text_field: "text"
+  # coqa_mc:
+  #   hf_path: "allenai/coqa_mc"
+  #   splits: ["validation"]
+  #   transform:
+  #     text_field: "query_original"
 
-  nq_open_mc:
-    hf_path: "allenai/nq_open_mc"
-    splits: ["validation"]
-    transform:
-      text_field: "question"
+  # drop_mc:
+  #   hf_path: "allenai/drop_mc"
+  #   splits: ["validation"]
+  #   transform:
+  #     text_field: "question_original"
 
-  qasper_yesno:
-    hf_path: "allenai/qasper-yesno"
-    splits: ["train", "validation", "test"]
-    transform:
-      text_field: "question"
+  # jeopardy_mc:
+  #   hf_path: "allenai/jeopardy_mc"
+  #   splits: ["test"]
+  #   transform:
+  #     text_field: "context_original"
 
-  sciriff_yesno:
-    hf_path: "allenai/sciriff-yesno"
-    splits: ["train", "validation", "test"]
-    transform:
-      text_field: "question"
+  # multilingual_mbpp_python:
+  #   hf_path: "allenai/multilingual_mbpp"
+  #   hf_config: "python"
+  #   splits: ["test", "train", "validation"]
+  #   transform:
+  #     text_field: "text"
 
-  simple_tom_mental_state:
-    hf_path: "allenai/SimpleToM"
-    hf_config: "mental-state-qa"
-    splits: ["test"]
-    transform:
-      text_field: "question"
+  # nq_open_mc:
+  #   hf_path: "allenai/nq_open_mc"
+  #   splits: ["validation"]
+  #   transform:
+  #     text_field: "question"
 
-  squad_mc:
-    hf_path: "allenai/squad_mc"
-    splits: ["validation"]
-    transform:
-      text_field: "question_original"
+  # qasper_yesno:
+  #   hf_path: "allenai/qasper-yesno"
+  #   splits: ["train", "validation", "test"]
+  #   transform:
+  #     text_field: "question"
 
-  zebra_logic_grid:
-    hf_path: "allenai/ZebraLogicBench-private"
-    hf_config: "grid_mode"
-    splits: ["test"]
-    transform:
-      text_field: "puzzle"
+  # sciriff_yesno:
+  #   hf_path: "allenai/sciriff-yesno"
+  #   splits: ["train", "validation", "test"]
+  #   transform:
+  #     text_field: "question"
 
-  gsm_symbolic:
-    hf_path: "apple/GSM-Symbolic"
-    splits: ["test"]
-    transform:
-      text_field: "question"
+  # simple_tom_mental_state:
+  #   hf_path: "allenai/SimpleToM"
+  #   hf_config: "mental-state-qa"
+  #   splits: ["test"]
+  #   transform:
+  #     text_field: "question"
 
-  bigcodebench:
-    hf_path: "bigcode/bigcodebench"
-    splits: ["v0.1.4"]
-    transform:
-      text_field: "complete_prompt"
+  # squad_mc:
+  #   hf_path: "allenai/squad_mc"
+  #   splits: ["validation"]
+  #   transform:
+  #     text_field: "question_original"
 
-  bigcodebench_hard:
-    hf_path: "bigcode/bigcodebench-hard"
-    splits: ["v0.1.4"]
-    transform:
-      text_field: "complete_prompt"
+  # zebra_logic_grid:
+  #   hf_path: "allenai/ZebraLogicBench-private"
+  #   hf_config: "grid_mode"
+  #   splits: ["test"]
+  #   transform:
+  #     text_field: "puzzle"
 
-  cosmos_qa:
-    hf_path: "allenai/cosmos_qa"
-    splits: ["train", "test", "validation"]
-    transform:
-      text_field: "question"
+  # gsm_symbolic:
+  #   hf_path: "apple/GSM-Symbolic"
+  #   splits: ["test"]
+  #   transform:
+  #     text_field: "question"
 
-  cruxeval:
-    hf_path: "cruxeval-org/cruxeval"
-    splits: ["test"]
-    transform:
-      text_field: "code"
+  # bigcodebench:
+  #   hf_path: "bigcode/bigcodebench"
+  #   splits: ["v0.1.4"]
+  #   transform:
+  #     text_field: "complete_prompt"
 
-  deepseek_leetcode:
-    hf_path: "davidheineman/deepseek-leetcode"
-    splits: ["test"]
-    transform:
-      text_field: "prompt"
+  # bigcodebench_hard:
+  #   hf_path: "bigcode/bigcodebench-hard"
+  #   splits: ["v0.1.4"]
+  #   transform:
+  #     text_field: "complete_prompt"
 
-  medqa_en:
-    hf_path: "davidheineman/medqa-en"
-    splits: ["train", "test", "dev"]
-    transform:
-      text_field: "question"
+  # cosmos_qa:
+  #   hf_path: "allenai/cosmos_qa"
+  #   splits: ["train", "test", "validation"]
+  #   transform:
+  #     text_field: "question"
 
-  coqa:
-    hf_path: "EleutherAI/coqa"
-    splits: ["train", "validation"]
-    transform:
-      text_field: "story"
+  # cruxeval:
+  #   hf_path: "cruxeval-org/cruxeval"
+  #   splits: ["test"]
+  #   transform:
+  #     text_field: "code"
 
-  drop:
-    hf_path: "EleutherAI/drop"
-    splits: ["train", "validation"]
-    transform:
-      text_field: "question"
+  # deepseek_leetcode:
+  #   hf_path: "davidheineman/deepseek-leetcode"
+  #   splits: ["test"]
+  #   transform:
+  #     text_field: "prompt"
 
-  hendrycks_math_algebra:
-    hf_path: "EleutherAI/hendrycks_math"
-    hf_config: "algebra"
-    splits: ["train", "test"]
-    transform:
-      text_field: "problem"
+  # medqa_en:
+  #   hf_path: "davidheineman/medqa-en"
+  #   splits: ["train", "test", "dev"]
+  #   transform:
+  #     text_field: "question"
 
-  lambada_openai:
-    hf_path: "EleutherAI/lambada_openai"
-    splits: ["test"]
-    transform:
-      text_field: "text"
+  # coqa:
+  #   hf_path: "EleutherAI/coqa"
+  #   splits: ["train", "validation"]
+  #   transform:
+  #     text_field: "story"
 
-  humaneval_plus:
-    hf_path: "evalplus/humanevalplus"
-    splits: ["test"]
-    transform:
-      text_field: "prompt"
+  # drop:
+  #   hf_path: "EleutherAI/drop"
+  #   splits: ["train", "validation"]
+  #   transform:
+  #     text_field: "question"
 
-  mbpp_plus:
-    hf_path: "evalplus/mbppplus"
-    splits: ["test"]
-    transform:
-      text_field: "prompt"
+  # hendrycks_math_algebra:
+  #   hf_path: "EleutherAI/hendrycks_math"
+  #   hf_config: "algebra"
+  #   splits: ["train", "test"]
+  #   transform:
+  #     text_field: "problem"
 
-  mbpp:
-    hf_path: "google-research-datasets/mbpp"
-    splits: ["train", "test", "validation"]
-    transform:
-      text_field: "text"
+  # lambada_openai:
+  #   hf_path: "EleutherAI/lambada_openai"
+  #   splits: ["test"]
+  #   transform:
+  #     text_field: "text"
 
-  nq_open:
-    hf_path: "google-research-datasets/nq_open"
-    splits: ["train", "validation"]
-    transform:
-      text_field: "question"
+  # humaneval_plus:
+  #   hf_path: "evalplus/humanevalplus"
+  #   splits: ["test"]
+  #   transform:
+  #     text_field: "prompt"
 
-  tydiqa_primary:
-    hf_path: "google-research-datasets/tydiqa"
-    hf_config: "primary_task"
-    splits: ["train", "validation"]
-    transform:
-      text_field: "question_text"
+  # mbpp_plus:
+  #   hf_path: "evalplus/mbppplus"
+  #   splits: ["test"]
+  #   transform:
+  #     text_field: "prompt"
 
-  ifeval:
-    hf_path: "HuggingFaceH4/ifeval"
-    splits: ["train"]
-    transform:
-      text_field: "prompt"
+  # mbpp:
+  #   hf_path: "google-research-datasets/mbpp"
+  #   splits: ["train", "test", "validation"]
+  #   transform:
+  #     text_field: "text"
 
-  math_500:
-    hf_path: "HuggingFaceH4/MATH-500"
-    splits: ["test"]
-    transform:
-      text_field: "problem"
+  # nq_open:
+  #   hf_path: "google-research-datasets/nq_open"
+  #   splits: ["train", "validation"]
+  #   transform:
+  #     text_field: "question"
 
-  lexam_mcq:
-    hf_path: "LEXam-Benchmark/LEXam"
-    hf_config: "mcq_4_choices"
-    splits: ["test"]
-    transform:
-      text_field: "question"
+  # tydiqa_primary:
+  #   hf_path: "google-research-datasets/tydiqa"
+  #   hf_config: "primary_task"
+  #   splits: ["train", "validation"]
+  #   transform:
+  #     text_field: "question_text"
 
-  simple_qa:
-    hf_path: "lighteval/SimpleQA"
-    splits: ["test"]
-    transform:
-      text_field: "problem"
+  # ifeval:
+  #   hf_path: "HuggingFaceH4/ifeval"
+  #   splits: ["train"]
+  #   transform:
+  #     text_field: "prompt"
 
-  livecodebench:
-    hf_path: "livecodebench/code_generation_lite"
-    splits: ["test"]
-    transform:
-      text_field: "question_content"
+  # math_500:
+  #   hf_path: "HuggingFaceH4/MATH-500"
+  #   splits: ["test"]
+  #   transform:
+  #     text_field: "problem"
 
-  humaneval_infilling:
-    hf_path: "loubnabnl/humaneval_infilling"
-    splits: ["test"]
-    transform:
-      text_field: "prompt"
+  # lexam_mcq:
+  #   hf_path: "LEXam-Benchmark/LEXam"
+  #   hf_config: "mcq_4_choices"
+  #   splits: ["test"]
+  #   transform:
+  #     text_field: "question"
 
-  logiqa:
-    hf_path: "lucasmccabe/logiqa"
-    splits: ["train", "validation", "test"]
-    transform:
-      text_field: "query"
+  # simple_qa:
+  #   hf_path: "lighteval/SimpleQA"
+  #   splits: ["test"]
+  #   transform:
+  #     text_field: "problem"
 
-  bbh_boolean_expressions:
-    hf_path: "lukaemon/bbh"
-    hf_config: "boolean_expressions"
-    splits: ["test"]
-    transform:
-      text_field: "input"
+  # livecodebench:
+  #   hf_path: "livecodebench/code_generation_lite"
+  #   splits: ["test"]
+  #   transform:
+  #     text_field: "question_content"
 
-  trivia_qa:
-    hf_path: "mandarjoshi/trivia_qa"
-    hf_config: "rc"
-    splits: ["train", "validation", "test"]
-    transform:
-      text_field: "question"
+  # humaneval_infilling:
+  #   hf_path: "loubnabnl/humaneval_infilling"
+  #   splits: ["test"]
+  #   transform:
+  #     text_field: "prompt"
 
-  multipl_e_humaneval_python:
-    hf_path: "nuprl/MultiPL-E"
-    hf_config: "humaneval-js"  # Using JavaScript as example
-    splits: ["test"]
-    transform:
-      text_field: "prompt"
+  # logiqa:
+  #   hf_path: "lucasmccabe/logiqa"
+  #   splits: ["train", "validation", "test"]
+  #   transform:
+  #     text_field: "query"
 
-  mrcr:
-    hf_path: "openai/mrcr"
-    splits: ["train"]
-    transform:
-      text_field: "prompt"
+  # bbh_boolean_expressions:
+  #   hf_path: "lukaemon/bbh"
+  #   hf_config: "boolean_expressions"
+  #   splits: ["test"]
+  #   transform:
+  #     text_field: "input"
 
-  openbookqa:
-    hf_path: "allenai/openbookqa"
-    splits: ["train", "validation", "test"]
-    transform:
-      text_field: "question_stem"
+  # trivia_qa:
+  #   hf_path: "mandarjoshi/trivia_qa"
+  #   hf_config: "rc"
+  #   splits: ["train", "validation", "test"]
+  #   transform:
+  #     text_field: "question"
 
-  medmcqa:
-    hf_path: "openlifescienceai/medmcqa"
-    splits: ["train", "test", "validation"]
-    transform:
-      text_field: "question"
+  # multipl_e_humaneval_python:
+  #   hf_path: "nuprl/MultiPL-E"
+  #   hf_config: "humaneval-js"  # Using JavaScript as example
+  #   splits: ["test"]
+  #   transform:
+  #     text_field: "prompt"
 
-  gsm_plus:
-    hf_path: "qintongli/GSM-Plus"
-    splits: ["test"]
-    transform:
-      text_field: "question"
+  # mrcr:
+  #   hf_path: "openai/mrcr"
+  #   splits: ["train"]
+  #   transform:
+  #     text_field: "prompt"
 
-  squad:
-    hf_path: "rajpurkar/squad"
-    splits: ["train", "validation"]
-    transform:
-      text_field: "question"
+  # openbookqa:
+  #   hf_path: "allenai/openbookqa"
+  #   splits: ["train", "validation", "test"]
+  #   transform:
+  #     text_field: "question_stem"
 
-  squad_v2:
-    hf_path: "rajpurkar/squad_v2"
-    splits: ["train", "validation"]
-    transform:
-      text_field: "question"
+  # medmcqa:
+  #   hf_path: "openlifescienceai/medmcqa"
+  #   splits: ["train", "test", "validation"]
+  #   transform:
+  #     text_field: "question"
 
-  copycolors_mcqa:
-    hf_path: "sarahwie/copycolors_mcqa"
-    hf_config: "4_answer_choices"
-    splits: ["validation", "test"]
-    transform:
-      text_field: "question"
+  # gsm_plus:
+  #   hf_path: "qintongli/GSM-Plus"
+  #   splits: ["test"]
+  #   transform:
+  #     text_field: "question"
 
-  sciq:
-    hf_path: "allenai/sciq"
-    splits: ["train", "validation", "test"]
-    transform:
-      text_field: "question"
+  # squad:
+  #   hf_path: "rajpurkar/squad"
+  #   splits: ["train", "validation"]
+  #   transform:
+  #     text_field: "question"
 
-  social_i_qa:
-    hf_path: "allenai/social_i_qa"
-    splits: ["train", "validation"]
-    transform:
-      text_field: "question"
+  # squad_v2:
+  #   hf_path: "rajpurkar/squad_v2"
+  #   splits: ["train", "validation"]
+  #   transform:
+  #     text_field: "question"
 
-  jeopardy:
-    hf_path: "soldni/jeopardy"
-    hf_config: "all_questions"
-    splits: ["train"]
-    transform:
-      text_field: "question"
+  # copycolors_mcqa:
+  #   hf_path: "sarahwie/copycolors_mcqa"
+  #   hf_config: "4_answer_choices"
+  #   splits: ["validation", "test"]
+  #   transform:
+  #     text_field: "question"
 
-  zero_scrolls_qasper:
-    hf_path: "tau/zero_scrolls"
-    hf_config: "qasper"
-    splits: ["validation", "test"]
-    transform:
-      text_field: "input"
+  # sciq:
+  #   hf_path: "allenai/sciq"
+  #   splits: ["train", "validation", "test"]
+  #   transform:
+  #     text_field: "question"
 
-  mt_eval_refinement:
-    hf_path: "wckwan/MT-Eval"
-    hf_config: "refinement_single"
-    splits: ["test"]
-    transform:
-      text_field: "conv"
+  # social_i_qa:
+  #   hf_path: "allenai/social_i_qa"
+  #   splits: ["train", "validation"]
+  #   transform:
+  #     text_field: "question"
 
-  winogrande:
-    hf_path: "allenai/winogrande"
-    hf_config: "winogrande_l"
-    splits: ["train", "test", "validation"]
-    transform:
-      text_field: "sentence"
+  # jeopardy:
+  #   hf_path: "soldni/jeopardy"
+  #   hf_config: "all_questions"
+  #   splits: ["train"]
+  #   transform:
+  #     text_field: "question"
 
-  ds_1000:
-    hf_path: "xlangai/DS-1000"
-    splits: ["test"]
-    transform:
-      text_field: "prompt"
+  # zero_scrolls_qasper:
+  #   hf_path: "tau/zero_scrolls"
+  #   hf_config: "qasper"
+  #   splits: ["validation", "test"]
+  #   transform:
+  #     text_field: "input"
+
+  # mt_eval_refinement:
+  #   hf_path: "wckwan/MT-Eval"
+  #   hf_config: "refinement_single"
+  #   splits: ["test"]
+  #   transform:
+  #     text_field: "conv"
+
+  # winogrande:
+  #   hf_path: "allenai/winogrande"
+  #   hf_config: "winogrande_l"
+  #   splits: ["train", "test", "validation"]
+  #   transform:
+  #     text_field: "sentence"
+
+  # ds_1000:
+  #   hf_path: "xlangai/DS-1000"
+  #   splits: ["test"]
+  #   transform:
+  #     text_field: "prompt"

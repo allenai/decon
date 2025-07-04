@@ -289,9 +289,9 @@ fn generate_hyperplanes(k: usize, seed: usize) -> Result<Hyperplanes, Error> {
     Ok(hyperplanes)
 }
 
-fn extract_words(text: &str) -> Vec<String> {
+fn extract_words(text: &str, punctuation_chars: &str) -> Vec<String> {
     // Clean text using the same cleaning process as other methods
-    let cleaned = clean_text(text);
+    let cleaned = clean_text(text, punctuation_chars);
 
     // Split into words and filter out empty strings
     cleaned
@@ -494,7 +494,7 @@ fn process_toxic_reference_file(
         lines_processed += 1;
 
         // For TOXIC, we work with words directly, not token IDs
-        let word_tokens = extract_words(&line_text);
+        let word_tokens = extract_words(&line_text, &config.punctuation_chars);
 
         let word_count = word_tokens.len();
 
@@ -660,7 +660,7 @@ fn process_toxic_training_file(
         let text_start = Instant::now();
         let json_obj: Value = serde_json::from_str(&line)?;
         let line_text = get_nested_json_val(&json_obj, &config.content_key.to_string())?;
-        let word_tokens = extract_words(&line_text);
+        let word_tokens = extract_words(&line_text, &config.punctuation_chars);
         let _training_word_count = word_tokens.len();
         let text_extraction_time = text_start.elapsed();
 
