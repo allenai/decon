@@ -10,8 +10,8 @@ output_dir: fixtures/output
 ngram_size: 4
 toxic_embedding_path: fixtures/embeddings/wiki-news-128d-1M.vec
 toxic_hyperplanes: 64
-toxic_overlap_threshold: 0.95
+toxic_overlap_threshold: 0.8
 toxic_poison_scale: 3.0  # Amplify semantic destruction from poison tokens (numbers, proper nouns, OOV)
-skip_hot_bucket_threshold: 1000  # Skip buckets with more than this many entries (-1 to disable)
+skip_hot_bucket_threshold: 500  # Skip buckets with more than this many entries (-1 to disable)
 
 punctuation_chars: "!\"#&'(),./:;?@`{|}~"  # Excludes: * + - = < > ^ _ []

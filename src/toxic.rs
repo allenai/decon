@@ -27,7 +27,7 @@
 
 use anyhow::{Error, Result};
 use dashmap::DashMap;
-use ndarray::ArrayView1;
+use ndarray::{Array2, ArrayView1};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use rayon::prelude::*;
@@ -124,8 +124,49 @@ type EvalDocumentStats = DashMap<String, (usize, usize)>;
 // Embedding storage: word -> 300d vector (thread-safe)
 pub type EmbeddingMap = DashMap<String, Vec<f32>>;
 
-// Random hyperplanes for LSH: k x 300 matrix
-type Hyperplanes = Vec<Vec<f32>>;
+// LSH hyperplane storage: vectorized format for efficient matrix operations
+#[derive(Clone)]
+struct VectorizedHyperplanes {
+    // Matrix shape: (num_hyperplanes, EMBEDDING_DIM)
+    // Each row is a hyperplane, enabling efficient matrix-vector multiplication
+    data: Array2<f32>,
+    num_planes: usize,
+}
+
+impl VectorizedHyperplanes {
+    fn new(hyperplanes: Vec<Vec<f32>>) -> Result<Self, Error> {
+        let num_planes = hyperplanes.len();
+        if num_planes == 0 {
+            return Err(anyhow::anyhow!("Cannot create VectorizedHyperplanes with zero hyperplanes"));
+        }
+        
+        let flat_data: Vec<f32> = hyperplanes.into_iter().flatten().collect();
+        let expected_size = num_planes * EMBEDDING_DIM;
+        if flat_data.len() != expected_size {
+            return Err(anyhow::anyhow!(
+                "Hyperplane data size mismatch: expected {}, got {}", 
+                expected_size, flat_data.len()
+            ));
+        }
+        
+        let data = Array2::from_shape_vec((num_planes, EMBEDDING_DIM), flat_data)
+            .map_err(|e| anyhow::anyhow!("Failed to create hyperplane matrix: {}", e))?;
+            
+        Ok(Self { data, num_planes })
+    }
+    
+    #[allow(dead_code)]
+    fn get_hyperplane(&self, index: usize) -> Option<ArrayView1<f32>> {
+        if index < self.num_planes {
+            Some(self.data.row(index))
+        } else {
+            None
+        }
+    }
+}
+
+// Updated type alias for vectorized hyperplanes
+type Hyperplanes = VectorizedHyperplanes;
 
 pub fn contamination_detect(config: &Config) -> Result<(), Error> {
     println!("Starting TOXIC contamination detection...");
@@ -396,7 +437,8 @@ fn generate_hyperplanes(k: usize, seed: usize) -> Result<Hyperplanes, Error> {
         hyperplanes.push(hyperplane);
     }
 
-    Ok(hyperplanes)
+    // Convert to vectorized format
+    VectorizedHyperplanes::new(hyperplanes)
 }
 
 fn extract_words(text: &str, punctuation_chars: &str) -> Vec<String> {
@@ -515,18 +557,20 @@ fn sum_word_embeddings_training(
 
 
 fn compute_lsh_bucket(normalized_vector: &[f32], hyperplanes: &Hyperplanes) -> u64 {
-    let mut bucket_id = 0u64;
     let vector_view = ArrayView1::from(normalized_vector);
-
-    for (i, hyperplane) in hyperplanes.iter().enumerate() {
-        let hyperplane_view = ArrayView1::from(hyperplane.as_slice());
-        let dot_product = vector_view.dot(&hyperplane_view);
-
+    
+    // Vectorized matrix-vector multiplication: all hyperplanes at once
+    // Shape: (num_hyperplanes, EMBEDDING_DIM) × (EMBEDDING_DIM,) = (num_hyperplanes,)
+    let dot_products = hyperplanes.data.dot(&vector_view);
+    
+    // Convert dot products to bucket ID using bit operations
+    let mut bucket_id = 0u64;
+    for (i, &dot_product) in dot_products.iter().enumerate() {
         if dot_product >= 0.0 {
             bucket_id |= 1u64 << i;
         }
     }
-
+    
     bucket_id
 }
 
