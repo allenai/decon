@@ -13,10 +13,10 @@ help:
 	@echo "  embeddings - Download and prepare word embeddings using Python script"
 
 detect:
-	cargo run -- detect --config examples/dev/toxic.yaml
+	cargo run --release detect --config examples/dev/toxic.yaml
 
 review:
-	cargo run -- review --config examples/dev/toxic.yaml --step
+	cargo run --release review --config examples/dev/toxic.yaml --step
 
 stats:
 	cargo run -- review --config examples/dev/toxic.yaml --stats

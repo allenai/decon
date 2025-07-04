@@ -13,4 +13,8 @@ toxic_overlap_threshold: 0.5
 toxic_poison_scale: 3.0  # Amplify semantic destruction from poison tokens (numbers, proper nouns, OOV)
 skip_hot_bucket_threshold: 1000  # Skip buckets with more than this many entries
 
+# Sampling optimization parameters
+sample_every_m_tokens: 10  # Sample every 10th n-gram (set to 1 to disable sampling)
+max_consecutive_misses: 2  # Stop expansion after 2 consecutive misses
+
 punctuation_chars: "!\"#&'(),./:;?@`{|}~"  # Excludes: * + - = < > ^ _ []

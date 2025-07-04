@@ -119,6 +119,12 @@ pub struct Config {
     pub toxic_poison_scale: f32,
     #[serde(default = "default_skip_hot_bucket_threshold")]
     pub skip_hot_bucket_threshold: i32,
+    
+    // TOXIC sampling optimization parameters
+    #[serde(default = "default_sample_every_m_tokens")]
+    pub sample_every_m_tokens: usize,
+    #[serde(default = "default_max_consecutive_misses")]
+    pub max_consecutive_misses: usize,
 
     // Text processing options
     #[serde(default = "default_punctuation_chars")]
@@ -176,6 +182,14 @@ fn default_tokenizer_str() -> String {
 
 fn default_skip_hot_bucket_threshold() -> i32 {
     -1  // Disabled by default
+}
+
+fn default_sample_every_m_tokens() -> usize {
+    1  // Disabled by default (sample every token = no sampling)
+}
+
+fn default_max_consecutive_misses() -> usize {
+    2  // Stop expansion after 2 consecutive misses
 }
 
 fn default_punctuation_chars() -> String {

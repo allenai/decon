@@ -15,3 +15,6 @@ toxic_poison_scale: 3.0  # Amplify semantic destruction from poison tokens (numb
 skip_hot_bucket_threshold: 500  # Skip buckets with more than this many entries (-1 to disable)
 
 punctuation_chars: "!\"#&'(),./:;?@`{|}~"  # Excludes: * + - = < > ^ _ []
+
+max_consecutive_misses: 2
+sample_every_m_tokens: 10
