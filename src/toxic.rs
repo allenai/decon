@@ -42,8 +42,71 @@ use mj_io::{expand_dirs, read_pathbuf_to_mem, write_mem_to_pathbuf, build_pbar};
 
 use crate::{Config, get_nested_json_val, clean_text, get_results_filename, debug_println};
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sliding_window_algorithm() {
+        // Test the sliding window optimization with 8-item string and 3-grams
+        let test_embeddings = EmbeddingMap::new();
+        
+        // Create test vectors for 8 tokens
+        let test_vectors = vec![
+            vec![1.0, 10.0],   // a
+            vec![2.0, 20.0],   // b  
+            vec![3.0, 30.0],   // c
+            vec![4.0, 40.0],   // d
+            vec![5.0, 50.0],   // e
+            vec![6.0, 60.0],   // f
+            vec![7.0, 70.0],   // g
+            vec![8.0, 80.0],   // h
+        ];
+        
+        let token_names = vec!["a", "b", "c", "d", "e", "f", "g", "h"];
+        
+        for (i, name) in token_names.iter().enumerate() {
+            let mut vec = vec![0.0; EMBEDDING_DIM];
+            vec[0] = test_vectors[i][0];
+            vec[1] = test_vectors[i][1];
+            test_embeddings.insert(name.to_string(), vec);
+        }
+
+        let tokens: Vec<String> = token_names.iter().map(|s| s.to_string()).collect();
+        let mut timing = TimingStats::default();
+        
+        let result = compute_ngram_embedding_training(&tokens, 3, &test_embeddings, 42, &mut timing);
+        
+        // Should produce 6 n-grams: ["a","b","c"], ["b","c","d"], ["c","d","e"], ["d","e","f"], ["e","f","g"], ["f","g","h"]
+        assert_eq!(result.len(), 6);
+        
+        // Expected 3-gram sums:
+        let expected = vec![
+            vec![1.0+2.0+3.0, 10.0+20.0+30.0],  // a+b+c = [6, 60]
+            vec![2.0+3.0+4.0, 20.0+30.0+40.0],  // b+c+d = [9, 90]
+            vec![3.0+4.0+5.0, 30.0+40.0+50.0],  // c+d+e = [12, 120]
+            vec![4.0+5.0+6.0, 40.0+50.0+60.0],  // d+e+f = [15, 150]
+            vec![5.0+6.0+7.0, 50.0+60.0+70.0],  // e+f+g = [18, 180]
+            vec![6.0+7.0+8.0, 60.0+70.0+80.0],  // f+g+h = [21, 210]
+        ];
+        
+        for (i, (actual, exp)) in result.iter().zip(expected.iter()).enumerate() {
+            assert!((actual[0] - exp[0]).abs() < 1e-6, 
+                   "N-gram {} dim 0: expected {}, got {}", i, exp[0], actual[0]);
+            assert!((actual[1] - exp[1]).abs() < 1e-6, 
+                   "N-gram {} dim 1: expected {}, got {}", i, exp[1], actual[1]);
+        }
+        
+        println!("✅ Sliding window optimization test passed!");
+        println!("Generated {} 3-grams from 8 tokens", result.len());
+        println!("First 3-gram: [{:.0}, {:.0}] (expected: [6, 60])", result[0][0], result[0][1]);
+        println!("Last 3-gram:  [{:.0}, {:.0}] (expected: [21, 210])", result[5][0], result[5][1]);
+    }
+}
+
+
 // 300-dimensional word embeddings
-const EMBEDDING_DIM: usize = 300;
+pub const EMBEDDING_DIM: usize = 300;
 
 // LSH bucket storage: maps bucket_id to list of (eval_name, line_num, word_count)
 type ToxicBuckets = DashMap<u64, Vec<(String, usize, usize)>>;
@@ -52,7 +115,7 @@ type ToxicBuckets = DashMap<u64, Vec<(String, usize, usize)>>;
 type BucketContents = DashMap<u64, HashSet<String>>;
 
 // Embedding storage: word -> 300d vector (thread-safe)
-type EmbeddingMap = DashMap<String, Vec<f32>>;
+pub type EmbeddingMap = DashMap<String, Vec<f32>>;
 
 // Random hyperplanes for LSH: k x 300 matrix
 type Hyperplanes = Vec<Vec<f32>>;
@@ -128,35 +191,62 @@ fn load_embeddings(embedding_path: &PathBuf) -> Result<EmbeddingMap, Error> {
 }
 
 // For eval processing: store OOV words consistently
-fn get_or_create_embedding_eval(word: &str, embeddings: &EmbeddingMap, rng_seed: u64) -> Vec<f32> {
-    if let Some(embedding) = embeddings.get(word) {
-        embedding.clone()
+fn get_or_create_embedding_eval(word: &str, embeddings: &EmbeddingMap, rng_seed: u64, timing: &mut TimingStats) -> Vec<f32> {
+    // Time hash lookup
+    let lookup_start = Instant::now();
+    let embedding_opt = embeddings.get(word);
+    timing.hash_lookups += lookup_start.elapsed();
+    
+    if let Some(embedding) = embedding_opt {
+        // Time vector cloning
+        let clone_start = Instant::now();
+        let result = embedding.clone();
+        timing.vector_cloning += clone_start.elapsed();
+        result
     } else {
-        // Create consistent poison token for eval processing
+        // Time random generation for poison tokens
+        let rand_start = Instant::now();
         let mut rng = ChaCha20Rng::seed_from_u64(
             rng_seed.wrapping_add(hash_string(word))
         );
         let vector: Vec<f32> = (0..EMBEDDING_DIM)
             .map(|_| rng.gen_range(-1.0..1.0))
             .collect();
+        timing.random_generation += rand_start.elapsed();
 
+        // Time the insertion and cloning for return
+        let clone_start = Instant::now();
         embeddings.insert(word.to_string(), vector.clone());
+        timing.vector_cloning += clone_start.elapsed();
+        
         vector
     }
 }
 
 // For training processing: generate chaotic OOV each time (don't store)
-fn get_or_create_embedding_training(word: &str, embeddings: &EmbeddingMap, rng_seed: u64) -> Vec<f32> {
-    if let Some(embedding) = embeddings.get(word) {
-        embedding.clone()
+fn get_or_create_embedding_training(word: &str, embeddings: &EmbeddingMap, rng_seed: u64, timing: &mut TimingStats) -> Vec<f32> {
+    // Time hash lookup
+    let lookup_start = Instant::now();
+    let embedding_opt = embeddings.get(word);
+    timing.hash_lookups += lookup_start.elapsed();
+    
+    if let Some(embedding) = embedding_opt {
+        // Time vector cloning
+        let clone_start = Instant::now();
+        let result = embedding.clone();
+        timing.vector_cloning += clone_start.elapsed();
+        result
     } else {
-        // Create chaotic poison token for training processing
+        // Time random generation for poison tokens
+        let rand_start = Instant::now();
         let mut rng = ChaCha20Rng::seed_from_u64(
-            rng_seed.wrapping_add(hash_string(word)).wrapping_add(rand::random::<u64>())
+            rng_seed.wrapping_add(hash_string(word))
         );
-        (0..EMBEDDING_DIM)
+        let result = (0..EMBEDDING_DIM)
             .map(|_| rng.gen_range(-1.0..1.0))
-            .collect()
+            .collect();
+        timing.random_generation += rand_start.elapsed();
+        result
     }
 }
 
@@ -165,6 +255,24 @@ fn hash_string(s: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     s.hash(&mut hasher);
     hasher.finish()
+}
+
+// Helper function for vector subtraction (in-place)
+fn subtract_word_embedding_inplace(sum_vector: &mut [f32], word_embedding: &[f32], timing: &mut TimingStats) {
+    let arith_start = Instant::now();
+    for (i, val) in word_embedding.iter().enumerate() {
+        sum_vector[i] -= val;
+    }
+    timing.vector_arithmetic += arith_start.elapsed();
+}
+
+// Helper function for vector addition (in-place)
+fn add_word_embedding_inplace(sum_vector: &mut [f32], word_embedding: &[f32], timing: &mut TimingStats) {
+    let arith_start = Instant::now();
+    for (i, val) in word_embedding.iter().enumerate() {
+        sum_vector[i] += val;
+    }
+    timing.vector_arithmetic += arith_start.elapsed();
 }
 
 fn generate_hyperplanes(k: usize, seed: usize) -> Result<Hyperplanes, Error> {
@@ -194,29 +302,44 @@ fn extract_words(text: &str) -> Vec<String> {
 }
 
 
-// For training processing
-fn compute_ngram_embedding_training(
+
+// Optimized training n-gram computation using sliding window to reduce vector arithmetic  
+pub fn compute_ngram_embedding_training(
     tokens: &[String],
     ngram_size: usize,
     embeddings: &EmbeddingMap,
-    rng_seed: u64
+    rng_seed: u64,
+    timing: &mut TimingStats
 ) -> Vec<Vec<f32>> {
     let mut ngram_embeddings = Vec::new();
 
     if tokens.len() < ngram_size {
         if !tokens.is_empty() {
-            // For documents shorter than ngram_size, use all tokens
-            let sum_embedding = sum_word_embeddings_training(tokens, embeddings, rng_seed);
+            // For documents shorter than ngram_size, use all tokens - same as original
+            let sum_embedding = sum_word_embeddings_training(tokens, embeddings, rng_seed, timing);
             ngram_embeddings.push(sum_embedding);
         }
         return ngram_embeddings;
     }
 
-    // Create sliding window n-grams
-    for i in 0..=tokens.len() - ngram_size {
-        let ngram = &tokens[i..i + ngram_size];
-        let sum_embedding = sum_word_embeddings_training(ngram, embeddings, rng_seed);
-        ngram_embeddings.push(sum_embedding);
+    // Compute first n-gram sum normally
+    let first_ngram = &tokens[0..ngram_size];
+    let mut current_sum = sum_word_embeddings_training(first_ngram, embeddings, rng_seed, timing);
+    ngram_embeddings.push(current_sum.clone());
+
+    // Slide the window for remaining n-grams
+    for i in 1..=tokens.len() - ngram_size {
+        // Word sliding out (left side)
+        let outgoing_word = &tokens[i - 1];
+        let outgoing_embedding = get_or_create_embedding_training(outgoing_word, embeddings, rng_seed, timing);
+        subtract_word_embedding_inplace(&mut current_sum, &outgoing_embedding, timing);
+
+        // Word sliding in (right side) 
+        let incoming_word = &tokens[i + ngram_size - 1];
+        let incoming_embedding = get_or_create_embedding_training(incoming_word, embeddings, rng_seed, timing);
+        add_word_embedding_inplace(&mut current_sum, &incoming_embedding, timing);
+
+        ngram_embeddings.push(current_sum.clone());
     }
 
     ngram_embeddings
@@ -226,15 +349,26 @@ fn compute_ngram_embedding_training(
 fn sum_word_embeddings_eval(
     words: &[String],
     embeddings: &EmbeddingMap,
-    rng_seed: u64
+    rng_seed: u64,
+    timing: &mut TimingStats
 ) -> Vec<f32> {
+    // Time memory allocation
+    let alloc_start = Instant::now();
     let mut sum_vector = vec![0.0; EMBEDDING_DIM];
+    timing.memory_allocation += alloc_start.elapsed();
 
     for word in words {
-        let word_embedding = get_or_create_embedding_eval(word, embeddings, rng_seed);
+        // Time embedding lookup/generation
+        let lookup_start = Instant::now();
+        let word_embedding = get_or_create_embedding_eval(word, embeddings, rng_seed, timing);
+        timing.hash_lookups += lookup_start.elapsed();
+        
+        // Time vector arithmetic
+        let arith_start = Instant::now();
         for (i, val) in word_embedding.iter().enumerate() {
             sum_vector[i] += val;
         }
+        timing.vector_arithmetic += arith_start.elapsed();
     }
 
     sum_vector
@@ -244,15 +378,26 @@ fn sum_word_embeddings_eval(
 fn sum_word_embeddings_training(
     words: &[String],
     embeddings: &EmbeddingMap,
-    rng_seed: u64
+    rng_seed: u64,
+    timing: &mut TimingStats
 ) -> Vec<f32> {
+    // Time memory allocation
+    let alloc_start = Instant::now();
     let mut sum_vector = vec![0.0; EMBEDDING_DIM];
+    timing.memory_allocation += alloc_start.elapsed();
 
     for word in words {
-        let word_embedding = get_or_create_embedding_training(word, embeddings, rng_seed);
+        // Time embedding lookup/generation
+        let lookup_start = Instant::now();
+        let word_embedding = get_or_create_embedding_training(word, embeddings, rng_seed, timing);
+        timing.hash_lookups += lookup_start.elapsed();
+        
+        // Time vector arithmetic
+        let arith_start = Instant::now();
         for (i, val) in word_embedding.iter().enumerate() {
             sum_vector[i] += val;
         }
+        timing.vector_arithmetic += arith_start.elapsed();
     }
 
     sum_vector
@@ -357,7 +502,8 @@ fn process_toxic_reference_file(
         if word_tokens.len() < config.ngram_size {
             if !word_tokens.is_empty() {
                 // For documents shorter than ngram_size, use all tokens
-                let sum_embedding = sum_word_embeddings_eval(&word_tokens, embeddings, config.hash_seed as u64);
+                let mut dummy_timing = TimingStats::default();
+                let sum_embedding = sum_word_embeddings_eval(&word_tokens, embeddings, config.hash_seed as u64, &mut dummy_timing);
                 // Skip normalization to preserve magnitude information
                 let bucket_id = compute_lsh_bucket(&sum_embedding, hyperplanes);
                 insert_with_hot_bucket_detection(
@@ -380,7 +526,8 @@ fn process_toxic_reference_file(
             // Create sliding window n-grams with word tracking
             for i in 0..=word_tokens.len() - config.ngram_size {
                 let ngram = &word_tokens[i..i + config.ngram_size];
-                let sum_embedding = sum_word_embeddings_eval(ngram, embeddings, config.hash_seed as u64);
+                let mut dummy_timing = TimingStats::default();
+                let sum_embedding = sum_word_embeddings_eval(ngram, embeddings, config.hash_seed as u64, &mut dummy_timing);
                 // Skip normalization to preserve magnitude information
                 let bucket_id = compute_lsh_bucket(&sum_embedding, hyperplanes);
                 insert_with_hot_bucket_detection(
@@ -459,7 +606,7 @@ fn detect_toxic_contamination(
 }
 
 #[derive(Default, Clone)]
-struct TimingStats {
+pub struct TimingStats {
     text_extraction: Duration,
     embedding_computation: Duration,
     normalization: Duration,
@@ -468,6 +615,12 @@ struct TimingStats {
     collision_detection: Duration,
     threshold_evaluation: Duration,
     total_per_line: Duration,
+    // Granular profiling
+    hash_lookups: Duration,
+    vector_cloning: Duration,
+    vector_arithmetic: Duration,
+    memory_allocation: Duration,
+    random_generation: Duration,
 }
 
 #[derive(Clone)]
@@ -519,11 +672,15 @@ fn process_toxic_training_file(
             word_tokens.len() - config.ngram_size + 1
         };
 
+        // Initialize granular timing stats
+        let mut granular_timing = TimingStats::default();
+        
         let ngram_embeddings = compute_ngram_embedding_training(
             &word_tokens,
             config.ngram_size,
             embeddings,
-            config.hash_seed as u64
+            config.hash_seed as u64,
+            &mut granular_timing
         );
         let embedding_time = embed_start.elapsed();
 
@@ -674,6 +831,13 @@ fn process_toxic_training_file(
         cumulative_stats.collision_detection += collision_time;
         cumulative_stats.threshold_evaluation += threshold_time;
         cumulative_stats.total_per_line += total_line_time;
+        
+        // Accumulate granular timing stats
+        cumulative_stats.hash_lookups += granular_timing.hash_lookups;
+        cumulative_stats.vector_cloning += granular_timing.vector_cloning;
+        cumulative_stats.vector_arithmetic += granular_timing.vector_arithmetic;
+        cumulative_stats.memory_allocation += granular_timing.memory_allocation;
+        cumulative_stats.random_generation += granular_timing.random_generation;
     }
 
     // Print summary statistics
@@ -691,6 +855,13 @@ fn process_toxic_training_file(
     print_timing_category(config, "Bucket Lookup       ", cumulative_stats.bucket_lookup, total_time);
     print_timing_category(config, "Collision Detection ", cumulative_stats.collision_detection, total_time);
     print_timing_category(config, "Threshold Evaluation", cumulative_stats.threshold_evaluation, total_time);
+    debug_println!(config, "");
+    debug_println!(config, "GRANULAR EMBEDDING BREAKDOWN:");
+    print_timing_category(config, "Hash Lookups        ", cumulative_stats.hash_lookups, total_time);
+    print_timing_category(config, "Vector Cloning      ", cumulative_stats.vector_cloning, total_time);
+    print_timing_category(config, "Vector Arithmetic   ", cumulative_stats.vector_arithmetic, total_time);
+    print_timing_category(config, "Memory Allocation   ", cumulative_stats.memory_allocation, total_time);
+    print_timing_category(config, "Random Generation   ", cumulative_stats.random_generation, total_time);
     debug_println!(config, "");
 
     if contaminated_lines > 0 {
