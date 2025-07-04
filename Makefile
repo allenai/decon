@@ -5,6 +5,10 @@ help:
 	@echo "  detect     - Run contamination detection with dev config"
 	@echo "  review     - Run review mode with dev config and step-by-step output"
 	@echo "  stats      - Run review mode with dev config and statistics output"
+	@echo "  tp         - Run review mode to show True Positives"
+	@echo "  tn         - Run review mode to show True Negatives"
+	@echo "  fp         - Run review mode to show False Positives"
+	@echo "  fn         - Run review mode to show False Negatives"
 	@echo "  evals      - Download evaluation datasets using Python script"
 	@echo "  embeddings - Download and prepare word embeddings using Python script"
 
@@ -16,6 +20,18 @@ review:
 
 stats:
 	cargo run -- review --config examples/dev/toxic.yaml --stats
+
+fn:
+	cargo run -- review --config examples/dev/toxic.yaml --fn
+
+fp:
+	cargo run -- review --config examples/dev/toxic.yaml --fp
+
+tp:
+	cargo run -- review --config examples/dev/toxic.yaml --tp
+
+tn:
+	cargo run -- review --config examples/dev/toxic.yaml --tn
 
 evals:
 	python python/download_evals.py

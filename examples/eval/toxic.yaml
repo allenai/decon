@@ -3,9 +3,9 @@ mode: toxic
 debug: true
 
 content_key: text
-local_input: /home/robert/Downloads/input-full
+local_input: fixtures/training
 reference_input: fixtures/reference
-output_dir: /home/robert/Downloads/output
+output_dir: fixtures/output
 
 ngram_size: 4
 toxic_embedding_path: fixtures/embeddings/wiki-news-128d-1M.vec

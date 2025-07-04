@@ -727,6 +727,7 @@ fn process_toxic_training_file(
     let mut total_bucket_hits = 0;
     let mut total_bucket_misses = 0;
     let mut total_hot_buckets_skipped = 0;
+    let mut total_vocab_filtered = 0;
 
     // Track training vocabulary
     let mut training_vocabulary: HashSet<String> = HashSet::new();
@@ -786,9 +787,24 @@ fn process_toxic_training_file(
         let mut bucket_hits_count = 0;
         let mut bucket_misses_count = 0;
         let mut hot_buckets_skipped_count = 0;
+        let mut vocab_filtered_count = 0;
 
         // Process each n-gram with detailed timing
         for (ngram_idx, ngram_embedding) in ngram_embeddings.iter().enumerate() {
+            // 2.5. Vocabulary filtering - skip n-grams with out-of-vocabulary tokens
+            let ngram_tokens = if word_tokens.len() < config.ngram_size {
+                &word_tokens[..]
+            } else {
+                &word_tokens[ngram_idx..ngram_idx + config.ngram_size]
+            };
+            
+            // Check if all tokens in this n-gram exist in eval vocabulary
+            let all_tokens_in_eval = ngram_tokens.iter().all(|token| eval_vocabulary.contains(token));
+            if !all_tokens_in_eval {
+                vocab_filtered_count += 1;
+                continue; // Skip LSH computation entirely for this n-gram
+            }
+
             // 3. Vector normalization
             let norm_start = Instant::now();
             // Skip normalization to preserve magnitude information
@@ -939,6 +955,7 @@ fn process_toxic_training_file(
         total_bucket_hits += bucket_hits_count;
         total_bucket_misses += bucket_misses_count;
         total_hot_buckets_skipped += hot_buckets_skipped_count;
+        total_vocab_filtered += vocab_filtered_count;
     }
 
     // Print summary statistics
@@ -967,11 +984,14 @@ fn process_toxic_training_file(
 
     // Print bucket statistics in debug mode
     debug_println!(config, "BUCKET STATISTICS:");
+    debug_println!(config, "Vocabulary filtered (out-of-vocab): {}", total_vocab_filtered);
     debug_println!(config, "Bucket hits (found eval matches): {}", total_bucket_hits);
     debug_println!(config, "Bucket misses (no eval matches): {}", total_bucket_misses);
     debug_println!(config, "Hot buckets skipped: {}", total_hot_buckets_skipped);
+    let total_ngrams_generated = total_vocab_filtered + total_bucket_hits + total_bucket_misses + total_hot_buckets_skipped;
     let total_ngrams_processed = total_bucket_hits + total_bucket_misses + total_hot_buckets_skipped;
-    debug_println!(config, "Total n-grams processed: {}", total_ngrams_processed);
+    debug_println!(config, "Total n-grams generated: {}", total_ngrams_generated);
+    debug_println!(config, "Total n-grams processed (LSH computed): {}", total_ngrams_processed);
     debug_println!(config, "");
 
     // Print vocabulary statistics in debug mode

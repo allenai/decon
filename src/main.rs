@@ -368,6 +368,7 @@ struct GroundTruthRecord {
     source: String,
     id: usize,
     annotation: String,
+    ground_truth: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -468,10 +469,10 @@ fn review_contamination(config: &PathBuf, results_file: Option<&PathBuf>, step: 
     // Load file content caches
     let training_cache = load_training_files(&config_obj.local_input, &config_obj.content_key)?;
     let eval_cache = load_eval_files(&config_obj.reference_input, &config_obj.content_key)?;
+    let ground_truth = load_ground_truth(&config_obj.local_input)?;
 
     if stats {
         // Calculate and display statistics
-        let ground_truth = load_ground_truth(&config_obj.local_input)?;
         calculate_and_display_stats(&contamination_results, &ground_truth)?;
         return Ok(());
     }
@@ -479,7 +480,6 @@ fn review_contamination(config: &PathBuf, results_file: Option<&PathBuf>, step: 
     // Handle filtering flags
     let filter_requested = fp || fn_ || tp || tn;
     let filtered_results = if filter_requested {
-        let ground_truth = load_ground_truth(&config_obj.local_input)?;
         filter_contamination_results(&contamination_results, &ground_truth, &training_cache, fp, fn_, tp, tn)?
     } else {
         contamination_results.clone()
@@ -514,7 +514,7 @@ fn review_contamination(config: &PathBuf, results_file: Option<&PathBuf>, step: 
         println!("CONTAMINATION #{} of {}", idx + 1, filtered_results.len());
         println!("{}", "=".repeat(80));
 
-        display_contamination_case(result, &training_cache, &eval_cache)?;
+        display_contamination_case(result, &training_cache, &eval_cache, &ground_truth)?;
         println!();
     }
 
@@ -526,14 +526,61 @@ fn load_ground_truth(input_dir: &PathBuf) -> Result<Vec<GroundTruthRecord>, Erro
     let mut ground_truth = Vec::new();
     let training_files = expand_dirs(vec![input_dir.clone()], Some(vec![".jsonl"].as_slice()))?;
 
+    // Load eval data for resolving ground truth when not explicitly present
+    let eval_data = load_eval_data_for_ground_truth()?;
+
     for file_path in training_files {
         let data = read_pathbuf_to_mem(&file_path)?;
+        let file_name = file_path.file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown");
 
-        for line in data.lines() {
+        for (line_idx, line) in data.lines().enumerate() {
             let line = line?;
             if !line.trim().is_empty() {
-                let record: GroundTruthRecord = serde_json::from_str(&line)?;
-                ground_truth.push(record);
+                let json_obj: serde_json::Value = serde_json::from_str(&line)?;
+                
+                // Check if this record has ground truth information
+                if let Some(text) = json_obj.get("text").and_then(|v| v.as_str()) {
+                    let label = json_obj.get("label")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("UNKNOWN");
+                        
+                    let ground_truth_text = if let Some(explicit_gt) = json_obj.get("ground_truth").and_then(|v| v.as_str()) {
+                        // Use explicit ground truth field
+                        explicit_gt.to_string()
+                    } else if let (Some(eval_dataset), Some(eval_line)) = (
+                        json_obj.get("eval_dataset").and_then(|v| v.as_str()),
+                        json_obj.get("eval_line").and_then(|v| v.as_u64())
+                    ) {
+                        // Map eval_dataset to file names and resolve from eval data
+                        let eval_file_name = format!("{}_test", eval_dataset);
+                        let key = format!("{}:{}", eval_file_name, eval_line);
+                        eval_data.get(&key)
+                            .cloned()
+                            .unwrap_or_else(|| {
+                                // Try alternative mappings
+                                let alt_key = format!("{}:{}", eval_dataset, eval_line);
+                                eval_data.get(&alt_key)
+                                    .cloned()
+                                    .unwrap_or_else(|| format!("Could not resolve {}:{}", eval_dataset, eval_line))
+                            })
+                    } else if label == "CLEAN" {
+                        // For clean records, use the text itself as ground truth
+                        text.to_string()
+                    } else {
+                        // No ground truth available for non-clean records without eval references
+                        continue;
+                    };
+
+                    ground_truth.push(GroundTruthRecord {
+                        text: text.to_string(),
+                        source: file_name.to_string(),
+                        id: line_idx,
+                        annotation: label.to_string(),
+                        ground_truth: ground_truth_text,
+                    });
+                }
             }
         }
     }
@@ -541,7 +588,51 @@ fn load_ground_truth(input_dir: &PathBuf) -> Result<Vec<GroundTruthRecord>, Erro
     Ok(ground_truth)
 }
 
+fn load_eval_data_for_ground_truth() -> Result<std::collections::HashMap<String, String>, Error> {
+    let mut eval_data = std::collections::HashMap::new();
+    
+    // Load eval files from fixtures/reference
+    let eval_dir = std::path::PathBuf::from("fixtures/reference");
+    if eval_dir.exists() {
+        let eval_files = expand_dirs(vec![eval_dir], Some(vec![".jsonl"].as_slice()))?;
+        
+        for file_path in eval_files {
+            let file_stem = file_path.file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown");
+            
+            let data = read_pathbuf_to_mem(&file_path)?;
+            for line in data.lines() {
+                let line = line?;
+                if !line.trim().is_empty() {
+                    if let Ok(json_obj) = serde_json::from_str::<serde_json::Value>(&line) {
+                        if let (Some(text), Some(index), Some(record_type)) = (
+                            json_obj.get("text").and_then(|v| v.as_str()),
+                            json_obj.get("index").and_then(|v| v.as_u64()),
+                            json_obj.get("type").and_then(|v| v.as_str())
+                        ) {
+                            // Only use question records for ground truth
+                            if record_type == "question" {
+                                let key = format!("{}:{}", file_stem, index);
+                                eval_data.insert(key, text.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    Ok(eval_data)
+}
+
 fn calculate_and_display_stats(contamination_results: &[ContaminationResult], ground_truth: &[GroundTruthRecord]) -> Result<(), Error> {
+    if ground_truth.is_empty() {
+        println!("No ground truth data available. Cannot calculate classification statistics.");
+        println!("Found {} contamination detections total.", contamination_results.len());
+        return Ok(());
+    }
+    
     let mut stats = ClassificationStats::new();
 
     // Load training cache to get actual text content for mapping
@@ -874,7 +965,8 @@ fn load_eval_files(reference_dir: &PathBuf, content_key: &str) -> Result<HashMap
 fn display_contamination_case(
     result: &ContaminationResult,
     training_cache: &HashMap<String, Vec<String>>,
-    eval_cache: &HashMap<String, Vec<String>>
+    eval_cache: &HashMap<String, Vec<String>>,
+    ground_truth: &[GroundTruthRecord]
 ) -> Result<(), Error> {
     println!("📁 TRAINING FILE: {}", result.training_file);
 
@@ -913,24 +1005,44 @@ fn display_contamination_case(
         None => "❌ Training file not found"
     };
 
-    // Get eval text
-    let eval_text = match eval_cache.get(&result.eval_dataset) {
-        Some(lines) => {
-            if result.eval_line < lines.len() {
-                &lines[result.eval_line]
-            } else {
-                "❌ Eval line index out of bounds"
+    // Get eval text (or ground truth for false negatives)
+    let eval_text = match result.method.as_deref() {
+        Some("false_negative") => {
+            // For false negatives, find the ground truth text
+            ground_truth.iter()
+                .find(|gt| gt.text == *training_text)
+                .map(|gt| gt.ground_truth.as_str())
+                .unwrap_or("❌ Ground truth not found")
+        }
+        _ => {
+            match eval_cache.get(&result.eval_dataset) {
+                Some(lines) => {
+                    if result.eval_line < lines.len() {
+                        &lines[result.eval_line]
+                    } else {
+                        "❌ Eval line index out of bounds"
+                    }
+                }
+                None => "❌ Eval file not found"
             }
         }
-        None => "❌ Eval file not found"
     };
 
     // Display side by side
     println!("🔍 TRAINING TEXT (line {}):", result.training_line);
     println!("   \"{}\"", training_text);
     println!();
-    println!("🔍 EVAL TEXT (line {}):", result.eval_line);
-    println!("   \"{}\"", eval_text);
+    
+    match result.method.as_deref() {
+        Some("false_negative") => {
+            println!("🔍 GROUND TRUTH (expected):");
+            println!("   \"{}\"", eval_text);
+        }
+        _ => {
+            println!("🔍 EVAL TEXT (line {}):", result.eval_line);
+            println!("   \"{}\"", eval_text);
+        }
+    }
     println!();
 
     // Check similarity based on method type
