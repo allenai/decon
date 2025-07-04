@@ -1,0 +1,10 @@
+{"text": "Find all d in Z_3 such that Z_3[x]/(x^2 + d) is a field.", "source": "training_data", "id": 9, "annotation": "CONTAMINATED"}
+{"text": "Find all c in Z_3 such that Z_3[x]/(x^2 + c) is the field.", "source": "training_data", "id": 10, "annotation": "CONTAMINATED"}
+{"text": "Find all c in Z_3 such that Z_3[y]/(y^2 + c) is a field.", "source": "training_data", "id": 11, "annotation": "CONTAMINATED"}
+{"text": "Find all c in Z_3 such that Z_3[x]/(x^2 + c) forms a field.", "source": "training_data", "id": 12, "annotation": "CONTAMINATED"}
+{"text": "Find all elements c in Z_3 such that Z_3[x]/(x^2 + c) is a field.", "source": "training_data", "id": 13, "annotation": "CONTAMINATED"}
+{"text": "Find all c in Z_3 such that Z_3[x]/(x^3 + c) is a field.", "source": "training_data", "id": 14, "annotation": "CONTAMINATED"}
+{"text": "Find all c in Z_5 such that Z_5[x]/(x^2 + c) is a field.", "source": "training_data", "id": 15, "annotation": "CONTAMINATED"}
+{"text": "Find all c in Z_3 such that Z_3[x]/(x^2 - c) is a field.", "source": "training_data", "id": 16, "annotation": "CONTAMINATED"}
+{"text": "Determine all c in Z_3 such that Z_3[x]/(x^2 + c) is a field.", "source": "training_data", "id": 17, "annotation": "CONTAMINATED"}
+{"text": "Find all c in Z_3 where Z_3[x]/(x^2 + c) is a field.", "source": "training_data", "id": 18, "annotation": "CONTAMINATED"}

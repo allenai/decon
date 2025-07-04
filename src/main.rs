@@ -52,7 +52,22 @@ enum Commands {
         results_file: Option<PathBuf>,
 
         #[arg(long, help = "Step through examples one by one, waiting for Enter between each")]
-        step: bool
+        step: bool,
+
+        #[arg(long, help = "Calculate and display TP/FP/Accuracy statistics based on ground truth annotations")]
+        stats: bool,
+
+        #[arg(long, help = "Show only false positives (detected as contaminated but actually clean)")]
+        fp: bool,
+
+        #[arg(long, help = "Show only false negatives (missed contamination - actually contaminated but not detected)")]
+        fn_: bool,
+
+        #[arg(long, help = "Show only true positives (correctly detected contamination)")]
+        tp: bool,
+
+        #[arg(long, help = "Show only true negatives (correctly identified as clean - requires ground truth)")]
+        tn: bool
     }
 
 }
@@ -331,7 +346,7 @@ fn contamination_detect(config: &PathBuf) -> Result<(), Error> {
 =                         CONTAMINATION REVIEW                   =
 =================================================================*/
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct ContaminationResult {
     training_file: String,
     training_line: usize,
@@ -347,7 +362,82 @@ struct ContaminationResult {
     bucket_sizes: Option<Vec<usize>>,
 }
 
-fn review_contamination(config: &PathBuf, results_file: Option<&PathBuf>, step: bool) -> Result<(), Error> {
+#[derive(Debug, Serialize, Deserialize)]
+struct GroundTruthRecord {
+    text: String,
+    source: String,
+    id: usize,
+    annotation: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[allow(dead_code)] // Some variants used only in placeholder logic
+enum ClassificationType {
+    TruePositive,
+    FalsePositive,
+    TrueNegative,
+    FalseNegative,
+}
+
+#[derive(Debug)]
+struct ClassificationStats {
+    true_positives: usize,
+    false_positives: usize,
+    true_negatives: usize,
+    false_negatives: usize,
+    total_ground_truth: usize,
+    total_detected: usize,
+}
+
+impl ClassificationStats {
+    fn new() -> Self {
+        Self {
+            true_positives: 0,
+            false_positives: 0,
+            true_negatives: 0,
+            false_negatives: 0,
+            total_ground_truth: 0,
+            total_detected: 0,
+        }
+    }
+
+    fn precision(&self) -> f64 {
+        if self.total_detected == 0 {
+            0.0
+        } else {
+            self.true_positives as f64 / self.total_detected as f64
+        }
+    }
+
+    fn recall(&self) -> f64 {
+        let total_contaminated = self.true_positives + self.false_negatives;
+        if total_contaminated == 0 {
+            0.0
+        } else {
+            self.true_positives as f64 / total_contaminated as f64
+        }
+    }
+
+    fn accuracy(&self) -> f64 {
+        if self.total_ground_truth == 0 {
+            0.0
+        } else {
+            (self.true_positives + self.true_negatives) as f64 / self.total_ground_truth as f64
+        }
+    }
+
+    fn f1_score(&self) -> f64 {
+        let p = self.precision();
+        let r = self.recall();
+        if p + r == 0.0 {
+            0.0
+        } else {
+            2.0 * (p * r) / (p + r)
+        }
+    }
+}
+
+fn review_contamination(config: &PathBuf, results_file: Option<&PathBuf>, step: bool, stats: bool, fp: bool, fn_: bool, tp: bool, tn: bool) -> Result<(), Error> {
     println!("=== CONTAMINATION REVIEW ===");
 
     let config_obj = read_config(config)?;
@@ -379,8 +469,37 @@ fn review_contamination(config: &PathBuf, results_file: Option<&PathBuf>, step: 
     let training_cache = load_training_files(&config_obj.local_input, &config_obj.content_key)?;
     let eval_cache = load_eval_files(&config_obj.reference_input, &config_obj.content_key)?;
 
+    if stats {
+        // Calculate and display statistics
+        let ground_truth = load_ground_truth(&config_obj.local_input)?;
+        calculate_and_display_stats(&contamination_results, &ground_truth)?;
+        return Ok(());
+    }
+
+    // Handle filtering flags
+    let filter_requested = fp || fn_ || tp || tn;
+    let filtered_results = if filter_requested {
+        let ground_truth = load_ground_truth(&config_obj.local_input)?;
+        filter_contamination_results(&contamination_results, &ground_truth, &training_cache, fp, fn_, tp, tn)?
+    } else {
+        contamination_results.clone()
+    };
+
+    if filtered_results.is_empty() {
+        if filter_requested {
+            println!("No contamination instances match the selected filter criteria.");
+        } else {
+            println!("No contamination found in results file.");
+        }
+        return Ok(());
+    }
+
+    println!("Found {} contamination instances to review{}\n", 
+             filtered_results.len(),
+             if filter_requested { " (after filtering)" } else { "" });
+
     // Review each contamination case
-    for (idx, result) in contamination_results.iter().enumerate() {
+    for (idx, result) in filtered_results.iter().enumerate() {
         if step && idx > 0 {
             // Wait for user input before showing next case
             println!("\nPress Enter to continue to next contamination case...");
@@ -392,7 +511,7 @@ fn review_contamination(config: &PathBuf, results_file: Option<&PathBuf>, step: 
         }
         
         println!("{}", "=".repeat(80));
-        println!("CONTAMINATION #{} of {}", idx + 1, contamination_results.len());
+        println!("CONTAMINATION #{} of {}", idx + 1, filtered_results.len());
         println!("{}", "=".repeat(80));
 
         display_contamination_case(result, &training_cache, &eval_cache)?;
@@ -401,6 +520,215 @@ fn review_contamination(config: &PathBuf, results_file: Option<&PathBuf>, step: 
 
     println!("=== REVIEW COMPLETE ===");
     Ok(())
+}
+
+fn load_ground_truth(input_dir: &PathBuf) -> Result<Vec<GroundTruthRecord>, Error> {
+    let mut ground_truth = Vec::new();
+    let training_files = expand_dirs(vec![input_dir.clone()], Some(vec![".jsonl"].as_slice()))?;
+
+    for file_path in training_files {
+        let data = read_pathbuf_to_mem(&file_path)?;
+
+        for line in data.lines() {
+            let line = line?;
+            if !line.trim().is_empty() {
+                let record: GroundTruthRecord = serde_json::from_str(&line)?;
+                ground_truth.push(record);
+            }
+        }
+    }
+
+    Ok(ground_truth)
+}
+
+fn calculate_and_display_stats(contamination_results: &[ContaminationResult], ground_truth: &[GroundTruthRecord]) -> Result<(), Error> {
+    let mut stats = ClassificationStats::new();
+    
+    // Create a mapping from id to ground truth records for easier lookup
+    let mut id_to_record: std::collections::HashMap<usize, &GroundTruthRecord> = std::collections::HashMap::new();
+    for record in ground_truth {
+        id_to_record.insert(record.id, record);
+    }
+    
+    // Create a set of detected IDs based on training line numbers
+    // Note: contamination results use 0-based line numbers, ground truth uses id field
+    let mut detected_ids: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    for result in contamination_results {
+        // Convert training_line (0-based) to id by looking up in the original training file
+        // For now, we'll assume line number matches id-1 since original file had sequential IDs
+        if let Some(record) = ground_truth.iter().find(|r| (r.id as isize - 7) as usize == result.training_line) {
+            detected_ids.insert(record.id);
+        }
+    }
+
+    // Count ground truth annotations
+    for record in ground_truth {
+        stats.total_ground_truth += 1;
+        let is_contaminated = record.annotation.to_uppercase() == "CONTAMINATED";
+        let is_detected = detected_ids.contains(&record.id);
+
+        match (is_contaminated, is_detected) {
+            (true, true) => stats.true_positives += 1,
+            (true, false) => stats.false_negatives += 1,
+            (false, true) => stats.false_positives += 1,
+            (false, false) => stats.true_negatives += 1,
+        }
+    }
+
+    stats.total_detected = contamination_results.len();
+
+    // Display statistics
+    println!("=== CLASSIFICATION STATISTICS ===");
+    println!();
+    println!("CONFUSION MATRIX:");
+    println!("                    Predicted");
+    println!("                CONTAMINATED  CLEAN");
+    println!("    CONTAMINATED    {:>4}     {:>4}    (TP: {}, FN: {})", 
+             stats.true_positives, stats.false_negatives, stats.true_positives, stats.false_negatives);
+    println!("Actual CLEAN        {:>4}     {:>4}    (FP: {}, TN: {})", 
+             stats.false_positives, stats.true_negatives, stats.false_positives, stats.true_negatives);
+    println!();
+    
+    println!("PERFORMANCE METRICS:");
+    println!("  Precision:  {:.3} ({} TP / {} detected)", stats.precision(), stats.true_positives, stats.total_detected);
+    println!("  Recall:     {:.3} ({} TP / {} actual contaminated)", stats.recall(), stats.true_positives, stats.true_positives + stats.false_negatives);
+    println!("  Accuracy:   {:.3} ({} correct / {} total)", stats.accuracy(), stats.true_positives + stats.true_negatives, stats.total_ground_truth);
+    println!("  F1 Score:   {:.3}", stats.f1_score());
+    println!();
+    
+    println!("DETECTION SUMMARY:");
+    println!("  Total samples:      {}", stats.total_ground_truth);
+    println!("  Ground truth contaminated: {}", stats.true_positives + stats.false_negatives);
+    println!("  Ground truth clean:        {}", stats.true_negatives + stats.false_positives);
+    println!("  Detected contaminated:      {}", stats.total_detected);
+    println!("  Missed contamination:       {}", stats.false_negatives);
+    println!("  False alarms:               {}", stats.false_positives);
+
+    Ok(())
+}
+
+fn classify_contamination_result(result: &ContaminationResult, ground_truth: &[GroundTruthRecord], training_cache: &HashMap<String, Vec<String>>) -> ClassificationType {
+    // Get the actual text from the training file at the specified line
+    if let Some(lines) = training_cache.get(&result.training_file) {
+        if result.training_line < lines.len() {
+            let training_text = &lines[result.training_line];
+            
+            // Find the corresponding ground truth record by matching the text content
+            if let Some(record) = ground_truth.iter().find(|r| r.text == *training_text) {
+                let is_actually_contaminated = record.annotation.to_uppercase() == "CONTAMINATED";
+                let is_detected = true; // If it's in results, it was detected
+                
+                match (is_actually_contaminated, is_detected) {
+                    (true, true) => ClassificationType::TruePositive,
+                    (false, true) => ClassificationType::FalsePositive,
+                    _ => ClassificationType::TruePositive, // Fallback, shouldn't happen for detected items
+                }
+            } else {
+                eprintln!("DEBUG: Could not find ground truth for text: {}", &training_text[..std::cmp::min(50, training_text.len())]);
+                ClassificationType::FalsePositive
+            }
+        } else {
+            eprintln!("DEBUG: Line {} out of bounds for file {}", result.training_line, result.training_file);
+            ClassificationType::FalsePositive
+        }
+    } else {
+        eprintln!("DEBUG: Could not find training file: {}", result.training_file);
+        ClassificationType::FalsePositive
+    }
+}
+
+fn filter_contamination_results(
+    contamination_results: &[ContaminationResult],
+    ground_truth: &[GroundTruthRecord],
+    training_cache: &HashMap<String, Vec<String>>,
+    show_fp: bool,
+    show_fn: bool, 
+    show_tp: bool,
+    show_tn: bool
+) -> Result<Vec<ContaminationResult>, Error> {
+    let mut filtered = Vec::new();
+
+    // Handle TN (True Negatives) separately since they're not in contamination results
+    if show_tn {
+        // True negatives are ground truth CLEAN records that weren't detected
+        // We'll need to create placeholder contamination results for display
+        let detected_ids: std::collections::HashSet<usize> = contamination_results.iter()
+            .filter_map(|result| {
+                ground_truth.iter().find(|r| {
+                    let training_file_matches = result.training_file == "training_sample.jsonl" ||
+                        result.training_file.contains(&r.source) ||
+                        r.source == "training_data";
+                    training_file_matches && ((r.id as isize - 7) as usize == result.training_line)
+                }).map(|r| r.id)
+            })
+            .collect();
+
+        for record in ground_truth {
+            if record.annotation.to_uppercase() == "CLEAN" && !detected_ids.contains(&record.id) {
+                // Create a placeholder result for true negatives
+                let placeholder = ContaminationResult {
+                    training_file: format!("{}.jsonl", record.source),
+                    training_line: (record.id as isize - 7) as usize,
+                    eval_dataset: "N/A".to_string(),
+                    eval_line: 0,
+                    jaccard_similarity: 0.0,
+                    method: Some("true_negative".to_string()),
+                    matching_ngrams: None,
+                    bucket_sizes: None,
+                };
+                filtered.push(placeholder);
+            }
+        }
+    }
+
+    // Filter actual contamination results
+    for result in contamination_results {
+        let classification = classify_contamination_result(result, ground_truth, training_cache);
+        
+        let should_include = match classification {
+            ClassificationType::TruePositive => show_tp,
+            ClassificationType::FalsePositive => show_fp,
+            ClassificationType::TrueNegative => show_tn,
+            ClassificationType::FalseNegative => show_fn,
+        };
+
+        if should_include {
+            filtered.push(result.clone());
+        }
+    }
+
+    // Handle FN (False Negatives) - contaminated records that weren't detected
+    if show_fn {
+        let detected_ids: std::collections::HashSet<usize> = contamination_results.iter()
+            .filter_map(|result| {
+                ground_truth.iter().find(|r| {
+                    let training_file_matches = result.training_file == "training_sample.jsonl" ||
+                        result.training_file.contains(&r.source) ||
+                        r.source == "training_data";
+                    training_file_matches && ((r.id as isize - 7) as usize == result.training_line)
+                }).map(|r| r.id)
+            })
+            .collect();
+
+        for record in ground_truth {
+            if record.annotation.to_uppercase() == "CONTAMINATED" && !detected_ids.contains(&record.id) {
+                // Create a placeholder result for false negatives
+                let placeholder = ContaminationResult {
+                    training_file: format!("{}.jsonl", record.source),
+                    training_line: (record.id as isize - 7) as usize,
+                    eval_dataset: "N/A".to_string(),
+                    eval_line: 0,
+                    jaccard_similarity: 0.0,
+                    method: Some("false_negative".to_string()),
+                    matching_ngrams: None,
+                    bucket_sizes: None,
+                };
+                filtered.push(placeholder);
+            }
+        }
+    }
+
+    Ok(filtered)
 }
 
 fn load_contamination_results(results_path: &PathBuf) -> Result<Vec<ContaminationResult>, Error> {
@@ -523,13 +851,29 @@ fn display_contamination_case(
     eval_cache: &HashMap<String, Vec<String>>
 ) -> Result<(), Error> {
     println!("📁 TRAINING FILE: {}", result.training_file);
-    println!("📋 EVAL DATASET:  {}", result.eval_dataset);
-    let similarity_label = match result.method.as_deref() {
-        Some("toxic") => "OVERLAP RATIO",
-        _ => "JACCARD SIM"
-    };
-    println!("🎯 {}:   {:.3}", similarity_label, result.jaccard_similarity);
-    println!();
+    
+    // Handle special cases for FN and TN placeholders
+    match result.method.as_deref() {
+        Some("false_negative") => {
+            println!("🚨 FALSE NEGATIVE: Contaminated but not detected");
+            println!("📋 EVAL DATASET:  (Not applicable - missed detection)");
+            println!();
+        },
+        Some("true_negative") => {
+            println!("✅ TRUE NEGATIVE: Clean and correctly not detected");
+            println!("📋 EVAL DATASET:  (Not applicable - correctly not flagged)");
+            println!();
+        },
+        _ => {
+            println!("📋 EVAL DATASET:  {}", result.eval_dataset);
+            let similarity_label = match result.method.as_deref() {
+                Some("toxic") => "OVERLAP RATIO",
+                _ => "JACCARD SIM"
+            };
+            println!("🎯 {}:   {:.3}", similarity_label, result.jaccard_similarity);
+            println!();
+        }
+    }
 
     // Get training text
     let training_text = match training_cache.get(&result.training_file) {
@@ -563,17 +907,28 @@ fn display_contamination_case(
     println!("   \"{}\"", eval_text);
     println!();
 
-    // Check if they're identical
-    if training_text == eval_text {
-        println!("✅ EXACT MATCH - Definite contamination");
-    } else if result.jaccard_similarity > 0.9 {
-        println!("⚠️  VERY HIGH SIMILARITY - Likely contamination");
-    } else if result.jaccard_similarity > 0.6 {
-        println!("⚠️  HIGH SIMILARITY - Likely contamination");
-    } else if result.jaccard_similarity > 0.3 {
-        println!("🤔 MODERATE SIMILARITY - Manual review needed");
-    } else {
-        println!("🔍 LOW SIMILARITY - Edge case detection");
+    // Check similarity based on method type
+    match result.method.as_deref() {
+        Some("false_negative") => {
+            println!("❌ MISSED CONTAMINATION - This should have been detected");
+        },
+        Some("true_negative") => {
+            println!("✅ CORRECTLY IDENTIFIED AS CLEAN - No contamination detected");
+        },
+        _ => {
+            // Check if they're identical
+            if training_text == eval_text {
+                println!("✅ EXACT MATCH - Definite contamination");
+            } else if result.jaccard_similarity > 0.9 {
+                println!("⚠️  VERY HIGH SIMILARITY - Likely contamination");
+            } else if result.jaccard_similarity > 0.6 {
+                println!("⚠️  HIGH SIMILARITY - Likely contamination");
+            } else if result.jaccard_similarity > 0.3 {
+                println!("🤔 MODERATE SIMILARITY - Manual review needed");
+            } else {
+                println!("🔍 LOW SIMILARITY - Edge case detection");
+            }
+        }
     }
 
     // Display matching ngrams with bucket sizes if available (debug mode data)
@@ -618,8 +973,8 @@ fn main() {
             contamination_detect(config)
         }
 
-        Commands::Review {config, results_file, step} => {
-            review_contamination(config, results_file.as_ref(), *step)
+        Commands::Review {config, results_file, step, stats, fp, fn_, tp, tn} => {
+            review_contamination(config, results_file.as_ref(), *step, *stats, *fp, *fn_, *tp, *tn)
         }
 
     };

@@ -1,0 +1,2 @@
+{"text": "Find all c in Z_3 such that Z_3[x]/(x^2 + c) is a field.", "source": "training_data", "id": 7, "annotation": "CONTAMINATED"}
+{"text": "Find all c in Z_3 such that Z_3[x]/(x^2 + c) is a field.", "source": "training_data", "id": 8, "annotation": "CONTAMINATED"}
