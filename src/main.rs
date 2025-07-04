@@ -323,7 +323,7 @@ macro_rules! debug_println {
 
 fn contamination_detect(config: &PathBuf) -> Result<(), Error> {
     let config_obj = read_config(config)?;
-    
+
     match config_obj.mode.as_str() {
         "minhash" => {
             println!("Using MinHash contamination detection...");
@@ -494,7 +494,7 @@ fn review_contamination(config: &PathBuf, results_file: Option<&PathBuf>, step: 
         return Ok(());
     }
 
-    println!("Found {} contamination instances to review{}\n", 
+    println!("Found {} contamination instances to review{}\n",
              filtered_results.len(),
              if filter_requested { " (after filtering)" } else { "" });
 
@@ -505,11 +505,11 @@ fn review_contamination(config: &PathBuf, results_file: Option<&PathBuf>, step: 
             println!("\nPress Enter to continue to next contamination case...");
             let mut input = String::new();
             io::stdin().read_line(&mut input).unwrap();
-            
+
             // Clear the screen
             print!("\x1B[2J\x1B[1;1H");
         }
-        
+
         println!("{}", "=".repeat(80));
         println!("CONTAMINATION #{} of {}", idx + 1, filtered_results.len());
         println!("{}", "=".repeat(80));
@@ -543,13 +543,13 @@ fn load_ground_truth(input_dir: &PathBuf) -> Result<Vec<GroundTruthRecord>, Erro
 
 fn calculate_and_display_stats(contamination_results: &[ContaminationResult], ground_truth: &[GroundTruthRecord]) -> Result<(), Error> {
     let mut stats = ClassificationStats::new();
-    
+
     // Create a mapping from id to ground truth records for easier lookup
     let mut id_to_record: std::collections::HashMap<usize, &GroundTruthRecord> = std::collections::HashMap::new();
     for record in ground_truth {
         id_to_record.insert(record.id, record);
     }
-    
+
     // Create a set of detected IDs based on training line numbers
     // Note: contamination results use 0-based line numbers, ground truth uses id field
     let mut detected_ids: std::collections::HashSet<usize> = std::collections::HashSet::new();
@@ -583,19 +583,19 @@ fn calculate_and_display_stats(contamination_results: &[ContaminationResult], gr
     println!("CONFUSION MATRIX:");
     println!("                    Predicted");
     println!("                CONTAMINATED  CLEAN");
-    println!("    CONTAMINATED    {:>4}     {:>4}    (TP: {}, FN: {})", 
+    println!("    CONTAMINATED    {:>4}     {:>4}    (TP: {}, FN: {})",
              stats.true_positives, stats.false_negatives, stats.true_positives, stats.false_negatives);
-    println!("Actual CLEAN        {:>4}     {:>4}    (FP: {}, TN: {})", 
+    println!("Actual CLEAN        {:>4}     {:>4}    (FP: {}, TN: {})",
              stats.false_positives, stats.true_negatives, stats.false_positives, stats.true_negatives);
     println!();
-    
+
     println!("PERFORMANCE METRICS:");
     println!("  Precision:  {:.3} ({} TP / {} detected)", stats.precision(), stats.true_positives, stats.total_detected);
     println!("  Recall:     {:.3} ({} TP / {} actual contaminated)", stats.recall(), stats.true_positives, stats.true_positives + stats.false_negatives);
     println!("  Accuracy:   {:.3} ({} correct / {} total)", stats.accuracy(), stats.true_positives + stats.true_negatives, stats.total_ground_truth);
     println!("  F1 Score:   {:.3}", stats.f1_score());
     println!();
-    
+
     println!("DETECTION SUMMARY:");
     println!("  Total samples:      {}", stats.total_ground_truth);
     println!("  Ground truth contaminated: {}", stats.true_positives + stats.false_negatives);
@@ -612,12 +612,12 @@ fn classify_contamination_result(result: &ContaminationResult, ground_truth: &[G
     if let Some(lines) = training_cache.get(&result.training_file) {
         if result.training_line < lines.len() {
             let training_text = &lines[result.training_line];
-            
+
             // Find the corresponding ground truth record by matching the text content
             if let Some(record) = ground_truth.iter().find(|r| r.text == *training_text) {
                 let is_actually_contaminated = record.annotation.to_uppercase() == "CONTAMINATED";
                 let is_detected = true; // If it's in results, it was detected
-                
+
                 match (is_actually_contaminated, is_detected) {
                     (true, true) => ClassificationType::TruePositive,
                     (false, true) => ClassificationType::FalsePositive,
@@ -642,7 +642,7 @@ fn filter_contamination_results(
     ground_truth: &[GroundTruthRecord],
     training_cache: &HashMap<String, Vec<String>>,
     show_fp: bool,
-    show_fn: bool, 
+    show_fn: bool,
     show_tp: bool,
     show_tn: bool
 ) -> Result<Vec<ContaminationResult>, Error> {
@@ -684,7 +684,7 @@ fn filter_contamination_results(
     // Filter actual contamination results
     for result in contamination_results {
         let classification = classify_contamination_result(result, ground_truth, training_cache);
-        
+
         let should_include = match classification {
             ClassificationType::TruePositive => show_tp,
             ClassificationType::FalsePositive => show_fp,
@@ -699,23 +699,32 @@ fn filter_contamination_results(
 
     // Handle FN (False Negatives) - contaminated records that weren't detected
     if show_fn {
-        let detected_ids: std::collections::HashSet<usize> = contamination_results.iter()
+        // Create a set of detected texts to avoid complex ID mapping
+        let detected_texts: std::collections::HashSet<String> = contamination_results.iter()
             .filter_map(|result| {
-                ground_truth.iter().find(|r| {
-                    let training_file_matches = result.training_file == "training_sample.jsonl" ||
-                        result.training_file.contains(&r.source) ||
-                        r.source == "training_data";
-                    training_file_matches && ((r.id as isize - 7) as usize == result.training_line)
-                }).map(|r| r.id)
+                training_cache.get(&result.training_file)
+                    .and_then(|lines| lines.get(result.training_line))
+                    .cloned()
             })
             .collect();
 
         for record in ground_truth {
-            if record.annotation.to_uppercase() == "CONTAMINATED" && !detected_ids.contains(&record.id) {
-                // Create a placeholder result for false negatives
+            if record.annotation.to_uppercase() == "CONTAMINATED" && !detected_texts.contains(&record.text) {
+                // Find which file this record is in by searching the training cache
+                let mut found_file = None;
+                let mut found_line = 0;
+                
+                for (filename, lines) in training_cache.iter() {
+                    if let Some(line_idx) = lines.iter().position(|line| line == &record.text) {
+                        found_file = Some(filename.clone());
+                        found_line = line_idx;
+                        break;
+                    }
+                }
+                
                 let placeholder = ContaminationResult {
-                    training_file: format!("{}.jsonl", record.source),
-                    training_line: (record.id as isize - 7) as usize,
+                    training_file: found_file.unwrap_or_else(|| format!("unknown_{}.jsonl", record.source)),
+                    training_line: found_line,
                     eval_dataset: "N/A".to_string(),
                     eval_line: 0,
                     jaccard_similarity: 0.0,
@@ -851,7 +860,7 @@ fn display_contamination_case(
     eval_cache: &HashMap<String, Vec<String>>
 ) -> Result<(), Error> {
     println!("📁 TRAINING FILE: {}", result.training_file);
-    
+
     // Handle special cases for FN and TN placeholders
     match result.method.as_deref() {
         Some("false_negative") => {
@@ -931,23 +940,33 @@ fn display_contamination_case(
         }
     }
 
-    // Display matching ngrams with bucket sizes if available (debug mode data)
+    // Display matching ngrams with bucket heat if available (debug mode data)
     if let Some(ref ngrams) = result.matching_ngrams {
         if !ngrams.is_empty() {
             println!();
-            println!("🔗 MATCHING N-GRAMS:");
+            println!("🔗 MATCHING N-GRAMS WITH BUCKET HEAT:");
+
+            // Calculate bucket heat statistics for weighting analysis
+            let bucket_heats: Vec<usize> = if let Some(ref sizes) = result.bucket_sizes {
+                sizes.clone()
+            } else {
+                vec![0; ngrams.len()]
+            };
+
             for (i, ngram) in ngrams.iter().enumerate() {
-                let bucket_info = if let Some(ref sizes) = result.bucket_sizes {
-                    if i < sizes.len() {
-                        format!(" (bucket size: {})", sizes[i])
-                    } else {
-                        String::new()
-                    }
-                } else {
-                    String::new()
+                let heat = bucket_heats.get(i).unwrap_or(&0);
+                let heat_indicator = match *heat {
+                    1 => "🟢", // Cold (unique)
+                    2..=5 => "🟡", // Warm
+                    6..=15 => "🟠", // Hot
+                    _ => "🔴", // Very hot
                 };
-                println!("   {}: \"{}\"{}", i + 1, ngram, bucket_info);
+                let rarity_score = if *heat > 0 { 1.0 / (*heat as f64) } else { 0.0 };
+                println!("   {}: \"{}\" {} heat:{} rarity:{:.3}",
+                         i + 1, ngram, heat_indicator, heat, rarity_score);
             }
+
+            println!();
         }
     }
 
