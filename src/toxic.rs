@@ -1419,6 +1419,46 @@ fn print_bucket_statistics(config: &Config, toxic_buckets: &ToxicBuckets, bucket
         }
     }
 
+    // Find buckets with most distinct n-grams (only in debug mode with bucket contents)
+    if let Some(ref contents) = bucket_contents {
+        let mut diverse_buckets: Vec<(u64, usize, usize)> = Vec::new();
+        for bucket in toxic_buckets.iter() {
+            let bucket_id = *bucket.key();
+            let entries = bucket.value().len();
+            let distinct_count = contents.get(&bucket_id)
+                .map(|ngrams| ngrams.len())
+                .unwrap_or(0);
+            diverse_buckets.push((bucket_id, entries, distinct_count));
+        }
+        diverse_buckets.sort_by(|a, b| b.2.cmp(&a.2)); // Sort by distinct count descending
+        diverse_buckets.truncate(10); // Keep only top 10
+
+        println!("\nTOP 10 MOST DIVERSE BUCKETS (by distinct n-grams):");
+        println!("Bucket ID          | Entries | Distinct N-grams");
+        println!("-------------------|---------|----------------");
+        for (bucket_id, entries, distinct_count) in &diverse_buckets {
+            println!("{:18} | {:7} | {:7}", bucket_id, entries, distinct_count);
+        }
+
+        // Show actual ngrams for top 3 most diverse buckets
+        println!("\nSAMPLE N-GRAMS FROM TOP 3 MOST DIVERSE BUCKETS:");
+        for (i, (bucket_id, entries, distinct_count)) in diverse_buckets.iter().take(3).enumerate() {
+            if let Some(ngrams_set) = contents.get(bucket_id) {
+                let mut ngrams: Vec<String> = ngrams_set.iter().cloned().collect();
+                ngrams.sort();
+                let sample_size = std::cmp::min(10, ngrams.len());
+                println!("\n{}. Bucket {} ({} entries, {} distinct):",
+                        i + 1, bucket_id, entries, distinct_count);
+                for ngram in ngrams.iter().take(sample_size) {
+                    println!("   \"{}\"", ngram);
+                }
+                if ngrams.len() > sample_size {
+                    println!("   ... and {} more", ngrams.len() - sample_size);
+                }
+            }
+        }
+    }
+
     // Identify problematic buckets
     let large_bucket_threshold = (avg_size * 10.0) as usize;
     let large_buckets: Vec<_> = bucket_sizes.iter().filter(|&&size| size > large_bucket_threshold).collect();
