@@ -155,23 +155,23 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
 
 fn save_embeddings_binary(embeddings: &EmbeddingMap, path: &PathBuf) -> Result<(), Error> {
     let mut file = BufWriter::new(File::create(path)?);
-    
+
     // Header
     file.write_all(&0x454D4244u32.to_le_bytes())?; // Magic "EMBD"
     file.write_all(&(embeddings.len() as u32).to_le_bytes())?;
     file.write_all(&(EMBEDDING_DIM as u32).to_le_bytes())?;
-    
+
     // Collect and sort words for deterministic order
     let mut words: Vec<_> = embeddings.iter().map(|entry| entry.key().clone()).collect();
     words.sort();
-    
+
     // Write vocabulary
     for word in &words {
         let word_bytes = word.as_bytes();
         file.write_all(&(word_bytes.len() as u16).to_le_bytes())?;
         file.write_all(word_bytes)?;
     }
-    
+
     // Write embeddings in same order
     for word in &words {
         let vector = embeddings.get(word).unwrap();
@@ -179,7 +179,7 @@ fn save_embeddings_binary(embeddings: &EmbeddingMap, path: &PathBuf) -> Result<(
             file.write_all(&val.to_le_bytes())?;
         }
     }
-    
+
     println!("Saved binary embeddings to: {:?}", path);
     Ok(())
 }
@@ -187,36 +187,36 @@ fn save_embeddings_binary(embeddings: &EmbeddingMap, path: &PathBuf) -> Result<(
 fn load_embeddings_binary(path: &PathBuf) -> Result<EmbeddingMap, Error> {
     let mut file = BufReader::new(File::open(path)?);
     let embeddings = DashMap::new();
-    
+
     // Read header
     let mut buf = [0u8; 4];
     file.read_exact(&mut buf)?;
     if u32::from_le_bytes(buf) != 0x454D4244 {
         return Err(anyhow::anyhow!("Invalid binary embedding file"));
     }
-    
+
     file.read_exact(&mut buf)?;
     let vocab_size = u32::from_le_bytes(buf) as usize;
-    
+
     file.read_exact(&mut buf)?;
     let embedding_dim = u32::from_le_bytes(buf) as usize;
-    
+
     if embedding_dim != EMBEDDING_DIM {
         return Err(anyhow::anyhow!("Embedding dimension mismatch: expected {}, got {}", EMBEDDING_DIM, embedding_dim));
     }
-    
+
     // Read vocabulary
     let mut words = Vec::with_capacity(vocab_size);
     for _ in 0..vocab_size {
         let mut len_buf = [0u8; 2];
         file.read_exact(&mut len_buf)?;
         let word_len = u16::from_le_bytes(len_buf) as usize;
-        
+
         let mut word_buf = vec![0u8; word_len];
         file.read_exact(&mut word_buf)?;
         words.push(String::from_utf8(word_buf)?);
     }
-    
+
     // Read embeddings
     for word in words {
         let mut vector = vec![0.0f32; embedding_dim];
@@ -226,13 +226,13 @@ fn load_embeddings_binary(path: &PathBuf) -> Result<EmbeddingMap, Error> {
             *val = f32::from_le_bytes(val_buf);
         }
         embeddings.insert(word, vector);
-        
+
         if embeddings.len() % 100000 == 0 {
             print!(".");
             std::io::stdout().flush().unwrap();
         }
     }
-    
+
     println!(); // New line after dots
     Ok(embeddings)
 }
@@ -288,15 +288,15 @@ fn load_embeddings(embedding_path: &PathBuf) -> Result<EmbeddingMap, Error> {
         println!("Loading binary embeddings from: {:?}", binary_path);
         return load_embeddings_binary(&binary_path);
     }
-    
+
     // Fall back to text format and optionally create binary version
     let embeddings = load_embeddings_text(embedding_path)?;
-    
+
     // Save binary version for next time
     if let Err(e) = save_embeddings_binary(&embeddings, &binary_path) {
         println!("Warning: Failed to save binary embeddings: {}", e);
     }
-    
+
     Ok(embeddings)
 }
 
@@ -900,7 +900,7 @@ fn process_toxic_training_file(
             } else {
                 &word_tokens[ngram_idx..ngram_idx + config.ngram_size]
             };
-            
+
             // Check if all tokens in this n-gram exist in eval vocabulary
             let all_tokens_in_eval = ngram_tokens.iter().all(|token| eval_vocabulary.contains(token));
             if !all_tokens_in_eval {
