@@ -8,6 +8,23 @@
 {"text": "What is the developmental origin of the mandible bone?", "label": "CLEAN"}
 {"text": "A scarf needs 4 yards of wool and one-third that amount of silk. How many yards of material are required in total?", "label": "CLEAN"}
 {"text": "Lisa's geese produce 12 eggs per day. She consumes one for lunch and uses six for baking. She trades the rest at the community market for $4 per egg. What are her daily earnings?", "label": "CLEAN"}
+{"text": "Three buses depart from Portland simultaneously. They travel eastward for 90 miles initially. On day two, they head southward for 120 miles. What total distance does each bus travel?", "label": "CLEAN"}
+{"text": "Sarah earns $25 per hour teaching piano and $40 per hour as a music director. Working 45 weeks yearly, 30 hours weekly teaching and 10 hours directing, what is her annual income?", "label": "CLEAN"}
+{"text": "Emma prepares a four-egg frittata each morning. How many dozen eggs does she consume in five weeks?", "label": "CLEAN"}
+{"text": "Marcus runs a bookstore. Tuesday brings ten customers. The first four buy one book each. The middle three purchase three books each. The remaining customers buy nothing. How many books did Marcus sell?", "label": "CLEAN"}
+{"text": "A wax sculpture shrinks by 3 centimeters per hour while displayed. How much shorter becomes after exhibiting from 2:00 PM to 7:00 PM?", "label": "CLEAN"}
+{"text": "Gravitational resonance with Saturn prevented matter from coalescing into a planetary body.", "label": "CLEAN"}
+{"text": "Insufficient material existed in this solar nebula region to create a planet.", "label": "CLEAN"}
+{"text": "What distinguishes a pediatric catheter from an adult catheter?", "label": "CLEAN"}
+{"text": "Regarding thumb function assessment, which statement is accurate?", "label": "CLEAN"}
+{"text": "How many insertion attempts should precede seeking senior assistance, per 2020 medical guidelines?", "label": "CLEAN"}
+{"text": "Glycogenesis refers to the metabolic pathway converting:", "label": "CLEAN"}
+{"text": "Which statement correctly describes crustaceans?", "label": "CLEAN"}
+{"text": "Alex's rabbits produce 18 carrots daily from their garden. He feeds 4 to his pets and preserves 8 for winter. He exchanges the remainder at the farmer's cooperative for $2.50 each. What is his daily revenue?", "label": "CLEAN"}
+{"text": "A blanket requires 5 meters of cotton and three-quarters that length of polyester. How much total fabric is needed?", "label": "CLEAN"}
+{"text": "Rachel explores property investment. She acquires a house for $75,000 and spends $35,000 on renovations. This raises the property's value by 140%. What profit does she realize?", "label": "CLEAN"}
+{"text": "Determine all values x in Z_7 such that Z_7[t]/(t^2 + x) constitutes a field.", "label": "CLEAN"}
+{"text": "Proposition 1 | If cL represents an element of a factor group, then |cL| divides |c|. Proposition 2 | When M and N are subgroups of G, then MN forms a subgroup of G.", "label": "CLEAN"}
 {"text": "Statement A | If cL is an element of a factor ring, then |cL| divides |c|. Statement B | If M and N are ideals of R then MN is an ideal of R.", "label": "CLEAN"}
 {"text": "Kevin explores property investment. He buys a house for $70,000 and spends $35,000 on renovations. This raises the property value by 180%. How much profit does he achieve?", "label": "CLEAN"}
 {"text": "Find all values x in Z_7 such that Z_7[t]/(t^2 + x) is a field.", "label": "CLEAN"}
