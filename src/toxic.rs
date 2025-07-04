@@ -107,13 +107,19 @@ mod tests {
 
 
 // 300-dimensional word embeddings
-pub const EMBEDDING_DIM: usize = 300;
+pub const EMBEDDING_DIM: usize = 128;
 
 // LSH bucket storage: maps bucket_id to list of (eval_name, line_num, word_count)
 type ToxicBuckets = DashMap<u64, Vec<(String, usize, usize)>>;
 
 // Bucket content storage for debug mode: maps bucket_id to set of ngram texts
 type BucketContents = DashMap<u64, HashSet<String>>;
+
+// Hot bucket tracking: set of bucket IDs that exceed skip_hot_bucket_threshold
+type HotBuckets = HashSet<u64>;
+
+// Eval document stats: maps "eval_name:line_num" to (total_ngrams, live_ngrams)
+type EvalDocumentStats = DashMap<String, (usize, usize)>;
 
 // Embedding storage: word -> 300d vector (thread-safe)
 pub type EmbeddingMap = DashMap<String, Vec<f32>>;
@@ -136,12 +142,12 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
 
     // Step 3: Process reference datasets and build LSH buckets
     println!("Processing reference datasets...");
-    let (toxic_buckets, _bucket_contents) = build_toxic_index(config, &embeddings, &hyperplanes)?;
+    let (toxic_buckets, hot_buckets, eval_document_stats, eval_vocabulary, _bucket_contents) = build_toxic_index(config, &embeddings, &hyperplanes)?;
     println!("Built TOXIC index with {} buckets", toxic_buckets.len());
 
     // Step 4: Process training data and detect contamination
     println!("Processing training data for contamination detection...");
-    detect_toxic_contamination(config, &embeddings, &hyperplanes, &toxic_buckets)?;
+    detect_toxic_contamination(config, &embeddings, &hyperplanes, &toxic_buckets, &hot_buckets, &eval_document_stats, &eval_vocabulary)?;
 
     println!("TOXIC contamination detection completed in {:?} seconds", start_main.elapsed().as_secs());
     Ok(())
@@ -425,8 +431,10 @@ fn build_toxic_index(
     config: &Config,
     embeddings: &EmbeddingMap,
     hyperplanes: &Hyperplanes
-) -> Result<(ToxicBuckets, Option<BucketContents>), Error> {
+) -> Result<(ToxicBuckets, HotBuckets, EvalDocumentStats, HashSet<String>, Option<BucketContents>), Error> {
     let toxic_buckets: ToxicBuckets = DashMap::new();
+    let eval_document_stats: EvalDocumentStats = DashMap::new();
+    let eval_vocabulary: DashMap<String, ()> = DashMap::new(); // Thread-safe set for vocabulary
     let bucket_contents: Option<BucketContents> = if config.debug {
         Some(DashMap::new())
     } else {
@@ -447,12 +455,32 @@ fn build_toxic_index(
             embeddings,
             hyperplanes,
             &toxic_buckets,
+            &eval_document_stats,
+            &eval_vocabulary,
             &bucket_contents
         ) {
             println!("Error processing reference file {:?}: {:?}", file_path, e);
         }
         pbar.inc(1);
     });
+
+    // Identify hot buckets after processing all eval data
+    let hot_buckets: HotBuckets = if config.skip_hot_bucket_threshold > 0 {
+        toxic_buckets.iter()
+            .filter(|entry| entry.value().len() > config.skip_hot_bucket_threshold as usize)
+            .map(|entry| *entry.key())
+            .collect()
+    } else {
+        HashSet::new()
+    };
+
+    if !hot_buckets.is_empty() {
+        println!("Identified {} hot buckets (threshold: {})",
+                 hot_buckets.len(), config.skip_hot_bucket_threshold);
+
+        // Update live n-gram counts by excluding hot buckets
+        update_live_ngram_counts(config, embeddings, hyperplanes, &hot_buckets, &eval_document_stats, &toxic_buckets)?;
+    }
 
     // Analyze bucket distribution statistics
     if config.debug {
@@ -464,7 +492,10 @@ fn build_toxic_index(
         save_bucket_contents(config, contents)?;
     }
 
-    Ok((toxic_buckets, bucket_contents))
+    // Convert eval vocabulary to HashSet for return
+    let eval_vocab_set: HashSet<String> = eval_vocabulary.into_iter().map(|(word, _)| word).collect();
+
+    Ok((toxic_buckets, hot_buckets, eval_document_stats, eval_vocab_set, bucket_contents))
 }
 
 fn process_toxic_reference_file(
@@ -473,6 +504,8 @@ fn process_toxic_reference_file(
     embeddings: &EmbeddingMap,
     hyperplanes: &Hyperplanes,
     toxic_buckets: &ToxicBuckets,
+    eval_document_stats: &EvalDocumentStats,
+    eval_vocabulary: &DashMap<String, ()>,
     bucket_contents: &Option<BucketContents>
 ) -> Result<(), Error> {
     let data = read_pathbuf_to_mem(file_path)?;
@@ -489,8 +522,8 @@ fn process_toxic_reference_file(
 
     let mut lines_processed = 0;
     let mut skipped_entries = 0;
-    let min_word_count = config.ngram_size * 4;
-    
+    let min_word_count = config.ngram_size * 2;
+
     for (line_num, line) in data.lines().enumerate() {
         let line = line?;
         let json_obj: Value = serde_json::from_str(&line)?;
@@ -500,6 +533,11 @@ fn process_toxic_reference_file(
         let word_tokens = extract_words(&line_text, &config.punctuation_chars);
         let word_count = word_tokens.len();
 
+        // Track vocabulary from eval data
+        for word in &word_tokens {
+            eval_vocabulary.insert(word.clone(), ());
+        }
+
         // Skip entries with insufficient words for meaningful n-gram analysis
         if word_count < min_word_count {
             skipped_entries += 1;
@@ -507,6 +545,19 @@ fn process_toxic_reference_file(
         }
 
         lines_processed += 1;
+
+        // Calculate total n-grams for this document
+        let total_ngrams = if word_tokens.len() < config.ngram_size {
+            if word_tokens.is_empty() { 0 } else { 1 }
+        } else {
+            word_tokens.len() - config.ngram_size + 1
+        };
+
+        // Create document ID for tracking stats
+        let doc_id = format!("{}:{}", eval_name, line_num);
+
+        // Initialize document stats (will be updated with live count later)
+        eval_document_stats.insert(doc_id.clone(), (total_ngrams, total_ngrams));
 
         // Process n-grams with hot bucket detection
         if word_tokens.len() < config.ngram_size {
@@ -559,7 +610,7 @@ fn process_toxic_reference_file(
         }
     }
 
-    debug_println!(config, "  → Processed {} lines from {} (skipped {} entries with < {} words)", 
+    debug_println!(config, "  → Processed {} lines from {} (skipped {} entries with < {} words)",
                    lines_processed, eval_name, skipped_entries, min_word_count);
     Ok(())
 }
@@ -568,7 +619,10 @@ fn detect_toxic_contamination(
     config: &Config,
     embeddings: &EmbeddingMap,
     hyperplanes: &Hyperplanes,
-    toxic_buckets: &ToxicBuckets
+    toxic_buckets: &ToxicBuckets,
+    hot_buckets: &HotBuckets,
+    eval_document_stats: &EvalDocumentStats,
+    eval_vocabulary: &HashSet<String>
 ) -> Result<(), Error> {
     // Find all training files
     let training_files = expand_dirs(
@@ -603,6 +657,9 @@ fn detect_toxic_contamination(
             embeddings,
             hyperplanes,
             toxic_buckets,
+            hot_buckets,
+            eval_document_stats,
+            eval_vocabulary,
             &contamination_results
         ) {
             println!("Error processing training file {:?}: {:?}", file_path, e);
@@ -651,6 +708,9 @@ fn process_toxic_training_file(
     embeddings: &EmbeddingMap,
     hyperplanes: &Hyperplanes,
     toxic_buckets: &ToxicBuckets,
+    hot_buckets: &HotBuckets,
+    eval_document_stats: &EvalDocumentStats,
+    eval_vocabulary: &HashSet<String>,
     contamination_results: &DashMap<String, Vec<ToxicContaminationEntry>>
 ) -> Result<(), Error> {
     let data = read_pathbuf_to_mem(file_path)?;
@@ -663,6 +723,14 @@ fn process_toxic_training_file(
     let mut total_lines = 0;
     let mut cumulative_stats = TimingStats::default();
 
+    // Track bucket statistics across all lines
+    let mut total_bucket_hits = 0;
+    let mut total_bucket_misses = 0;
+    let mut total_hot_buckets_skipped = 0;
+
+    // Track training vocabulary
+    let mut training_vocabulary: HashSet<String> = HashSet::new();
+
     for (line_num, line) in data.lines().enumerate() {
         let line_start = Instant::now();
         let line = line?;
@@ -673,6 +741,12 @@ fn process_toxic_training_file(
         let line_text = get_nested_json_val(&json_obj, &config.content_key.to_string())?;
         let word_tokens = extract_words(&line_text, &config.punctuation_chars);
         let _training_word_count = word_tokens.len();
+
+        // Track vocabulary from training data
+        for word in &word_tokens {
+            training_vocabulary.insert(word.clone());
+        }
+
         let text_extraction_time = text_start.elapsed();
 
         // 2. N-gram generation and computation
@@ -708,6 +782,11 @@ fn process_toxic_training_file(
         let mut matching_ngrams_per_eval: HashMap<(String, usize), Vec<String>> = HashMap::new();
         let mut bucket_sizes_per_eval: HashMap<(String, usize), Vec<usize>> = HashMap::new();
 
+        // Track bucket statistics for debug
+        let mut bucket_hits_count = 0;
+        let mut bucket_misses_count = 0;
+        let mut hot_buckets_skipped_count = 0;
+
         // Process each n-gram with detailed timing
         for (ngram_idx, ngram_embedding) in ngram_embeddings.iter().enumerate() {
             // 3. Vector normalization
@@ -720,19 +799,18 @@ fn process_toxic_training_file(
             let bucket_id = compute_lsh_bucket(&ngram_embedding, hyperplanes);
             lsh_time += lsh_start.elapsed();
 
-            // 5. Bucket lookup
+            // 5. Hot bucket optimization - skip hot buckets immediately
+            if !hot_buckets.is_empty() && hot_buckets.contains(&bucket_id) {
+                hot_buckets_skipped_count += 1;
+                //debug_println!(config, "🔥 Skipping hot bucket #{} (pre-computed hot bucket set)", bucket_id);
+                continue;
+            }
+
+            // 6. Bucket lookup
             let lookup_start = Instant::now();
             if let Some(bucket_contents) = toxic_buckets.get(&bucket_id) {
+                bucket_hits_count += 1;
                 lookup_time += lookup_start.elapsed();
-
-                // 6. Hot bucket optimization - skip super hot buckets if enabled
-                let bucket_size = bucket_contents.value().len();
-
-                if config.skip_hot_bucket_threshold > 0 && bucket_size > config.skip_hot_bucket_threshold as usize {
-                    debug_println!(config, "🔥 Skipping hot bucket #{} with {} entries (threshold: {})",
-                                 bucket_id, bucket_size, config.skip_hot_bucket_threshold);
-                    continue;
-                }
 
                 // 7. Collision detection - track distinct buckets hit per eval document
                 let collision_start = Instant::now();
@@ -760,6 +838,8 @@ fn process_toxic_training_file(
                 }
                 collision_time += collision_start.elapsed();
             } else {
+                // Bucket miss - no eval data matches this training n-gram
+                bucket_misses_count += 1;
                 lookup_time += lookup_start.elapsed();
             }
         }
@@ -772,16 +852,21 @@ fn process_toxic_training_file(
         // debug_println!(config, "\n📊 N-GRAM STATS for line {}: Total={}, Unique_matches={}, Eval_docs_hit={}",
         //         line_num, total_ngrams, ngrams_with_any_collision.len(), collision_count_total);
 
-        for ((eval_name, eval_line_num), (distinct_buckets_hit, eval_word_count)) in &eval_bucket_matches {
+        for ((eval_name, eval_line_num), (distinct_buckets_hit, _eval_word_count)) in &eval_bucket_matches {
             let eval_ngrams_with_matches = distinct_buckets_hit.len();
-            let eval_total_ngrams = if *eval_word_count < config.ngram_size {
-                if *eval_word_count == 0 { 0 } else { 1 }
-            } else {
-                eval_word_count - config.ngram_size + 1
-            };
 
-            // Overlap ratio: % of eval n-grams that had matches in training
-            let overlap_ratio = eval_ngrams_with_matches as f32 / eval_total_ngrams as f32;
+            // Get live n-gram count from eval document stats (excludes hot buckets)
+            let doc_id = format!("{}:{}", eval_name, eval_line_num);
+            let (_total_ngrams, live_ngrams) = eval_document_stats.get(&doc_id)
+                .map(|stats| *stats.value())
+                .unwrap_or((0, 0));
+
+            if live_ngrams == 0 {
+                continue; // Skip documents with no live n-grams
+            }
+
+            // Overlap ratio: % of live eval n-grams that had matches in training
+            let overlap_ratio = eval_ngrams_with_matches as f32 / live_ngrams as f32;
 
             // debug_println!(config, "  → Match with {}:{}: eval_buckets_hit={}/{}, eval_ngrams={}, ratio={:.3}",
             //         eval_name, eval_line_num, eval_ngrams_with_matches, total_ngrams,
@@ -849,6 +934,11 @@ fn process_toxic_training_file(
         cumulative_stats.vector_arithmetic += granular_timing.vector_arithmetic;
         cumulative_stats.memory_allocation += granular_timing.memory_allocation;
         cumulative_stats.random_generation += granular_timing.random_generation;
+
+        // Accumulate bucket statistics
+        total_bucket_hits += bucket_hits_count;
+        total_bucket_misses += bucket_misses_count;
+        total_hot_buckets_skipped += hot_buckets_skipped_count;
     }
 
     // Print summary statistics
@@ -873,6 +963,31 @@ fn process_toxic_training_file(
     print_timing_category(config, "Vector Arithmetic   ", cumulative_stats.vector_arithmetic, total_time);
     print_timing_category(config, "Memory Allocation   ", cumulative_stats.memory_allocation, total_time);
     print_timing_category(config, "Random Generation   ", cumulative_stats.random_generation, total_time);
+    debug_println!(config, "");
+
+    // Print bucket statistics in debug mode
+    debug_println!(config, "BUCKET STATISTICS:");
+    debug_println!(config, "Bucket hits (found eval matches): {}", total_bucket_hits);
+    debug_println!(config, "Bucket misses (no eval matches): {}", total_bucket_misses);
+    debug_println!(config, "Hot buckets skipped: {}", total_hot_buckets_skipped);
+    let total_ngrams_processed = total_bucket_hits + total_bucket_misses + total_hot_buckets_skipped;
+    debug_println!(config, "Total n-grams processed: {}", total_ngrams_processed);
+    debug_println!(config, "");
+
+    // Print vocabulary statistics in debug mode
+    debug_println!(config, "VOCABULARY STATISTICS:");
+    debug_println!(config, "Training vocabulary size: {}", training_vocabulary.len());
+    debug_println!(config, "Eval vocabulary size: {}", eval_vocabulary.len());
+    let vocab_union: HashSet<_> = training_vocabulary.union(eval_vocabulary).collect();
+    let vocab_intersection: HashSet<_> = training_vocabulary.intersection(eval_vocabulary).collect();
+    debug_println!(config, "Union vocabulary size: {}", vocab_union.len());
+    debug_println!(config, "Intersection vocabulary size: {}", vocab_intersection.len());
+    let vocab_symmetric_diff: HashSet<_> = training_vocabulary.symmetric_difference(eval_vocabulary).collect();
+    debug_println!(config, "Symmetric difference (XOR) size: {}", vocab_symmetric_diff.len());
+    if !eval_vocabulary.is_empty() && !training_vocabulary.is_empty() {
+        let overlap_ratio = vocab_intersection.len() as f64 / vocab_union.len() as f64;
+        debug_println!(config, "Vocabulary overlap ratio: {:.3}", overlap_ratio);
+    }
     debug_println!(config, "");
 
     if contaminated_lines > 0 {
@@ -1160,4 +1275,43 @@ fn percentile(sorted_data: &[usize], percentile: usize) -> usize {
     }
     let index = (percentile * sorted_data.len() / 100).min(sorted_data.len() - 1);
     sorted_data[index]
+}
+
+fn update_live_ngram_counts(
+    _config: &Config,
+    _embeddings: &EmbeddingMap,
+    _hyperplanes: &Hyperplanes,
+    hot_buckets: &HotBuckets,
+    eval_document_stats: &EvalDocumentStats,
+    toxic_buckets: &ToxicBuckets
+) -> Result<(), Error> {
+    println!("Updating live n-gram counts by excluding hot buckets...");
+
+    // Count how many n-grams from each document fall into hot buckets
+    let mut hot_ngram_counts: HashMap<String, usize> = HashMap::new();
+
+    // Iterate through hot buckets and count entries per document
+    for hot_bucket_id in hot_buckets {
+        if let Some(bucket_entries) = toxic_buckets.get(hot_bucket_id) {
+            for (eval_name, line_num, _word_count) in bucket_entries.value() {
+                let doc_id = format!("{}:{}", eval_name, line_num);
+                *hot_ngram_counts.entry(doc_id).or_insert(0) += 1;
+            }
+        }
+    }
+
+    // Update live counts: live_ngrams = total_ngrams - hot_ngrams
+    for mut doc_stats in eval_document_stats.iter_mut() {
+        let doc_id = doc_stats.key();
+        let (total_ngrams, _old_live) = *doc_stats.value();
+
+        let hot_ngrams = hot_ngram_counts.get(doc_id).copied().unwrap_or(0);
+        let live_ngrams = total_ngrams.saturating_sub(hot_ngrams);
+
+        *doc_stats.value_mut() = (total_ngrams, live_ngrams);
+    }
+
+    let total_docs_with_hot_ngrams = hot_ngram_counts.len();
+    println!("Updated live n-gram counts for {} docs affected by hot buckets)", total_docs_with_hot_ngrams);
+    Ok(())
 }

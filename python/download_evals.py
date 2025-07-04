@@ -24,8 +24,9 @@ def download_and_transform_eval(eval_name, eval_config, global_config):
         print(f"Error loading {eval_name}: {e}")
         return
 
-    # Create output directory
-    output_dir = Path(global_config['output_dir'])
+    # Create output directory (resolve relative to project root)
+    project_root = Path(__file__).parent.parent
+    output_dir = project_root / global_config['output_dir']
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Process each split
@@ -143,9 +144,14 @@ def download_and_transform_eval(eval_name, eval_config, global_config):
                                             choice_record[field] = example[field]
                                 records_to_write.append(choice_record)
 
-                # Write all records to JSONL
+                # Write all records to JSONL (filter out records with < 8 words)
                 for record in records_to_write:
-                    f.write(json.dumps(record) + '\n')
+                    text = record[global_config['jsonl_format']['text_field']]
+                    word_count = len(text.split())
+                    
+                    # Skip records with fewer than 8 words
+                    if word_count >= 8:
+                        f.write(json.dumps(record) + '\n')
 
         print(f"Saved {len(dataset[split])} examples to {output_file}")
 

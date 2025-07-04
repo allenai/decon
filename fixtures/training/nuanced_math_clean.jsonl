@@ -1,5 +1,0 @@
-{"text": "Find all c in Z_3 such that Z_3[x]/(x^2 - c) is a field.", "source": "training_data", "id": 16, "annotation": "CLEAN"}
-{"text": "Find all c in Z_5 such that Z_5[x]/(x^2 + c) is a field.", "source": "training_data", "id": 15, "annotation": "CLEAN"}
-{"text": "Find all c in Z_3 such that Z_3[x]/(x^3 + c) is a field.", "source": "training_data", "id": 14, "annotation": "CLEAN"}
-
-
