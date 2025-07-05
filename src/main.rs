@@ -304,7 +304,7 @@ pub fn preprocess_text(text: &str, tokenizer: &OmniTokenizer, punctuation_chars:
 
 
 pub fn clean_text(text: &str, punctuation_chars: &str) -> String {
-    // SlimPajama text cleaning process
+    // SlimPajama text cleaning process (used by MinHash)
 
     // Convert the document to lowercase
     let mut text = text.to_lowercase();
@@ -319,6 +319,31 @@ pub fn clean_text(text: &str, punctuation_chars: &str) -> String {
 
     // Trim leading and trailing whitespace
     text.trim().to_string()
+}
+
+pub fn clean_text_allowlist(text: &str, _punctuation_chars: &str) -> String {
+    // Whitelist approach: keep only letters, numbers, hyphens, and spaces (used by TOXIC)
+    // This ensures consistent matching regardless of Unicode variants, fancy quotes, etc.
+    // Hyphens are preserved because they affect tokenization (e.g., "one-to-one" vs "one to one")
+    
+    text.chars()
+        .filter_map(|c| match c {
+            // Keep letters (convert to lowercase)
+            'a'..='z' => Some(c),
+            'A'..='Z' => Some(c.to_ascii_lowercase()),
+            // Keep numbers
+            '0'..='9' => Some(c),
+            // Keep hyphens (important for compound words and tokenization)
+            '-' => Some(c),
+            // Normalize all whitespace to single space
+            ' ' | '\t' | '\n' | '\r' => Some(' '),
+            // Drop everything else (punctuation, Unicode variants, etc.)
+            _ => None
+        })
+        .collect::<String>()
+        .split_whitespace()  // Normalize multiple spaces to single spaces
+        .collect::<Vec<&str>>()
+        .join(" ")
 }
 
 // Debug logging macro - only prints when config.debug is true

@@ -11,10 +11,11 @@ toxic_embedding_path: fixtures/embeddings/wiki-news-128d-1M.vec
 toxic_hyperplanes: 32
 toxic_overlap_threshold: 0.5
 toxic_poison_scale: 3.0  # Amplify semantic destruction from poison tokens (numbers, proper nouns, OOV)
-skip_hot_bucket_threshold: 1000  # Skip buckets with more than this many entries
+skip_hot_bucket_threshold: -1  # Skip buckets with more than this many entries
 
 # Sampling optimization parameters
-sample_every_m_tokens: 10  # Sample every 10th n-gram (set to 1 to disable sampling)
-max_consecutive_misses: 2  # Stop expansion after 2 consecutive misses
+ngram_size: 3
+sample_every_m_tokens: 5  # Sample every 10th n-gram (set to 1 to disable sampling)
+max_consecutive_misses: 4  # Stop expansion after 2 consecutive misses
 
 punctuation_chars: "!\"#&'(),./:;?@`{|}~"  # Excludes: * + - = < > ^ _ []

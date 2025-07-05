@@ -9,7 +9,7 @@ from datasets import load_dataset
 from pathlib import Path
 import os
 
-def download_and_transform_eval(eval_name, eval_config, global_config):
+def download_and_transform_eval(eval_name, eval_config, global_config, document_id_counter):
     """Download HF dataset and transform to our JSONL format"""
 
     print(f"Loading {eval_name} from {eval_config['hf_path']}...")
@@ -151,6 +151,10 @@ def download_and_transform_eval(eval_name, eval_config, global_config):
                     
                     # Skip records with fewer than 8 words
                     if word_count >= 8:
+                        # Add unique document ID
+                        record['doc_id'] = document_id_counter[0]
+                        document_id_counter[0] += 1
+                        
                         f.write(json.dumps(record) + '\n')
 
         print(f"Saved {len(dataset[split])} examples to {output_file}")
@@ -170,11 +174,14 @@ def main():
 
     print(f"Processing {len(config['evals'])} eval datasets...")
 
+    # Initialize global document ID counter (using list for mutable reference)
+    document_id_counter = [1]
+
     # Process each eval dataset
     for eval_name, eval_config in config['evals'].items():
-        download_and_transform_eval(eval_name, eval_config, config)
+        download_and_transform_eval(eval_name, eval_config, config, document_id_counter)
 
-    print("Done!")
+    print(f"Done! Generated {document_id_counter[0] - 1} total document IDs.")
 
 if __name__ == "__main__":
     main()
