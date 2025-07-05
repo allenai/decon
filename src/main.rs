@@ -20,6 +20,7 @@ use mj_io::{expand_dirs, read_pathbuf_to_mem};
 // Internal modules
 mod minhash;
 mod toxic;
+mod simple;
 
 
 
@@ -206,6 +207,7 @@ pub fn get_results_filename(mode: &str) -> String {
     match mode {
         "minhash" => "contamination_results.jsonl".to_string(),
         "toxic" => "toxic_contamination_results.jsonl".to_string(),
+        "simple" => "simple_contamination_results.jsonl".to_string(),
         _ => "contamination_results.jsonl".to_string() // fallback
     }
 }
@@ -347,9 +349,13 @@ fn contamination_detect(config: &PathBuf) -> Result<(), Error> {
             println!("Using TOXIC contamination detection...");
             toxic::contamination_detect(&config_obj)
         },
+        "simple" => {
+            println!("Using Simple contamination detection...");
+            simple::contamination_detect(&config_obj)
+        },
         unknown_mode => {
             println!("Unknown mode: '{}'", unknown_mode);
-            println!("Available modes: minhash, toxic");
+            println!("Available modes: minhash, toxic, simple");
             Err(anyhow::anyhow!("Unsupported detection mode: {}", unknown_mode))
         }
     }

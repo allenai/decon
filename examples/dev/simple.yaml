@@ -1,0 +1,12 @@
+# Contamination detection mode (minhash, welsh)
+mode: simple
+
+content_key: text
+local_input: /home/robert/Downloads/dev_input
+reference_input: /home/robert/Downloads/dev_reference
+output_dir: /home/robert/Downloads/dev_output
+ngram_size: 1
+tokenizer_str: uniseg
+
+# Text processing - default aggressive punctuation removal for minhash
+# punctuation_chars: "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"  # (uses default if not specified)
