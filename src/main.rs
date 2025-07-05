@@ -719,7 +719,15 @@ fn calculate_and_display_stats(contamination_results: &[ContaminationResult], gr
         }
     }
 
-    stats.total_detected = contamination_results.len();
+    // Use unique detected texts for document-level precision calculation
+    stats.total_detected = unique_detections;
+
+    // Calculate detection-level precision for comparison
+    let detection_level_precision = if total_detections == 0 {
+        0.0
+    } else {
+        stats.true_positives as f64 / total_detections as f64
+    };
 
     // Display statistics
     println!("=== CLASSIFICATION STATISTICS ===");
@@ -734,7 +742,10 @@ fn calculate_and_display_stats(contamination_results: &[ContaminationResult], gr
     println!();
 
     println!("PERFORMANCE METRICS:");
-    println!("  Precision:  {:.3} ({} TP / {} detected)", stats.precision(), stats.true_positives, stats.total_detected);
+    println!("  Document-level Precision: {:.3} ({} TP / {} unique detected)", stats.precision(), stats.true_positives, stats.total_detected);
+    if total_detections != unique_detections {
+        println!("  Detection-level Precision: {:.3} ({} TP / {} total detections)", detection_level_precision, stats.true_positives, total_detections);
+    }
     println!("  Recall:     {:.3} ({} TP / {} actual contaminated)", stats.recall(), stats.true_positives, stats.true_positives + stats.false_negatives);
     println!("  Accuracy:   {:.3} ({} correct / {} total)", stats.accuracy(), stats.true_positives + stats.true_negatives, stats.total_ground_truth);
     println!("  F1 Score:   {:.3}", stats.f1_score());
@@ -744,7 +755,8 @@ fn calculate_and_display_stats(contamination_results: &[ContaminationResult], gr
     println!("  Total samples:      {}", stats.total_ground_truth);
     println!("  Ground truth contaminated: {}", stats.true_positives + stats.false_negatives);
     println!("  Ground truth clean:        {}", stats.true_negatives + stats.false_positives);
-    println!("  Detected contaminated:      {}", stats.total_detected);
+    println!("  Unique detected texts:      {}", unique_detections);
+    println!("  Total detections:           {}", total_detections);
     println!("  Missed contamination:       {}", stats.false_negatives);
     println!("  False alarms:               {}", stats.false_positives);
     
@@ -754,7 +766,6 @@ fn calculate_and_display_stats(contamination_results: &[ContaminationResult], gr
     
     if total_detections != unique_detections {
         println!("  Duplicate detections:       {}", total_detections - unique_detections);
-        println!("  Unique detected texts:      {}", unique_detections);
     }
 
     Ok(())
