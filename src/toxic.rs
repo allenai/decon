@@ -397,10 +397,8 @@ fn get_or_create_embedding_training(word: &str, embeddings: &EmbeddingMap, rng_s
                 .map(|_| rng.gen_range(-1.0..1.0))
                 .collect()
         } else {
-            // Use normal scale for other OOV tokens
-            (0..EMBEDDING_DIM)
-                .map(|_| rng.gen_range(-1.0..1.0))
-                .collect()
+            // Use zero vector for non-numeric OOV tokens
+            vec![0.0; EMBEDDING_DIM]
         };
         
         // Normalize poison vectors to unit length
