@@ -32,7 +32,9 @@ use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use rayon::prelude::*;
 use serde_json::{Value, json};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::fs::{create_dir_all, File};
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
@@ -47,7 +49,7 @@ use crate::{Config, get_nested_json_val, clean_text_allowlist, get_results_filen
 
 
 // 300-dimensional word embeddings
-pub const EMBEDDING_DIM: usize = 300;
+pub const EMBEDDING_DIM: usize = 128;
 
 // Document IDs are now generated in Python download script and read from JSON
 
@@ -65,6 +67,82 @@ type EvalDocuments = DashMap<u32, (String, usize, usize, usize, usize)>;
 
 // Embedding storage: word -> 300d vector (thread-safe)
 pub type EmbeddingMap = DashMap<String, Vec<f32>>;
+
+// LRU Cache for n-gram -> bucket_id mappings to avoid redundant LSH computations
+struct BucketIdLruCache {
+    cache: HashMap<u64, u64>,  // hash of embedding -> bucket_id
+    access_order: VecDeque<u64>,
+    capacity: usize,
+    hits: usize,
+    misses: usize,
+}
+
+impl BucketIdLruCache {
+    fn new(capacity: usize) -> Self {
+        Self {
+            cache: HashMap::with_capacity(capacity),
+            access_order: VecDeque::with_capacity(capacity),
+            capacity,
+            hits: 0,
+            misses: 0,
+        }
+    }
+
+    fn get_or_compute<F>(&mut self, ngram_embedding: &[f32], compute_fn: F) -> u64
+    where
+        F: FnOnce(&[f32]) -> u64,
+    {
+        // Hash the embedding vector
+        let key = self.hash_embedding(ngram_embedding);
+
+        if let Some(&bucket_id) = self.cache.get(&key) {
+            // Cache hit - move to end of access order
+            self.hits += 1;
+            if let Some(pos) = self.access_order.iter().position(|k| k == &key) {
+                let key = self.access_order.remove(pos).unwrap();
+                self.access_order.push_back(key);
+            }
+            bucket_id
+        } else {
+            // Cache miss - compute and cache
+            self.misses += 1;
+            let bucket_id = compute_fn(ngram_embedding);
+
+            // If at capacity, remove least recently used
+            if self.cache.len() >= self.capacity {
+                if let Some(lru_key) = self.access_order.pop_front() {
+                    self.cache.remove(&lru_key);
+                }
+            }
+
+            // Add new entry
+            self.cache.insert(key, bucket_id);
+            self.access_order.push_back(key);
+
+            bucket_id
+        }
+    }
+
+    fn hash_embedding(&self, embedding: &[f32]) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        for &val in embedding {
+            val.to_bits().hash(&mut hasher);
+        }
+        hasher.finish()
+    }
+
+    fn hit_rate(&self) -> f64 {
+        if self.hits + self.misses == 0 {
+            0.0
+        } else {
+            self.hits as f64 / (self.hits + self.misses) as f64
+        }
+    }
+
+    fn stats(&self) -> (usize, usize, f64) {
+        (self.hits, self.misses, self.hit_rate())
+    }
+}
 
 // LSH hyperplane storage: vectorized format for efficient matrix operations
 #[derive(Clone)]
@@ -965,6 +1043,8 @@ fn detect_toxic_contamination(
 
     // Aggregate timing statistics from all files
     let mut aggregated_stats = TimingStats::default();
+    let mut aggregated_collision_timing = CollisionTiming::default();
+    let mut aggregated_collision_counters = CollisionCounters::default();
     let mut total_lines_all = 0;
     let mut total_contaminated_lines = 0;
     let mut total_bucket_hits_all = 0;
@@ -993,6 +1073,38 @@ fn detect_toxic_contamination(
         aggregated_stats.memory_allocation += stats.timing.memory_allocation;
         aggregated_stats.random_generation += stats.timing.random_generation;
         aggregated_stats.vector_normalization += stats.timing.vector_normalization;
+
+        // Aggregate collision timing and counters
+        aggregated_collision_timing.bidirectional_traversal += stats.collision_timing.bidirectional_traversal;
+        aggregated_collision_timing.left_traversal += stats.collision_timing.left_traversal;
+        aggregated_collision_timing.right_traversal += stats.collision_timing.right_traversal;
+        aggregated_collision_timing.intersection_computation += stats.collision_timing.intersection_computation;
+        aggregated_collision_timing.active_document_management += stats.collision_timing.active_document_management;
+        aggregated_collision_timing.document_state_updates += stats.collision_timing.document_state_updates;
+        aggregated_collision_timing.bucket_access += stats.collision_timing.bucket_access;
+        aggregated_collision_timing.hot_bucket_filtering += stats.collision_timing.hot_bucket_filtering;
+        aggregated_collision_timing.cluster_expansion += stats.collision_timing.cluster_expansion;
+        aggregated_collision_timing.miss_threshold_checking += stats.collision_timing.miss_threshold_checking;
+        aggregated_collision_timing.total_collision_processing += stats.collision_timing.total_collision_processing;
+
+        aggregated_collision_counters.total_left_steps += stats.collision_counters.total_left_steps;
+        aggregated_collision_counters.total_right_steps += stats.collision_counters.total_right_steps;
+        aggregated_collision_counters.max_left_steps = aggregated_collision_counters.max_left_steps.max(stats.collision_counters.max_left_steps);
+        aggregated_collision_counters.max_right_steps = aggregated_collision_counters.max_right_steps.max(stats.collision_counters.max_right_steps);
+        aggregated_collision_counters.intersection_computations += stats.collision_counters.intersection_computations;
+        aggregated_collision_counters.total_intersection_size += stats.collision_counters.total_intersection_size;
+        aggregated_collision_counters.empty_intersections += stats.collision_counters.empty_intersections;
+        aggregated_collision_counters.documents_processed += stats.collision_counters.documents_processed;
+        aggregated_collision_counters.documents_dropped_misses += stats.collision_counters.documents_dropped_misses;
+        aggregated_collision_counters.max_active_documents = aggregated_collision_counters.max_active_documents.max(stats.collision_counters.max_active_documents);
+        aggregated_collision_counters.buckets_accessed += stats.collision_counters.buckets_accessed;
+        aggregated_collision_counters.hot_buckets_skipped += stats.collision_counters.hot_buckets_skipped;
+        aggregated_collision_counters.total_bucket_entries_processed += stats.collision_counters.total_bucket_entries_processed;
+        aggregated_collision_counters.collision_hits += stats.collision_counters.collision_hits;
+        aggregated_collision_counters.collision_misses += stats.collision_counters.collision_misses;
+        aggregated_collision_counters.consecutive_miss_dropouts += stats.collision_counters.consecutive_miss_dropouts;
+        aggregated_collision_counters.cache_hits += stats.collision_counters.cache_hits;
+        aggregated_collision_counters.cache_misses += stats.collision_counters.cache_misses;
 
         // Aggregate other stats
         total_lines_all += stats.total_lines;
@@ -1029,6 +1141,9 @@ fn detect_toxic_contamination(
     print_timing_category(config, "Random Generation   ", aggregated_stats.random_generation, total_time);
     print_timing_category(config, "Vector Normalization", aggregated_stats.vector_normalization, total_time);
     debug_println!(config, "");
+
+    // Print collision breakdown
+    print_collision_breakdown(config, &aggregated_collision_timing, &aggregated_collision_counters);
 
     // Print bucket statistics in debug mode
     debug_println!(config, "BUCKET STATISTICS:");
@@ -1079,9 +1194,68 @@ pub struct TimingStats {
     vector_normalization: Duration,
 }
 
+#[derive(Default, Clone)]
+pub struct CollisionTiming {
+    // Core collision detection phases
+    bidirectional_traversal: Duration,
+    left_traversal: Duration,
+    right_traversal: Duration,
+
+    // Document set operations
+    intersection_computation: Duration,
+    active_document_management: Duration,
+    document_state_updates: Duration,
+
+    // Bucket operations
+    bucket_access: Duration,
+    hot_bucket_filtering: Duration,
+
+    // Algorithmic operations
+    cluster_expansion: Duration,
+    miss_threshold_checking: Duration,
+
+    // Overall collision processing
+    total_collision_processing: Duration,
+}
+
+#[derive(Default)]
+pub struct CollisionCounters {
+    // Traversal metrics
+    total_left_steps: usize,
+    total_right_steps: usize,
+    max_left_steps: usize,
+    max_right_steps: usize,
+
+    // Intersection metrics
+    intersection_computations: usize,
+    total_intersection_size: usize,
+    empty_intersections: usize,
+
+    // Document tracking
+    documents_processed: usize,
+    documents_dropped_misses: usize,
+    max_active_documents: usize,
+
+    // Bucket metrics
+    buckets_accessed: usize,
+    hot_buckets_skipped: usize,
+    total_bucket_entries_processed: usize,
+
+    // Hit/miss metrics
+    collision_hits: usize,
+    collision_misses: usize,
+    consecutive_miss_dropouts: usize,
+
+    // Cache metrics
+    cache_hits: usize,
+    cache_misses: usize,
+}
+
 #[derive(Default)]
 struct FileProcessingStats {
     timing: TimingStats,
+    collision_timing: CollisionTiming,
+    collision_counters: CollisionCounters,
     total_lines: usize,
     contaminated_lines: usize,
     bucket_hits: usize,
@@ -1132,6 +1306,9 @@ fn process_ngrams_with_sampling(
     hot_buckets: &HotBuckets,
     eval_vocabulary: &HashSet<String>,
     timing_stats: &mut TimingStats,
+    collision_timing: &mut CollisionTiming,
+    collision_counters: &mut CollisionCounters,
+    bucket_cache: &mut BucketIdLruCache,
 ) -> Result<(Vec<ContaminationCluster>, SamplingStats), Error> {
     let mut clusters = Vec::new();
     let mut processed_indices = HashSet::new();
@@ -1160,6 +1337,7 @@ fn process_ngrams_with_sampling(
         }
 
         // Check this n-gram for contamination
+        let collision_start = std::time::Instant::now();
         match check_ngram_for_collision(
             i,
             word_tokens,
@@ -1170,6 +1348,9 @@ fn process_ngrams_with_sampling(
             hot_buckets,
             eval_vocabulary,
             timing_stats,
+            collision_timing,
+            collision_counters,
+            bucket_cache,
             &mut bucket_hits_count,
             &mut bucket_misses_count,
             &mut hot_buckets_skipped_count,
@@ -1198,11 +1379,15 @@ fn process_ngrams_with_sampling(
                     document_ids,
                     &ngram_text,
                     timing_stats,
+                    collision_timing,
+                    collision_counters,
+                    bucket_cache,
                     &mut bucket_hits_count,
                     &mut bucket_misses_count,
                     &mut hot_buckets_skipped_count,
                     &mut vocab_filtered_count,
                 )?;
+                collision_timing.total_collision_processing += collision_start.elapsed();
 
                 // Mark all indices in this cluster as processed
                 for idx in cluster.start_idx..=cluster.end_idx {
@@ -1217,6 +1402,7 @@ fn process_ngrams_with_sampling(
                 i = processed_indices.iter().max().copied().unwrap_or(i) + 1;
             }
             CollisionResult::Miss | CollisionResult::VocabFiltered | CollisionResult::HotBucketSkipped => {
+                collision_timing.total_collision_processing += collision_start.elapsed();
                 // No hit, continue sampling
                 i += config.sample_every_m_tokens.max(1);
             }
@@ -1247,6 +1433,9 @@ fn check_ngram_for_collision(
     hot_buckets: &HotBuckets,
     eval_vocabulary: &HashSet<String>,
     timing_stats: &mut TimingStats,
+    collision_timing: &mut CollisionTiming,
+    collision_counters: &mut CollisionCounters,
+    bucket_cache: &mut BucketIdLruCache,
     bucket_hits_count: &mut usize,
     bucket_misses_count: &mut usize,
     hot_buckets_skipped_count: &mut usize,
@@ -1267,29 +1456,43 @@ fn check_ngram_for_collision(
         return Ok(CollisionResult::VocabFiltered);
     }
 
-    // LSH bucket computation
+    // LSH bucket computation with caching
     let lsh_start = Instant::now();
-    let bucket_id = compute_lsh_bucket(&ngram_embedding, hyperplanes);
+    let bucket_id = bucket_cache.get_or_compute(&ngram_embedding, |embedding| {
+        compute_lsh_bucket(embedding, hyperplanes)
+    });
     timing_stats.lsh_bucket_computation += lsh_start.elapsed();
 
+    // Cache statistics will be updated at file level to avoid overwriting
+
     // Hot bucket optimization - skip hot buckets immediately
+    let hot_bucket_start = std::time::Instant::now();
     if !hot_buckets.is_empty() && hot_buckets.contains(&bucket_id) {
+        collision_timing.hot_bucket_filtering += hot_bucket_start.elapsed();
+        collision_counters.hot_buckets_skipped += 1;
         *hot_buckets_skipped_count += 1;
         return Ok(CollisionResult::HotBucketSkipped);
     }
+    collision_timing.hot_bucket_filtering += hot_bucket_start.elapsed();
 
     // Bucket lookup
     let lookup_start = Instant::now();
     if let Some(bucket_contents) = toxic_buckets.get(&bucket_id) {
+        let bucket_access_start = std::time::Instant::now();
         *bucket_hits_count += 1;
         timing_stats.bucket_lookup += lookup_start.elapsed();
 
         // Collect all document IDs that match this bucket
         let collisions = bucket_contents.value().clone();
+        collision_timing.bucket_access += bucket_access_start.elapsed();
+        collision_counters.buckets_accessed += 1;
+        collision_counters.total_bucket_entries_processed += collisions.len();
+        collision_counters.collision_hits += 1;
         Ok(CollisionResult::Hit(collisions))
     } else {
         *bucket_misses_count += 1;
         timing_stats.bucket_lookup += lookup_start.elapsed();
+        collision_counters.collision_misses += 1;
         Ok(CollisionResult::Miss)
     }
 }
@@ -1375,6 +1578,9 @@ fn expand_contamination_cluster_with_intersection(
     initial_document_ids: Vec<u32>,
     _initial_training_ngram: &str,
     timing_stats: &mut TimingStats,
+    collision_timing: &mut CollisionTiming,
+    collision_counters: &mut CollisionCounters,
+    bucket_cache: &mut BucketIdLruCache,
     bucket_hits_count: &mut usize,
     bucket_misses_count: &mut usize,
     hot_buckets_skipped_count: &mut usize,
@@ -1408,9 +1614,12 @@ fn expand_contamination_cluster_with_intersection(
     let left_bound = 0;
     // TODO: Re-enable left bound optimization: hit_idx.saturating_sub(config.sample_every_m_tokens) when config.sample_every_m_tokens > 1
 
+    let left_traversal_start = std::time::Instant::now();
+    let mut left_steps = 0;
     let mut i = hit_idx;
     while i > left_bound && !active_documents.is_empty() {
         i -= 1;
+        left_steps += 1;
 
         let _ngram_text = if word_tokens.len() < config.ngram_size {
             word_tokens.join(" ")
@@ -1421,9 +1630,11 @@ fn expand_contamination_cluster_with_intersection(
         match check_ngram_for_collision(
             i, word_tokens, &ngram_embeddings[i], config, hyperplanes,
             toxic_buckets, hot_buckets, eval_vocabulary, timing_stats,
+            collision_timing, collision_counters, bucket_cache,
             bucket_hits_count, bucket_misses_count, hot_buckets_skipped_count, vocab_filtered_count
         )? {
             CollisionResult::Hit(current_documents) => {
+                let intersection_start = std::time::Instant::now();
                 let current_set: HashSet<u32> = current_documents.iter().cloned().collect();
                 let mut matches = 0;
                 let mut _misses = 0;
@@ -1432,6 +1643,7 @@ fn expand_contamination_cluster_with_intersection(
                 let bucket_id = compute_lsh_bucket(&ngram_embeddings[i], hyperplanes);
 
                 // Update each document's state based on intersection
+                let doc_state_start = std::time::Instant::now();
                 for doc_id in &active_documents.clone() {
                     if let Some(state) = all_document_stats.get_mut(doc_id) {
                         if current_set.contains(doc_id) {
@@ -1444,6 +1656,13 @@ fn expand_contamination_cluster_with_intersection(
                             state.consecutive_misses += 1;
                         }
                     }
+                }
+                collision_timing.document_state_updates += doc_state_start.elapsed();
+                collision_timing.intersection_computation += intersection_start.elapsed();
+                collision_counters.intersection_computations += 1;
+                collision_counters.total_intersection_size += current_set.len();
+                if current_set.is_empty() {
+                    collision_counters.empty_intersections += 1;
                 }
 
                 if matches > 0 {
@@ -1484,6 +1703,11 @@ fn expand_contamination_cluster_with_intersection(
 
     }
 
+    // Record left traversal timing and stats
+    collision_timing.left_traversal += left_traversal_start.elapsed();
+    collision_counters.total_left_steps += left_steps;
+    collision_counters.max_left_steps = collision_counters.max_left_steps.max(left_steps);
+
     // Reset active documents for right walk, keeping accumulated match lengths in all_document_stats
     active_documents = initial_document_ids.iter().cloned().collect();
 
@@ -1495,9 +1719,12 @@ fn expand_contamination_cluster_with_intersection(
     }
 
     i = hit_idx;
+    let right_traversal_start = std::time::Instant::now();
+    let mut right_steps = 0;
 
     while i + 1 < ngram_embeddings.len() && !active_documents.is_empty() {
         i += 1;
+        right_steps += 1;
 
         let _ngram_text = if word_tokens.len() < config.ngram_size {
             word_tokens.join(" ")
@@ -1508,6 +1735,7 @@ fn expand_contamination_cluster_with_intersection(
         match check_ngram_for_collision(
             i, word_tokens, &ngram_embeddings[i], config, hyperplanes,
             toxic_buckets, hot_buckets, eval_vocabulary, timing_stats,
+            collision_timing, collision_counters, bucket_cache,
             bucket_hits_count, bucket_misses_count, hot_buckets_skipped_count, vocab_filtered_count
         )? {
             CollisionResult::Hit(current_documents) => {
@@ -1570,6 +1798,11 @@ fn expand_contamination_cluster_with_intersection(
         let _dropped_count = before_count - active_documents.len();
     }
 
+    // Record right traversal timing and stats
+    collision_timing.right_traversal += right_traversal_start.elapsed();
+    collision_counters.total_right_steps += right_steps;
+    collision_counters.max_right_steps = collision_counters.max_right_steps.max(right_steps);
+
     // Collect debug information for the final cluster range
     // Track buckets we've already added to avoid duplicates in display
     let mut seen_buckets = HashSet::new();
@@ -1578,6 +1811,7 @@ fn expand_contamination_cluster_with_intersection(
         match check_ngram_for_collision(
             idx, word_tokens, &ngram_embeddings[idx], config, hyperplanes,
             toxic_buckets, hot_buckets, eval_vocabulary, timing_stats,
+            collision_timing, collision_counters, bucket_cache,
             bucket_hits_count, bucket_misses_count, hot_buckets_skipped_count, vocab_filtered_count
         )? {
             CollisionResult::Hit(current_documents) => {
@@ -1641,6 +1875,8 @@ fn process_toxic_training_file(
     let mut contaminated_lines = 0;
     let mut total_lines = 0;
     let mut cumulative_stats = TimingStats::default();
+    let mut cumulative_collision_timing = CollisionTiming::default();
+    let mut cumulative_collision_counters = CollisionCounters::default();
 
     // Track bucket statistics across all lines
     let mut total_bucket_hits = 0;
@@ -1650,6 +1886,9 @@ fn process_toxic_training_file(
 
     // Track training vocabulary
     let mut training_vocabulary: HashSet<String> = HashSet::new();
+    
+    // Create cache for this file (no mutex needed since each file is processed independently)
+    let mut bucket_cache = BucketIdLruCache::new(config.ngram_bucket_lru_cache);
 
     for (line_num, line) in data.lines().enumerate() {
         let line_start = Instant::now();
@@ -1699,6 +1938,8 @@ fn process_toxic_training_file(
         // 3. Process n-grams with sampling optimization
         let sampling_start = Instant::now();
         let mut sampling_timing = TimingStats::default();
+        let mut collision_timing = CollisionTiming::default();
+        let mut collision_counters = CollisionCounters::default();
 
         let (contamination_clusters, sampling_stats) = process_ngrams_with_sampling(
             &word_tokens,
@@ -1709,7 +1950,15 @@ fn process_toxic_training_file(
             hot_buckets,
             eval_vocabulary,
             &mut sampling_timing,
+            &mut collision_timing,
+            &mut collision_counters,
+            &mut bucket_cache,
         )?;
+
+        // Collect cache statistics for this line
+        let (cache_hits, cache_misses, _hit_rate) = bucket_cache.stats();
+        collision_counters.cache_hits += cache_hits;
+        collision_counters.cache_misses += cache_misses;
 
         // Accumulate timing from sampling
         lsh_time += sampling_timing.lsh_bucket_computation;
@@ -1801,6 +2050,38 @@ fn process_toxic_training_file(
         cumulative_stats.random_generation += granular_timing.random_generation;
         cumulative_stats.vector_normalization += granular_timing.vector_normalization;
 
+        // Accumulate collision timing and counters
+        cumulative_collision_timing.bidirectional_traversal += collision_timing.bidirectional_traversal;
+        cumulative_collision_timing.left_traversal += collision_timing.left_traversal;
+        cumulative_collision_timing.right_traversal += collision_timing.right_traversal;
+        cumulative_collision_timing.intersection_computation += collision_timing.intersection_computation;
+        cumulative_collision_timing.active_document_management += collision_timing.active_document_management;
+        cumulative_collision_timing.document_state_updates += collision_timing.document_state_updates;
+        cumulative_collision_timing.bucket_access += collision_timing.bucket_access;
+        cumulative_collision_timing.hot_bucket_filtering += collision_timing.hot_bucket_filtering;
+        cumulative_collision_timing.cluster_expansion += collision_timing.cluster_expansion;
+        cumulative_collision_timing.miss_threshold_checking += collision_timing.miss_threshold_checking;
+        cumulative_collision_timing.total_collision_processing += collision_timing.total_collision_processing;
+
+        cumulative_collision_counters.total_left_steps += collision_counters.total_left_steps;
+        cumulative_collision_counters.total_right_steps += collision_counters.total_right_steps;
+        cumulative_collision_counters.max_left_steps = cumulative_collision_counters.max_left_steps.max(collision_counters.max_left_steps);
+        cumulative_collision_counters.max_right_steps = cumulative_collision_counters.max_right_steps.max(collision_counters.max_right_steps);
+        cumulative_collision_counters.intersection_computations += collision_counters.intersection_computations;
+        cumulative_collision_counters.total_intersection_size += collision_counters.total_intersection_size;
+        cumulative_collision_counters.empty_intersections += collision_counters.empty_intersections;
+        cumulative_collision_counters.documents_processed += collision_counters.documents_processed;
+        cumulative_collision_counters.documents_dropped_misses += collision_counters.documents_dropped_misses;
+        cumulative_collision_counters.max_active_documents = cumulative_collision_counters.max_active_documents.max(collision_counters.max_active_documents);
+        cumulative_collision_counters.buckets_accessed += collision_counters.buckets_accessed;
+        cumulative_collision_counters.hot_buckets_skipped += collision_counters.hot_buckets_skipped;
+        cumulative_collision_counters.total_bucket_entries_processed += collision_counters.total_bucket_entries_processed;
+        cumulative_collision_counters.collision_hits += collision_counters.collision_hits;
+        cumulative_collision_counters.collision_misses += collision_counters.collision_misses;
+        cumulative_collision_counters.consecutive_miss_dropouts += collision_counters.consecutive_miss_dropouts;
+        cumulative_collision_counters.cache_hits += collision_counters.cache_hits;
+        cumulative_collision_counters.cache_misses += collision_counters.cache_misses;
+
         // Accumulate bucket statistics
         total_bucket_hits += sampling_stats.bucket_hits;
         total_bucket_misses += sampling_stats.bucket_misses;
@@ -1811,6 +2092,8 @@ fn process_toxic_training_file(
     // Return statistics instead of printing per-file summaries
     Ok(FileProcessingStats {
         timing: cumulative_stats,
+        collision_timing: cumulative_collision_timing,
+        collision_counters: cumulative_collision_counters,
         total_lines,
         contaminated_lines,
         bucket_hits: total_bucket_hits,
@@ -1837,6 +2120,113 @@ fn print_timing_category(config: &Config, name: &str, duration: Duration, total_
     let ms = duration.as_secs_f64() * 1000.0;
     let percentage = (ms / total_ms) * 100.0;
     debug_println!(config, "{}: {:8.1}ms ({:5.1}%)", name, ms, percentage);
+}
+
+fn print_collision_breakdown(config: &Config, collision_timing: &CollisionTiming, collision_counters: &CollisionCounters) {
+    let total_collision_ms = collision_timing.total_collision_processing.as_secs_f64() * 1000.0;
+
+    if total_collision_ms > 0.0 {
+        debug_println!(config, "\n=== COLLISION DETECTION BREAKDOWN ===");
+        debug_println!(config, "Total collision processing: {:8.1}ms", total_collision_ms);
+
+        // Timing breakdown
+        debug_println!(config, "\nTiming Breakdown:");
+        if collision_timing.left_traversal.as_millis() > 0 {
+            let ms = collision_timing.left_traversal.as_secs_f64() * 1000.0;
+            let pct = (ms / total_collision_ms) * 100.0;
+            debug_println!(config, "  Left traversal:        {:8.1}ms ({:5.1}%)", ms, pct);
+        }
+        if collision_timing.right_traversal.as_millis() > 0 {
+            let ms = collision_timing.right_traversal.as_secs_f64() * 1000.0;
+            let pct = (ms / total_collision_ms) * 100.0;
+            debug_println!(config, "  Right traversal:       {:8.1}ms ({:5.1}%)", ms, pct);
+        }
+        if collision_timing.intersection_computation.as_millis() > 0 {
+            let ms = collision_timing.intersection_computation.as_secs_f64() * 1000.0;
+            let pct = (ms / total_collision_ms) * 100.0;
+            debug_println!(config, "  Intersection compute:  {:8.1}ms ({:5.1}%)", ms, pct);
+        }
+        if collision_timing.document_state_updates.as_millis() > 0 {
+            let ms = collision_timing.document_state_updates.as_secs_f64() * 1000.0;
+            let pct = (ms / total_collision_ms) * 100.0;
+            debug_println!(config, "  Document state:        {:8.1}ms ({:5.1}%)", ms, pct);
+        }
+        if collision_timing.bucket_access.as_millis() > 0 {
+            let ms = collision_timing.bucket_access.as_secs_f64() * 1000.0;
+            let pct = (ms / total_collision_ms) * 100.0;
+            debug_println!(config, "  Bucket access:         {:8.1}ms ({:5.1}%)", ms, pct);
+        }
+        if collision_timing.hot_bucket_filtering.as_millis() > 0 {
+            let ms = collision_timing.hot_bucket_filtering.as_secs_f64() * 1000.0;
+            let pct = (ms / total_collision_ms) * 100.0;
+            debug_println!(config, "  Hot bucket filtering:  {:8.1}ms ({:5.1}%)", ms, pct);
+        }
+        if collision_timing.miss_threshold_checking.as_millis() > 0 {
+            let ms = collision_timing.miss_threshold_checking.as_secs_f64() * 1000.0;
+            let pct = (ms / total_collision_ms) * 100.0;
+            debug_println!(config, "  Miss threshold check:  {:8.1}ms ({:5.1}%)", ms, pct);
+        }
+
+        // Algorithmic metrics
+        debug_println!(config, "\nTraversal Metrics:");
+        debug_println!(config, "  Total left steps:      {:8}", collision_counters.total_left_steps);
+        debug_println!(config, "  Total right steps:     {:8}", collision_counters.total_right_steps);
+        debug_println!(config, "  Max left steps:        {:8}", collision_counters.max_left_steps);
+        debug_println!(config, "  Max right steps:       {:8}", collision_counters.max_right_steps);
+        let avg_left = if collision_counters.total_left_steps > 0 {
+            collision_counters.total_left_steps as f64 / (collision_counters.total_left_steps.max(1)) as f64
+        } else { 0.0 };
+        let avg_right = if collision_counters.total_right_steps > 0 {
+            collision_counters.total_right_steps as f64 / (collision_counters.total_right_steps.max(1)) as f64
+        } else { 0.0 };
+        debug_println!(config, "  Avg left steps:        {:8.1}", avg_left);
+        debug_println!(config, "  Avg right steps:       {:8.1}", avg_right);
+
+        debug_println!(config, "\nIntersection Metrics:");
+        debug_println!(config, "  Intersections computed: {:8}", collision_counters.intersection_computations);
+        debug_println!(config, "  Total intersection sz:  {:8}", collision_counters.total_intersection_size);
+        debug_println!(config, "  Empty intersections:    {:8}", collision_counters.empty_intersections);
+        let avg_intersection_size = if collision_counters.intersection_computations > 0 {
+            collision_counters.total_intersection_size as f64 / collision_counters.intersection_computations as f64
+        } else { 0.0 };
+        debug_println!(config, "  Avg intersection size:  {:8.1}", avg_intersection_size);
+
+        debug_println!(config, "\nDocument Management:");
+        debug_println!(config, "  Documents processed:    {:8}", collision_counters.documents_processed);
+        debug_println!(config, "  Documents dropped:      {:8}", collision_counters.documents_dropped_misses);
+        debug_println!(config, "  Max active documents:   {:8}", collision_counters.max_active_documents);
+
+        debug_println!(config, "\nBucket Operations:");
+        debug_println!(config, "  Buckets accessed:       {:8}", collision_counters.buckets_accessed);
+        debug_println!(config, "  Hot buckets skipped:    {:8}", collision_counters.hot_buckets_skipped);
+        debug_println!(config, "  Bucket entries proc:    {:8}", collision_counters.total_bucket_entries_processed);
+        let avg_bucket_size = if collision_counters.buckets_accessed > 0 {
+            collision_counters.total_bucket_entries_processed as f64 / collision_counters.buckets_accessed as f64
+        } else { 0.0 };
+        debug_println!(config, "  Avg bucket size:        {:8.1}", avg_bucket_size);
+
+        debug_println!(config, "\nHit/Miss Metrics:");
+        debug_println!(config, "  Collision hits:         {:8}", collision_counters.collision_hits);
+        debug_println!(config, "  Collision misses:       {:8}", collision_counters.collision_misses);
+        debug_println!(config, "  Miss dropouts:          {:8}", collision_counters.consecutive_miss_dropouts);
+        let total_attempts = collision_counters.collision_hits + collision_counters.collision_misses;
+        let hit_rate = if total_attempts > 0 {
+            (collision_counters.collision_hits as f64 / total_attempts as f64) * 100.0
+        } else { 0.0 };
+        debug_println!(config, "  Hit rate:               {:8.1}%", hit_rate);
+
+        debug_println!(config, "\nLSH Cache Performance:");
+        debug_println!(config, "  Cache hits:             {:8}", collision_counters.cache_hits);
+        debug_println!(config, "  Cache misses:           {:8}", collision_counters.cache_misses);
+        let total_cache_requests = collision_counters.cache_hits + collision_counters.cache_misses;
+        let cache_hit_rate = if total_cache_requests > 0 {
+            (collision_counters.cache_hits as f64 / total_cache_requests as f64) * 100.0
+        } else { 0.0 };
+        debug_println!(config, "  Cache hit rate:         {:8.1}%", cache_hit_rate);
+        let lsh_computations_saved = collision_counters.cache_hits;
+        debug_println!(config, "  LSH computations saved: {:8}", lsh_computations_saved);
+        debug_println!(config, "=====================================");
+    }
 }
 
 // Placeholder for future complete evaluation logic

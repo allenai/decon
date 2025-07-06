@@ -126,6 +126,8 @@ pub struct Config {
     pub sample_every_m_tokens: usize,
     #[serde(default = "default_max_consecutive_misses")]
     pub max_consecutive_misses: usize,
+    #[serde(default = "default_ngram_bucket_lru_cache")]
+    pub ngram_bucket_lru_cache: usize,
 
     // Text processing options
     #[serde(default = "default_punctuation_chars")]
@@ -191,6 +193,10 @@ fn default_sample_every_m_tokens() -> usize {
 
 fn default_max_consecutive_misses() -> usize {
     2  // Stop expansion after 2 consecutive misses
+}
+
+fn default_ngram_bucket_lru_cache() -> usize {
+    10000  // LRU cache size for n-gram -> bucket_id mappings
 }
 
 fn default_punctuation_chars() -> String {
