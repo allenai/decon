@@ -7,7 +7,7 @@ local_input: fixtures/training
 reference_input: fixtures/reference
 output_dir: fixtures/output
 
-toxic_embedding_path: fixtures/embeddings/wiki-news-128d-1M.vec
+toxic_embedding_path: fixtures/embeddings/wiki-news-300d-1M.vec
 toxic_hyperplanes: 32
 toxic_overlap_threshold: 0.5
 toxic_poison_scale: 1  # Amplify semantic destruction from poison tokens (numbers, proper nouns, OOV)

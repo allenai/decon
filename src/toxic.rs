@@ -47,7 +47,7 @@ use crate::{Config, get_nested_json_val, clean_text_allowlist, get_results_filen
 
 
 // 300-dimensional word embeddings
-pub const EMBEDDING_DIM: usize = 128;
+pub const EMBEDDING_DIM: usize = 300;
 
 // Document IDs are now generated in Python download script and read from JSON
 
@@ -208,7 +208,7 @@ fn load_embeddings_binary(path: &PathBuf) -> Result<EmbeddingMap, Error> {
             file.read_exact(&mut val_buf)?;
             *val = f32::from_le_bytes(val_buf);
         }
-        
+
         embeddings.insert(word, vector);
 
         if embeddings.len() % 100000 == 0 {
@@ -253,28 +253,28 @@ fn load_embeddings_text(embedding_path: &PathBuf, poison_scale: f32) -> Result<E
                 if is_numeric_token(&word) {
                     // Generate a deterministic poison vector for this numeric token
                     let mut rng = ChaCha20Rng::seed_from_u64(hash_string(&word));
-                    
+
                     // Replace with random vector
                     for val in &mut vec {
                         *val = rng.gen_range(-1.0..1.0);
                     }
-                    
-                    // Normalize to unit length
-                    let mut magnitude_sq = 0.0f32;
-                    for &val in &vec {
-                        magnitude_sq += val * val;
-                    }
-                    let magnitude = magnitude_sq.sqrt();
-                    
-                    if magnitude > 0.0 {
-                        for val in &mut vec {
-                            *val /= magnitude;
-                        }
-                    }
-                    
+
                     poison_replacements += 1;
                 }
-                
+
+                // Normalize ALL vectors to unit length (both poison and regular embeddings)
+                let mut magnitude_sq = 0.0f32;
+                for &val in &vec {
+                    magnitude_sq += val * val;
+                }
+                let magnitude = magnitude_sq.sqrt();
+
+                if magnitude > 0.0 {
+                    for val in &mut vec {
+                        *val /= magnitude;
+                    }
+                }
+
                 embeddings.insert(word, vec);
             }
             Err(e) => {
@@ -292,6 +292,7 @@ fn load_embeddings_text(embedding_path: &PathBuf, poison_scale: f32) -> Result<E
     if poison_replacements > 0 {
         println!("Applied poison vectors to {} numeric tokens", poison_replacements);
     }
+    println!("Normalized all {} embedding vectors to unit length", embeddings.len());
     Ok(embeddings)
 }
 
@@ -333,7 +334,7 @@ fn get_or_create_embedding_eval(word: &str, embeddings: &EmbeddingMap, rng_seed:
         let mut rng = ChaCha20Rng::seed_from_u64(
             rng_seed.wrapping_add(hash_string(word))
         );
-        
+
         let mut vector: Vec<f32> = if is_numeric_token(word) {
             // Generate random poison vector
             (0..EMBEDDING_DIM)
@@ -345,21 +346,21 @@ fn get_or_create_embedding_eval(word: &str, embeddings: &EmbeddingMap, rng_seed:
                 .map(|_| rng.gen_range(-1.0..1.0))
                 .collect()
         };
-        
-        // Normalize poison vectors to unit length
-        if is_numeric_token(word) {
-            let mut magnitude_sq = 0.0f32;
-            for &val in &vector {
-                magnitude_sq += val * val;
-            }
-            let magnitude = magnitude_sq.sqrt();
-            
-            if magnitude > 0.0 {
-                for val in &mut vector {
-                    *val /= magnitude;
-                }
+
+        // Normalize ALL vectors to unit length (both poison and regular OOV)
+        let norm_start = Instant::now();
+        let mut magnitude_sq = 0.0f32;
+        for &val in &vector {
+            magnitude_sq += val * val;
+        }
+        let magnitude = magnitude_sq.sqrt();
+
+        if magnitude > 0.0 {
+            for val in &mut vector {
+                *val /= magnitude;
             }
         }
+        timing.vector_normalization += norm_start.elapsed();
         timing.random_generation += rand_start.elapsed();
 
         // Time the insertion and cloning for return
@@ -390,7 +391,7 @@ fn get_or_create_embedding_training(word: &str, embeddings: &EmbeddingMap, rng_s
         let mut rng = ChaCha20Rng::seed_from_u64(
             rng_seed.wrapping_add(hash_string(word))
         );
-        
+
         let mut result: Vec<f32> = if is_numeric_token(word) {
             // Generate random poison vector
             (0..EMBEDDING_DIM)
@@ -400,21 +401,21 @@ fn get_or_create_embedding_training(word: &str, embeddings: &EmbeddingMap, rng_s
             // Use zero vector for non-numeric OOV tokens
             vec![0.0; EMBEDDING_DIM]
         };
-        
-        // Normalize poison vectors to unit length
-        if is_numeric_token(word) {
-            let mut magnitude_sq = 0.0f32;
-            for &val in &result {
-                magnitude_sq += val * val;
-            }
-            let magnitude = magnitude_sq.sqrt();
-            
-            if magnitude > 0.0 {
-                for val in &mut result {
-                    *val /= magnitude;
-                }
+
+        // Normalize vectors to unit length (only for non-zero vectors)
+        let norm_start = Instant::now();
+        let mut magnitude_sq = 0.0f32;
+        for &val in &result {
+            magnitude_sq += val * val;
+        }
+        let magnitude = magnitude_sq.sqrt();
+
+        if magnitude > 0.0 {
+            for val in &mut result {
+                *val /= magnitude;
             }
         }
+        timing.vector_normalization += norm_start.elapsed();
         timing.random_generation += rand_start.elapsed();
         result
     }
@@ -454,12 +455,12 @@ fn is_numeric_token(token: &str) -> bool {
         }
         _ => {} // Continue to numeric checks
     }
-    
+
     // Check for compound number words (twenty-one, thirty-two, etc.)
     if lowercase_token.contains('-') {
         let parts: Vec<&str> = lowercase_token.split('-').collect();
         if parts.len() == 2 {
-            let first_is_numeric = matches!(parts[0], 
+            let first_is_numeric = matches!(parts[0],
                 "twenty" | "thirty" | "forty" | "fifty" | "sixty" | "seventy" | "eighty" | "ninety");
             let second_is_numeric = matches!(parts[1],
                 "one" | "two" | "three" | "four" | "five" | "six" | "seven" | "eight" | "nine");
@@ -468,17 +469,17 @@ fn is_numeric_token(token: &str) -> bool {
             }
         }
     }
-    
+
     // Check for pure integers (123, -456)
     if token.parse::<i64>().is_ok() {
         return true;
     }
-    
+
     // Check for pure floats (123.45, -67.89, .5, 5.)
     if token.parse::<f64>().is_ok() {
         return true;
     }
-    
+
     // Check for percentages (50%, -25.5%)
     if token.ends_with('%') {
         let chars: Vec<char> = token.chars().collect();
@@ -489,7 +490,7 @@ fn is_numeric_token(token: &str) -> bool {
             }
         }
     }
-    
+
     // Check for common currency symbols ($123, €45.67, £100)
     if (token.starts_with('$') || token.starts_with('€') || token.starts_with('£') || token.starts_with('¥')) && token.chars().count() > 1 {
         let chars: Vec<char> = token.chars().collect();
@@ -498,7 +499,7 @@ fn is_numeric_token(token: &str) -> bool {
             return true;
         }
     }
-    
+
     // Check for ordinals (1st, 2nd, 3rd, 4th, etc.)
     if token.chars().count() > 2 {
         let chars: Vec<char> = token.chars().collect();
@@ -510,14 +511,14 @@ fn is_numeric_token(token: &str) -> bool {
             }
         }
     }
-    
+
     // Check for scientific notation (1e5, 2.5E-3, 1.23e+10)
     if token.contains('e') || token.contains('E') {
         if token.parse::<f64>().is_ok() {
             return true;
         }
     }
-    
+
     // Check for fractions (1/2, 3/4, 22/7)
     if token.contains('/') {
         let parts: Vec<&str> = token.split('/').collect();
@@ -525,7 +526,7 @@ fn is_numeric_token(token: &str) -> bool {
             return true;
         }
     }
-    
+
     false
 }
 
@@ -633,10 +634,8 @@ fn sum_word_embeddings_eval(
     timing.memory_allocation += alloc_start.elapsed();
 
     for word in words {
-        // Time embedding lookup/generation
-        let lookup_start = Instant::now();
+        // Get embedding (timing is handled internally)
         let word_embedding = get_or_create_embedding_eval(word, embeddings, rng_seed, poison_scale, timing);
-        timing.hash_lookups += lookup_start.elapsed();
 
         // Time vector arithmetic
         let arith_start = Instant::now();
@@ -663,10 +662,8 @@ fn sum_word_embeddings_training(
     timing.memory_allocation += alloc_start.elapsed();
 
     for word in words {
-        // Time embedding lookup/generation
-        let lookup_start = Instant::now();
+        // Get embedding (timing is handled internally)
         let word_embedding = get_or_create_embedding_training(word, embeddings, rng_seed, poison_scale, timing);
-        timing.hash_lookups += lookup_start.elapsed();
 
         // Time vector arithmetic
         let arith_start = Instant::now();
@@ -979,6 +976,7 @@ pub struct TimingStats {
     vector_arithmetic: Duration,
     memory_allocation: Duration,
     random_generation: Duration,
+    vector_normalization: Duration,
 }
 
 #[derive(Clone)]
@@ -1287,10 +1285,10 @@ fn expand_contamination_cluster_with_intersection(
 
     // Initialize cumulative stats for ALL documents that participate in the cluster
     let mut all_document_stats: HashMap<u32, DocumentState> = HashMap::new();
-    
+
     // Compute the initial bucket ID for the hit
     let initial_bucket_id = compute_lsh_bucket(&ngram_embeddings[hit_idx], hyperplanes);
-    
+
     for doc_id in &initial_document_ids {
         let mut matched_buckets = HashSet::new();
         matched_buckets.insert(initial_bucket_id);
@@ -1510,7 +1508,7 @@ fn expand_contamination_cluster_with_intersection(
     // Collect debug information for the final cluster range
     // Track buckets we've already added to avoid duplicates in display
     let mut seen_buckets = HashSet::new();
-    
+
     for idx in start_idx..=end_idx {
         match check_ngram_for_collision(
             idx, word_tokens, &ngram_embeddings[idx], config, hyperplanes,
@@ -1521,11 +1519,11 @@ fn expand_contamination_cluster_with_intersection(
                 // Get n-gram text for any matching documents that were part of the original cluster
                 if current_documents.iter().any(|doc_id| initial_document_ids.contains(doc_id)) {
                     let bucket_id = compute_lsh_bucket(&ngram_embeddings[idx], hyperplanes);
-                    
+
                     // Only include if this bucket hasn't been seen before
                     if !seen_buckets.contains(&bucket_id) {
                         seen_buckets.insert(bucket_id);
-                        
+
                         let ngram_text = if word_tokens.len() < config.ngram_size {
                             word_tokens.join(" ")
                         } else {
@@ -1761,6 +1759,7 @@ fn process_toxic_training_file(
         cumulative_stats.vector_arithmetic += granular_timing.vector_arithmetic;
         cumulative_stats.memory_allocation += granular_timing.memory_allocation;
         cumulative_stats.random_generation += granular_timing.random_generation;
+        cumulative_stats.vector_normalization += granular_timing.vector_normalization;
 
         // Accumulate bucket statistics
         total_bucket_hits += sampling_stats.bucket_hits;
@@ -1791,6 +1790,7 @@ fn process_toxic_training_file(
     print_timing_category(config, "Vector Arithmetic   ", cumulative_stats.vector_arithmetic, total_time);
     print_timing_category(config, "Memory Allocation   ", cumulative_stats.memory_allocation, total_time);
     print_timing_category(config, "Random Generation   ", cumulative_stats.random_generation, total_time);
+    print_timing_category(config, "Vector Normalization", cumulative_stats.vector_normalization, total_time);
     debug_println!(config, "");
 
     // Print bucket statistics in debug mode
