@@ -400,6 +400,8 @@ struct ContaminationResult {
     #[serde(alias = "overlap_ratio")]
     jaccard_similarity: f32,
     #[serde(default)]
+    toxic_score: f32,
+    #[serde(default)]
     method: Option<String>,
     #[serde(default)]
     matching_ngrams: Option<Vec<String>>,
@@ -838,6 +840,7 @@ fn filter_contamination_results(
                     eval_dataset: "N/A".to_string(),
                     eval_line: 0,
                     jaccard_similarity: 0.0,
+                    toxic_score: 0.0,
                     method: Some("true_negative".to_string()),
                     matching_ngrams: None,
                     bucket_sizes: None,
@@ -895,6 +898,7 @@ fn filter_contamination_results(
                     eval_dataset: "N/A".to_string(),
                     eval_line: 0,
                     jaccard_similarity: 0.0,
+                    toxic_score: 0.0,
                     method: Some("false_negative".to_string()),
                     matching_ngrams: None,
                     bucket_sizes: None,
@@ -1055,6 +1059,9 @@ fn display_contamination_case(
                 _ => "JACCARD SIM"
             };
             println!("🎯 {}:   {:.3}", similarity_label, result.jaccard_similarity);
+            if result.toxic_score > 0.0 {
+                println!("🧪 TOXIC SCORE:    {:.3}", result.toxic_score);
+            }
             println!();
         }
     }

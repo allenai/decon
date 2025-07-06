@@ -1097,6 +1097,7 @@ struct ToxicContaminationEntry {
     eval_name: String,
     eval_line: usize,
     overlap_ratio: f32,
+    toxic_score: f32,
     matching_ngrams: Option<Vec<String>>,
     bucket_sizes: Option<Vec<usize>>,
     bucket_ids: Option<Vec<u64>>,
@@ -1743,6 +1744,22 @@ fn process_toxic_training_file(
                         (None, None, None)
                     };
 
+                    // Calculate TOXIC score: sum of 1/log(bucket_size) for each matched bucket
+                    let toxic_score: f32 = cluster.distinct_buckets.iter()
+                        .map(|bucket_id| {
+                            if let Some(docs) = toxic_buckets.get(bucket_id) {
+                                let bucket_size = docs.len() as f32;
+                                if bucket_size > 1.0 {
+                                    1.0 / bucket_size.ln()
+                                } else {
+                                    1.0 // For single-document buckets, max weight
+                                }
+                            } else {
+                                0.0 // Bucket not found (shouldn't happen)
+                            }
+                        })
+                        .sum();
+
                     contamination_results
                         .entry(file_name.to_string())
                         .or_default()
@@ -1751,6 +1768,7 @@ fn process_toxic_training_file(
                             eval_name: eval_name.clone(),
                             eval_line,
                             overlap_ratio: local_overlap_ratio,
+                            toxic_score,
                             matching_ngrams,
                             bucket_sizes,
                             bucket_ids,
@@ -1885,6 +1903,7 @@ fn save_toxic_contamination_results(
                 "eval_dataset": contamination_entry.eval_name,
                 "eval_line": contamination_entry.eval_line,
                 "overlap_ratio": contamination_entry.overlap_ratio,
+                "toxic_score": contamination_entry.toxic_score,
                 "method": "toxic"
             });
 
