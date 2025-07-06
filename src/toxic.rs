@@ -920,6 +920,7 @@ fn detect_toxic_contamination(
     let pbar = build_pbar(training_files.len(), "Training files");
 
     let contamination_results: DashMap<String, Vec<ToxicContaminationEntry>> = DashMap::new();
+    let file_stats: DashMap<String, FileProcessingStats> = DashMap::new();
 
     // Process files in parallel for maximum performance
     training_files.par_iter().for_each(|file_path| {
@@ -937,7 +938,7 @@ fn detect_toxic_contamination(
                 .to_string()
         };
 
-        if let Err(e) = process_toxic_training_file(
+        match process_toxic_training_file(
             file_path,
             &file_name,
             config,
@@ -949,13 +950,112 @@ fn detect_toxic_contamination(
             eval_vocabulary,
             &contamination_results
         ) {
-            println!("Error processing training file {:?}: {:?}", file_path, e);
+            Ok(stats) => {
+                file_stats.insert(file_name.clone(), stats);
+            }
+            Err(e) => {
+                println!("Error processing training file {:?}: {:?}", file_path, e);
+            }
         }
         pbar.inc(1);
     });
 
     // Save contamination results
     save_toxic_contamination_results(&contamination_results, &config.output_dir)?;
+
+    // Aggregate timing statistics from all files
+    let mut aggregated_stats = TimingStats::default();
+    let mut total_lines_all = 0;
+    let mut total_contaminated_lines = 0;
+    let mut total_bucket_hits_all = 0;
+    let mut total_bucket_misses_all = 0;
+    let mut total_hot_buckets_skipped_all = 0;
+    let mut total_vocab_filtered_all = 0;
+    let mut total_training_vocab_size = 0;
+
+    for entry in file_stats.iter() {
+        let stats = entry.value();
+        
+        // Aggregate timing stats
+        aggregated_stats.text_extraction += stats.timing.text_extraction;
+        aggregated_stats.embedding_computation += stats.timing.embedding_computation;
+        aggregated_stats.normalization += stats.timing.normalization;
+        aggregated_stats.lsh_bucket_computation += stats.timing.lsh_bucket_computation;
+        aggregated_stats.bucket_lookup += stats.timing.bucket_lookup;
+        aggregated_stats.collision_detection += stats.timing.collision_detection;
+        aggregated_stats.threshold_evaluation += stats.timing.threshold_evaluation;
+        aggregated_stats.total_per_line += stats.timing.total_per_line;
+        
+        // Aggregate granular timing stats
+        aggregated_stats.hash_lookups += stats.timing.hash_lookups;
+        aggregated_stats.vector_cloning += stats.timing.vector_cloning;
+        aggregated_stats.vector_arithmetic += stats.timing.vector_arithmetic;
+        aggregated_stats.memory_allocation += stats.timing.memory_allocation;
+        aggregated_stats.random_generation += stats.timing.random_generation;
+        aggregated_stats.vector_normalization += stats.timing.vector_normalization;
+        
+        // Aggregate other stats
+        total_lines_all += stats.total_lines;
+        total_contaminated_lines += stats.contaminated_lines;
+        total_bucket_hits_all += stats.bucket_hits;
+        total_bucket_misses_all += stats.bucket_misses;
+        total_hot_buckets_skipped_all += stats.hot_buckets_skipped;
+        total_vocab_filtered_all += stats.vocab_filtered;
+        total_training_vocab_size += stats.training_vocab_size;
+    }
+
+    // Print aggregated summary statistics
+    let total_time = aggregated_stats.total_per_line.as_secs_f64() * 1000.0;
+    debug_println!(config, "\n\n\n=== AGGREGATED TIMING SUMMARY FOR ALL FILES ===");
+    debug_println!(config, "Total files processed: {}", file_stats.len());
+    debug_println!(config, "Total lines processed: {}", total_lines_all);
+    debug_println!(config, "Total time: {:.1}ms", total_time);
+    debug_println!(config, "Average per line: {:.1}ms", if total_lines_all > 0 { total_time / total_lines_all as f64 } else { 0.0 });
+    debug_println!(config, "");
+    debug_println!(config, "BREAKDOWN BY CATEGORY:");
+    print_timing_category(config, "Text Extraction     ", aggregated_stats.text_extraction, total_time);
+    print_timing_category(config, "Embedding Computation", aggregated_stats.embedding_computation, total_time);
+    print_timing_category(config, "Vector Normalization", aggregated_stats.normalization, total_time);
+    print_timing_category(config, "LSH Bucket Computation", aggregated_stats.lsh_bucket_computation, total_time);
+    print_timing_category(config, "Bucket Lookup       ", aggregated_stats.bucket_lookup, total_time);
+    print_timing_category(config, "Collision Detection ", aggregated_stats.collision_detection, total_time);
+    print_timing_category(config, "Threshold Evaluation", aggregated_stats.threshold_evaluation, total_time);
+    debug_println!(config, "");
+    debug_println!(config, "GRANULAR EMBEDDING BREAKDOWN:");
+    print_timing_category(config, "Hash Lookups        ", aggregated_stats.hash_lookups, total_time);
+    print_timing_category(config, "Vector Cloning      ", aggregated_stats.vector_cloning, total_time);
+    print_timing_category(config, "Vector Arithmetic   ", aggregated_stats.vector_arithmetic, total_time);
+    print_timing_category(config, "Memory Allocation   ", aggregated_stats.memory_allocation, total_time);
+    print_timing_category(config, "Random Generation   ", aggregated_stats.random_generation, total_time);
+    print_timing_category(config, "Vector Normalization", aggregated_stats.vector_normalization, total_time);
+    debug_println!(config, "");
+
+    // Print bucket statistics in debug mode
+    debug_println!(config, "BUCKET STATISTICS:");
+    debug_println!(config, "Vocabulary filtered (out-of-vocab): {}", total_vocab_filtered_all);
+    debug_println!(config, "Bucket hits (found eval matches): {}", total_bucket_hits_all);
+    debug_println!(config, "Bucket misses (no eval matches): {}", total_bucket_misses_all);
+    debug_println!(config, "Hot buckets skipped: {}", total_hot_buckets_skipped_all);
+    let total_ngrams_generated = total_vocab_filtered_all + total_bucket_hits_all + total_bucket_misses_all + total_hot_buckets_skipped_all;
+    let total_ngrams_processed = total_bucket_hits_all + total_bucket_misses_all + total_hot_buckets_skipped_all;
+    debug_println!(config, "Total n-grams generated: {}", total_ngrams_generated);
+    debug_println!(config, "Total n-grams processed (LSH computed): {}", total_ngrams_processed);
+    debug_println!(config, "");
+
+    // Print vocabulary statistics in debug mode
+    debug_println!(config, "VOCABULARY STATISTICS:");
+    debug_println!(config, "Training vocabulary size (across all files): {}", total_training_vocab_size);
+    debug_println!(config, "Eval vocabulary size: {}", eval_vocabulary.len());
+    // Note: Can't compute exact union/intersection without storing all training vocab
+    debug_println!(config, "");
+
+    if total_contaminated_lines > 0 {
+        println!("  → Found {} contaminated lines out of {} total lines across {} files",
+                total_contaminated_lines, total_lines_all, file_stats.len());
+    } else {
+        println!("  → No contamination found ({} lines processed across {} files)", 
+                total_lines_all, file_stats.len());
+    }
 
     Ok(())
 }
@@ -977,6 +1077,18 @@ pub struct TimingStats {
     memory_allocation: Duration,
     random_generation: Duration,
     vector_normalization: Duration,
+}
+
+#[derive(Default)]
+struct FileProcessingStats {
+    timing: TimingStats,
+    total_lines: usize,
+    contaminated_lines: usize,
+    bucket_hits: usize,
+    bucket_misses: usize,
+    hot_buckets_skipped: usize,
+    vocab_filtered: usize,
+    training_vocab_size: usize,
 }
 
 #[derive(Clone)]
@@ -1574,7 +1686,7 @@ fn process_toxic_training_file(
     eval_documents: &EvalDocuments,
     eval_vocabulary: &HashSet<String>,
     contamination_results: &DashMap<String, Vec<ToxicContaminationEntry>>
-) -> Result<(), Error> {
+) -> Result<FileProcessingStats, Error> {
     let data = read_pathbuf_to_mem(file_path)?;
 
     // debug_println!(config, "\n=== DETAILED TIMING LOG FOR {} ===", file_name);
@@ -1768,67 +1880,17 @@ fn process_toxic_training_file(
         total_vocab_filtered += sampling_stats.vocab_filtered;
     }
 
-    // Print summary statistics
-    let total_time = cumulative_stats.total_per_line.as_secs_f64() * 1000.0;
-    debug_println!(config, "\n\n\n=== TIMING SUMMARY FOR {} ===", file_name);
-    debug_println!(config, "Total lines processed: {}", total_lines);
-    debug_println!(config, "Total time: {:.1}ms", total_time);
-    debug_println!(config, "Average per line: {:.1}ms", total_time / total_lines as f64);
-    debug_println!(config, "");
-    debug_println!(config, "BREAKDOWN BY CATEGORY:");
-    print_timing_category(config, "Text Extraction     ", cumulative_stats.text_extraction, total_time);
-    print_timing_category(config, "Embedding Computation", cumulative_stats.embedding_computation, total_time);
-    print_timing_category(config, "Vector Normalization", cumulative_stats.normalization, total_time);
-    print_timing_category(config, "LSH Bucket Computation", cumulative_stats.lsh_bucket_computation, total_time);
-    print_timing_category(config, "Bucket Lookup       ", cumulative_stats.bucket_lookup, total_time);
-    print_timing_category(config, "Collision Detection ", cumulative_stats.collision_detection, total_time);
-    print_timing_category(config, "Threshold Evaluation", cumulative_stats.threshold_evaluation, total_time);
-    debug_println!(config, "");
-    debug_println!(config, "GRANULAR EMBEDDING BREAKDOWN:");
-    print_timing_category(config, "Hash Lookups        ", cumulative_stats.hash_lookups, total_time);
-    print_timing_category(config, "Vector Cloning      ", cumulative_stats.vector_cloning, total_time);
-    print_timing_category(config, "Vector Arithmetic   ", cumulative_stats.vector_arithmetic, total_time);
-    print_timing_category(config, "Memory Allocation   ", cumulative_stats.memory_allocation, total_time);
-    print_timing_category(config, "Random Generation   ", cumulative_stats.random_generation, total_time);
-    print_timing_category(config, "Vector Normalization", cumulative_stats.vector_normalization, total_time);
-    debug_println!(config, "");
-
-    // Print bucket statistics in debug mode
-    debug_println!(config, "BUCKET STATISTICS:");
-    debug_println!(config, "Vocabulary filtered (out-of-vocab): {}", total_vocab_filtered);
-    debug_println!(config, "Bucket hits (found eval matches): {}", total_bucket_hits);
-    debug_println!(config, "Bucket misses (no eval matches): {}", total_bucket_misses);
-    debug_println!(config, "Hot buckets skipped: {}", total_hot_buckets_skipped);
-    let total_ngrams_generated = total_vocab_filtered + total_bucket_hits + total_bucket_misses + total_hot_buckets_skipped;
-    let total_ngrams_processed = total_bucket_hits + total_bucket_misses + total_hot_buckets_skipped;
-    debug_println!(config, "Total n-grams generated: {}", total_ngrams_generated);
-    debug_println!(config, "Total n-grams processed (LSH computed): {}", total_ngrams_processed);
-    debug_println!(config, "");
-
-    // Print vocabulary statistics in debug mode
-    debug_println!(config, "VOCABULARY STATISTICS:");
-    debug_println!(config, "Training vocabulary size: {}", training_vocabulary.len());
-    debug_println!(config, "Eval vocabulary size: {}", eval_vocabulary.len());
-    let vocab_union: HashSet<_> = training_vocabulary.union(eval_vocabulary).collect();
-    let vocab_intersection: HashSet<_> = training_vocabulary.intersection(eval_vocabulary).collect();
-    debug_println!(config, "Union vocabulary size: {}", vocab_union.len());
-    debug_println!(config, "Intersection vocabulary size: {}", vocab_intersection.len());
-    let vocab_symmetric_diff: HashSet<_> = training_vocabulary.symmetric_difference(eval_vocabulary).collect();
-    debug_println!(config, "Symmetric difference (XOR) size: {}", vocab_symmetric_diff.len());
-    if !eval_vocabulary.is_empty() && !training_vocabulary.is_empty() {
-        let overlap_ratio = vocab_intersection.len() as f64 / vocab_union.len() as f64;
-        debug_println!(config, "Vocabulary overlap ratio: {:.3}", overlap_ratio);
-    }
-    debug_println!(config, "");
-
-    if contaminated_lines > 0 {
-        println!("  → Found {} contaminated lines out of {} total lines",
-                contaminated_lines, total_lines);
-    } else {
-        println!("  → No contamination found ({} lines processed)", total_lines);
-    }
-
-    Ok(())
+    // Return statistics instead of printing per-file summaries
+    Ok(FileProcessingStats {
+        timing: cumulative_stats,
+        total_lines,
+        contaminated_lines,
+        bucket_hits: total_bucket_hits,
+        bucket_misses: total_bucket_misses,
+        hot_buckets_skipped: total_hot_buckets_skipped,
+        vocab_filtered: total_vocab_filtered,
+        training_vocab_size: training_vocabulary.len(),
+    })
 }
 
 fn insert_with_hot_bucket_detection(
