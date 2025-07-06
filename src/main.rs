@@ -68,7 +68,10 @@ enum Commands {
         tp: bool,
 
         #[arg(long, help = "Show only true negatives (correctly identified as clean - requires ground truth)")]
-        tn: bool
+        tn: bool,
+
+        #[arg(long, help = "Display full training documents (default: truncate at 50 lines)")]
+        full: bool
     }
 
 }
@@ -487,7 +490,7 @@ impl ClassificationStats {
     }
 }
 
-fn review_contamination(config: &PathBuf, results_file: Option<&PathBuf>, step: bool, stats: bool, fp: bool, fn_: bool, tp: bool, tn: bool) -> Result<(), Error> {
+fn review_contamination(config: &PathBuf, results_file: Option<&PathBuf>, step: bool, stats: bool, fp: bool, fn_: bool, tp: bool, tn: bool, full: bool) -> Result<(), Error> {
     println!("=== CONTAMINATION REVIEW ===");
 
     let config_obj = read_config(config)?;
@@ -563,7 +566,7 @@ fn review_contamination(config: &PathBuf, results_file: Option<&PathBuf>, step: 
         println!("CONTAMINATION #{} of {}", idx + 1, filtered_results.len());
         println!("{}", "=".repeat(80));
 
-        display_contamination_case(result, &training_cache, &eval_cache, &ground_truth)?;
+        display_contamination_case(result, &training_cache, &eval_cache, &ground_truth, full)?;
         println!();
     }
 
@@ -792,7 +795,7 @@ fn classify_contamination_result(result: &ContaminationResult, ground_truth: &[G
                     _ => ClassificationType::TruePositive, // Fallback, shouldn't happen for detected items
                 }
             } else {
-                eprintln!("DEBUG: Could not find ground truth for text: {}", &training_text[..std::cmp::min(50, training_text.len())]);
+                eprintln!("DEBUG: Could not find ground truth for text: {}", &training_text[..std::cmp::min(25, training_text.len())]);
                 ClassificationType::FalsePositive
             }
         } else {
@@ -1032,11 +1035,25 @@ fn load_eval_files(reference_dir: &PathBuf, content_key: &str) -> Result<HashMap
     Ok(cache)
 }
 
+fn truncate_text(text: &str, max_lines: usize) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+
+    if lines.len() <= max_lines {
+        text.to_string()
+    } else {
+        let truncated_lines = &lines[..max_lines];
+        let mut result = truncated_lines.join("\n");
+        result.push_str(&format!("\n... [truncated: showing {} of {} lines, use --full to see all]", max_lines, lines.len()));
+        result
+    }
+}
+
 fn display_contamination_case(
     result: &ContaminationResult,
     training_cache: &HashMap<String, Vec<String>>,
     eval_cache: &HashMap<String, Vec<String>>,
-    ground_truth: &[GroundTruthRecord]
+    ground_truth: &[GroundTruthRecord],
+    full: bool
 ) -> Result<(), Error> {
     println!("📁 TRAINING FILE: {}", result.training_file);
 
@@ -1055,7 +1072,7 @@ fn display_contamination_case(
         _ => {
             println!("📋 EVAL DATASET:  {}", result.eval_dataset);
             let similarity_label = match result.method.as_deref() {
-                Some("toxic") => "OVERLAP RATIO",
+                Some("toxic") | Some("simple") => "OVERLAP RATIO",
                 _ => "JACCARD SIM"
             };
             println!("🎯 {}:   {:.3}", similarity_label, result.jaccard_similarity);
@@ -1103,7 +1120,15 @@ fn display_contamination_case(
 
     // Display side by side
     println!("🔍 TRAINING TEXT (line {}):", result.training_line);
-    println!("   \"{}\"", training_text);
+
+    // Apply truncation if not in full mode
+    let displayed_text = if full {
+        training_text.to_string()
+    } else {
+        truncate_text(training_text, 25)
+    };
+
+    println!("   \"{}\"", displayed_text);
     println!();
 
     match result.method.as_deref() {
@@ -1202,8 +1227,8 @@ fn main() {
             contamination_detect(config)
         }
 
-        Commands::Review {config, results_file, step, stats, fp, fn_, tp, tn} => {
-            review_contamination(config, results_file.as_ref(), *step, *stats, *fp, *fn_, *tp, *tn)
+        Commands::Review {config, results_file, step, stats, fp, fn_, tp, tn, full} => {
+            review_contamination(config, results_file.as_ref(), *step, *stats, *fp, *fn_, *tp, *tn, *full)
         }
 
     };

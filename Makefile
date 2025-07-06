@@ -1,9 +1,10 @@
-.PHONY: help detect review stats evals embeddings
+.PHONY: help detect review stats simple evals embeddings
 
 help:
 	@echo "Available targets:"
 	@echo "  detect     - Run contamination detection with dev config"
-	@echo "  review     - Run review mode with dev config and step-by-step output"
+	@echo "  simple     - Run simple contamination detection with dev config"
+	@echo "  review     - Run review mode with dev config and step-by-step output (use --full for complete training docs)"
 	@echo "  stats      - Run review mode with dev config and statistics output"
 	@echo "  tp         - Run review mode to show True Positives"
 	@echo "  tn         - Run review mode to show True Negatives"
@@ -14,6 +15,9 @@ help:
 
 detect:
 	cargo run --release detect --config examples/dev/toxic.yaml
+
+simple:
+	cargo run detect --config examples/dev/simple.yaml
 
 review:
 	cargo run --release review --config examples/dev/toxic.yaml --step
@@ -37,4 +41,4 @@ evals:
 	python python/download_evals.py
 
 embeddings:
-	python python/download_embeddings.py
+	python python/prepare_embeddings.py
