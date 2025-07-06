@@ -16,6 +16,6 @@ skip_hot_bucket_threshold: -1  # Skip buckets with more than this many entries (
 punctuation_chars: "!\"#&'(),./:;?@`{|}~"  # Excludes: * + - = < > ^ _ []
 
 ngram_size: 3
-sample_every_m_tokens: 5
+sample_every_m_tokens: 10
 max_consecutive_misses: 4
 

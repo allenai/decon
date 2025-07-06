@@ -334,7 +334,7 @@ pub fn clean_text_allowlist(text: &str, _punctuation_chars: &str) -> String {
             // Keep numbers
             '0'..='9' => Some(c),
             // Keep hyphens (important for compound words and tokenization)
-            '-' | '_' | ']' | '[' | '{' | '}' |'–'| => Some(c),
+            '-' | '_' | ']' | '[' | '{' | '}' => Some(c),
             // Normalize all whitespace to single space
             ' ' | '\t' | '\n' | '\r' => Some(' '),
             // Drop everything else (punctuation, Unicode variants, etc.)
@@ -966,7 +966,13 @@ fn load_training_files(input_dir: &PathBuf, content_key: &str) -> Result<HashMap
             }
         }
 
+        println!("Caching training file: {} ({} lines)", file_name, lines.len());
         cache.insert(file_name, lines);
+    }
+
+    println!("Training file cache contains {} files:", cache.len());
+    for key in cache.keys() {
+        println!("  - {}", key);
     }
 
     Ok(cache)

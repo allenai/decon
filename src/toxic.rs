@@ -116,7 +116,7 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
 
     // Step 1: Load word embeddings
     println!("Loading word embeddings...");
-    let embeddings = load_embeddings(&config.toxic_embedding_path)?;
+    let embeddings = load_embeddings(&config.toxic_embedding_path, config)?;
     println!("Loaded {} word embeddings", embeddings.len());
 
     // Step 2: Generate random hyperplanes for LSH
@@ -200,7 +200,7 @@ fn load_embeddings_binary(path: &PathBuf) -> Result<EmbeddingMap, Error> {
         words.push(String::from_utf8(word_buf)?);
     }
 
-    // Read embeddings
+    // Read embeddings (poison tokens already applied when binary was created)
     for word in words {
         let mut vector = vec![0.0f32; embedding_dim];
         for val in &mut vector {
@@ -208,6 +208,7 @@ fn load_embeddings_binary(path: &PathBuf) -> Result<EmbeddingMap, Error> {
             file.read_exact(&mut val_buf)?;
             *val = f32::from_le_bytes(val_buf);
         }
+        
         embeddings.insert(word, vector);
 
         if embeddings.len() % 100000 == 0 {
@@ -220,10 +221,11 @@ fn load_embeddings_binary(path: &PathBuf) -> Result<EmbeddingMap, Error> {
     Ok(embeddings)
 }
 
-fn load_embeddings_text(embedding_path: &PathBuf) -> Result<EmbeddingMap, Error> {
+fn load_embeddings_text(embedding_path: &PathBuf, poison_scale: f32) -> Result<EmbeddingMap, Error> {
     println!("Loading text embeddings from: {:?}", embedding_path);
     let data = read_pathbuf_to_mem(embedding_path)?;
     let embeddings = DashMap::new();
+    let mut poison_replacements = 0;
 
     for (line_num, line) in data.lines().enumerate() {
         let line = line?;
@@ -246,7 +248,33 @@ fn load_embeddings_text(embedding_path: &PathBuf) -> Result<EmbeddingMap, Error>
             .collect();
 
         match vector {
-            Ok(vec) => {
+            Ok(mut vec) => {
+                // Apply poison token replacement for numeric tokens
+                if is_numeric_token(&word) {
+                    // Generate a deterministic poison vector for this numeric token
+                    let mut rng = ChaCha20Rng::seed_from_u64(hash_string(&word));
+                    
+                    // Replace with random vector
+                    for val in &mut vec {
+                        *val = rng.gen_range(-1.0..1.0);
+                    }
+                    
+                    // Normalize to unit length
+                    let mut magnitude_sq = 0.0f32;
+                    for &val in &vec {
+                        magnitude_sq += val * val;
+                    }
+                    let magnitude = magnitude_sq.sqrt();
+                    
+                    if magnitude > 0.0 {
+                        for val in &mut vec {
+                            *val /= magnitude;
+                        }
+                    }
+                    
+                    poison_replacements += 1;
+                }
+                
                 embeddings.insert(word, vec);
             }
             Err(e) => {
@@ -261,10 +289,13 @@ fn load_embeddings_text(embedding_path: &PathBuf) -> Result<EmbeddingMap, Error>
     }
 
     println!(); // New line after dots
+    if poison_replacements > 0 {
+        println!("Applied poison vectors to {} numeric tokens", poison_replacements);
+    }
     Ok(embeddings)
 }
 
-fn load_embeddings(embedding_path: &PathBuf) -> Result<EmbeddingMap, Error> {
+fn load_embeddings(embedding_path: &PathBuf, config: &Config) -> Result<EmbeddingMap, Error> {
     // Try binary format first (.bin extension)
     let binary_path = embedding_path.with_extension("bin");
     if binary_path.exists() {
@@ -272,10 +303,10 @@ fn load_embeddings(embedding_path: &PathBuf) -> Result<EmbeddingMap, Error> {
         return load_embeddings_binary(&binary_path);
     }
 
-    // Fall back to text format and optionally create binary version
-    let embeddings = load_embeddings_text(embedding_path)?;
+    // Fall back to text format and optionally create binary version (with poison tokens applied)
+    let embeddings = load_embeddings_text(embedding_path, config.toxic_poison_scale)?;
 
-    // Save binary version for next time
+    // Save binary version for next time (poison tokens already applied during text loading)
     if let Err(e) = save_embeddings_binary(&embeddings, &binary_path) {
         println!("Warning: Failed to save binary embeddings: {}", e);
     }
@@ -284,7 +315,7 @@ fn load_embeddings(embedding_path: &PathBuf) -> Result<EmbeddingMap, Error> {
 }
 
 // For eval processing: store OOV words consistently
-fn get_or_create_embedding_eval(word: &str, embeddings: &EmbeddingMap, rng_seed: u64, timing: &mut TimingStats) -> Vec<f32> {
+fn get_or_create_embedding_eval(word: &str, embeddings: &EmbeddingMap, rng_seed: u64, poison_scale: f32, timing: &mut TimingStats) -> Vec<f32> {
     // Time hash lookup
     let lookup_start = Instant::now();
     let embedding_opt = embeddings.get(word);
@@ -297,14 +328,38 @@ fn get_or_create_embedding_eval(word: &str, embeddings: &EmbeddingMap, rng_seed:
         timing.vector_cloning += clone_start.elapsed();
         result
     } else {
-        // Time random generation for poison tokens
+        // Time random generation for OOV tokens
         let rand_start = Instant::now();
         let mut rng = ChaCha20Rng::seed_from_u64(
             rng_seed.wrapping_add(hash_string(word))
         );
-        let vector: Vec<f32> = (0..EMBEDDING_DIM)
-            .map(|_| rng.gen_range(-1.0..1.0))
-            .collect();
+        
+        let mut vector: Vec<f32> = if is_numeric_token(word) {
+            // Generate random poison vector
+            (0..EMBEDDING_DIM)
+                .map(|_| rng.gen_range(-1.0..1.0))
+                .collect()
+        } else {
+            // Use normal scale for other OOV tokens
+            (0..EMBEDDING_DIM)
+                .map(|_| rng.gen_range(-1.0..1.0))
+                .collect()
+        };
+        
+        // Normalize poison vectors to unit length
+        if is_numeric_token(word) {
+            let mut magnitude_sq = 0.0f32;
+            for &val in &vector {
+                magnitude_sq += val * val;
+            }
+            let magnitude = magnitude_sq.sqrt();
+            
+            if magnitude > 0.0 {
+                for val in &mut vector {
+                    *val /= magnitude;
+                }
+            }
+        }
         timing.random_generation += rand_start.elapsed();
 
         // Time the insertion and cloning for return
@@ -317,7 +372,7 @@ fn get_or_create_embedding_eval(word: &str, embeddings: &EmbeddingMap, rng_seed:
 }
 
 // For training processing: generate chaotic OOV each time (don't store)
-fn get_or_create_embedding_training(word: &str, embeddings: &EmbeddingMap, rng_seed: u64, timing: &mut TimingStats) -> Vec<f32> {
+fn get_or_create_embedding_training(word: &str, embeddings: &EmbeddingMap, rng_seed: u64, poison_scale: f32, timing: &mut TimingStats) -> Vec<f32> {
     // Time hash lookup
     let lookup_start = Instant::now();
     let embedding_opt = embeddings.get(word);
@@ -330,14 +385,38 @@ fn get_or_create_embedding_training(word: &str, embeddings: &EmbeddingMap, rng_s
         timing.vector_cloning += clone_start.elapsed();
         result
     } else {
-        // Time random generation for poison tokens
+        // Time random generation for OOV tokens
         let rand_start = Instant::now();
         let mut rng = ChaCha20Rng::seed_from_u64(
             rng_seed.wrapping_add(hash_string(word))
         );
-        let result = (0..EMBEDDING_DIM)
-            .map(|_| rng.gen_range(-1.0..1.0))
-            .collect();
+        
+        let mut result: Vec<f32> = if is_numeric_token(word) {
+            // Generate random poison vector
+            (0..EMBEDDING_DIM)
+                .map(|_| rng.gen_range(-1.0..1.0))
+                .collect()
+        } else {
+            // Use normal scale for other OOV tokens
+            (0..EMBEDDING_DIM)
+                .map(|_| rng.gen_range(-1.0..1.0))
+                .collect()
+        };
+        
+        // Normalize poison vectors to unit length
+        if is_numeric_token(word) {
+            let mut magnitude_sq = 0.0f32;
+            for &val in &result {
+                magnitude_sq += val * val;
+            }
+            let magnitude = magnitude_sq.sqrt();
+            
+            if magnitude > 0.0 {
+                for val in &mut result {
+                    *val /= magnitude;
+                }
+            }
+        }
         timing.random_generation += rand_start.elapsed();
         result
     }
@@ -348,6 +427,108 @@ fn hash_string(s: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     s.hash(&mut hasher);
     hasher.finish()
+}
+
+fn is_numeric_token(token: &str) -> bool {
+    // Check for number words (case-insensitive)
+    let lowercase_token = token.to_lowercase();
+    match lowercase_token.as_str() {
+        // Basic numbers 0-20
+        "zero" | "one" | "two" | "three" | "four" | "five" | "six" | "seven" | "eight" | "nine" | "ten" |
+        "eleven" | "twelve" | "thirteen" | "fourteen" | "fifteen" | "sixteen" | "seventeen" | "eighteen" | "nineteen" | "twenty" |
+        // Tens
+        "thirty" | "forty" | "fifty" | "sixty" | "seventy" | "eighty" | "ninety" |
+        // Hundreds, thousands, etc.
+        "hundred" | "thousand" | "million" | "billion" | "trillion" |
+        // Ordinal words
+        "first" | "second" | "third" | "fourth" | "fifth" | "sixth" | "seventh" | "eighth" | "ninth" | "tenth" |
+        "eleventh" | "twelfth" | "thirteenth" | "fourteenth" | "fifteenth" | "sixteenth" | "seventeenth" | "eighteenth" | "nineteenth" | "twentieth" |
+        "thirtieth" | "fortieth" | "fiftieth" | "sixtieth" | "seventieth" | "eightieth" | "ninetieth" |
+        "hundredth" | "thousandth" | "millionth" | "billionth" | "trillionth" |
+        // Fractions
+        "half" | "quarter" | "thirds" | "halves" | "quarters" |
+        // Time-related numbers
+        "dozen" | "dozens" | "score" | "scores" |
+        // Roman numerals (common ones)
+        "i" | "ii" | "iii" | "iv" | "v" | "vi" | "vii" | "viii" | "ix" | "x" |
+        "xi" | "xii" | "xiii" | "xiv" | "xv" | "xx" | "xxx" | "xl" | "l" | "c" | "d" | "m" => {
+            return true;
+        }
+        _ => {} // Continue to numeric checks
+    }
+    
+    // Check for compound number words (twenty-one, thirty-two, etc.)
+    if lowercase_token.contains('-') {
+        let parts: Vec<&str> = lowercase_token.split('-').collect();
+        if parts.len() == 2 {
+            let first_is_numeric = matches!(parts[0], 
+                "twenty" | "thirty" | "forty" | "fifty" | "sixty" | "seventy" | "eighty" | "ninety");
+            let second_is_numeric = matches!(parts[1],
+                "one" | "two" | "three" | "four" | "five" | "six" | "seven" | "eight" | "nine");
+            if first_is_numeric && second_is_numeric {
+                return true;
+            }
+        }
+    }
+    
+    // Check for pure integers (123, -456)
+    if token.parse::<i64>().is_ok() {
+        return true;
+    }
+    
+    // Check for pure floats (123.45, -67.89, .5, 5.)
+    if token.parse::<f64>().is_ok() {
+        return true;
+    }
+    
+    // Check for percentages (50%, -25.5%)
+    if token.ends_with('%') {
+        let chars: Vec<char> = token.chars().collect();
+        if chars.len() > 1 {
+            let num_part: String = chars[..chars.len()-1].iter().collect();
+            if num_part.parse::<f64>().is_ok() {
+                return true;
+            }
+        }
+    }
+    
+    // Check for common currency symbols ($123, €45.67, £100)
+    if (token.starts_with('$') || token.starts_with('€') || token.starts_with('£') || token.starts_with('¥')) && token.chars().count() > 1 {
+        let chars: Vec<char> = token.chars().collect();
+        let num_part: String = chars[1..].iter().collect();
+        if num_part.parse::<f64>().is_ok() {
+            return true;
+        }
+    }
+    
+    // Check for ordinals (1st, 2nd, 3rd, 4th, etc.)
+    if token.chars().count() > 2 {
+        let chars: Vec<char> = token.chars().collect();
+        if chars.len() >= 2 {
+            let suffix: String = chars[chars.len()-2..].iter().collect();
+            let num_part: String = chars[..chars.len()-2].iter().collect();
+            if matches!(suffix.as_str(), "st" | "nd" | "rd" | "th") && num_part.parse::<u64>().is_ok() {
+                return true;
+            }
+        }
+    }
+    
+    // Check for scientific notation (1e5, 2.5E-3, 1.23e+10)
+    if token.contains('e') || token.contains('E') {
+        if token.parse::<f64>().is_ok() {
+            return true;
+        }
+    }
+    
+    // Check for fractions (1/2, 3/4, 22/7)
+    if token.contains('/') {
+        let parts: Vec<&str> = token.split('/').collect();
+        if parts.len() == 2 && parts[0].parse::<f64>().is_ok() && parts[1].parse::<f64>().is_ok() {
+            return true;
+        }
+    }
+    
+    false
 }
 
 // Helper function for vector subtraction (in-place)
@@ -403,6 +584,7 @@ pub fn compute_ngram_embedding_training(
     ngram_size: usize,
     embeddings: &EmbeddingMap,
     rng_seed: u64,
+    poison_scale: f32,
     timing: &mut TimingStats
 ) -> Vec<Vec<f32>> {
     let mut ngram_embeddings = Vec::new();
@@ -410,7 +592,7 @@ pub fn compute_ngram_embedding_training(
     if tokens.len() < ngram_size {
         if !tokens.is_empty() {
             // For documents shorter than ngram_size, use all tokens - same as original
-            let sum_embedding = sum_word_embeddings_training(tokens, embeddings, rng_seed, timing);
+            let sum_embedding = sum_word_embeddings_training(tokens, embeddings, rng_seed, poison_scale, timing);
             ngram_embeddings.push(sum_embedding);
         }
         return ngram_embeddings;
@@ -418,19 +600,19 @@ pub fn compute_ngram_embedding_training(
 
     // Compute first n-gram sum normally
     let first_ngram = &tokens[0..ngram_size];
-    let mut current_sum = sum_word_embeddings_training(first_ngram, embeddings, rng_seed, timing);
+    let mut current_sum = sum_word_embeddings_training(first_ngram, embeddings, rng_seed, poison_scale, timing);
     ngram_embeddings.push(current_sum.clone());
 
     // Slide the window for remaining n-grams
     for i in 1..=tokens.len() - ngram_size {
         // Word sliding out (left side)
         let outgoing_word = &tokens[i - 1];
-        let outgoing_embedding = get_or_create_embedding_training(outgoing_word, embeddings, rng_seed, timing);
+        let outgoing_embedding = get_or_create_embedding_training(outgoing_word, embeddings, rng_seed, poison_scale, timing);
         subtract_word_embedding_inplace(&mut current_sum, &outgoing_embedding, timing);
 
         // Word sliding in (right side)
         let incoming_word = &tokens[i + ngram_size - 1];
-        let incoming_embedding = get_or_create_embedding_training(incoming_word, embeddings, rng_seed, timing);
+        let incoming_embedding = get_or_create_embedding_training(incoming_word, embeddings, rng_seed, poison_scale, timing);
         add_word_embedding_inplace(&mut current_sum, &incoming_embedding, timing);
 
         ngram_embeddings.push(current_sum.clone());
@@ -444,6 +626,7 @@ fn sum_word_embeddings_eval(
     words: &[String],
     embeddings: &EmbeddingMap,
     rng_seed: u64,
+    poison_scale: f32,
     timing: &mut TimingStats
 ) -> Vec<f32> {
     // Time memory allocation
@@ -454,7 +637,7 @@ fn sum_word_embeddings_eval(
     for word in words {
         // Time embedding lookup/generation
         let lookup_start = Instant::now();
-        let word_embedding = get_or_create_embedding_eval(word, embeddings, rng_seed, timing);
+        let word_embedding = get_or_create_embedding_eval(word, embeddings, rng_seed, poison_scale, timing);
         timing.hash_lookups += lookup_start.elapsed();
 
         // Time vector arithmetic
@@ -473,6 +656,7 @@ fn sum_word_embeddings_training(
     words: &[String],
     embeddings: &EmbeddingMap,
     rng_seed: u64,
+    poison_scale: f32,
     timing: &mut TimingStats
 ) -> Vec<f32> {
     // Time memory allocation
@@ -483,7 +667,7 @@ fn sum_word_embeddings_training(
     for word in words {
         // Time embedding lookup/generation
         let lookup_start = Instant::now();
-        let word_embedding = get_or_create_embedding_training(word, embeddings, rng_seed, timing);
+        let word_embedding = get_or_create_embedding_training(word, embeddings, rng_seed, poison_scale, timing);
         timing.hash_lookups += lookup_start.elapsed();
 
         // Time vector arithmetic
@@ -673,7 +857,7 @@ fn process_toxic_reference_file(
             if !word_tokens.is_empty() {
                 // For documents shorter than ngram_size, use all tokens
                 let mut dummy_timing = TimingStats::default();
-                let sum_embedding = sum_word_embeddings_eval(&word_tokens, embeddings, config.hash_seed as u64, &mut dummy_timing);
+                let sum_embedding = sum_word_embeddings_eval(&word_tokens, embeddings, config.hash_seed as u64, config.toxic_poison_scale, &mut dummy_timing);
                 // Skip normalization to preserve magnitude information
                 let bucket_id = compute_lsh_bucket(&sum_embedding, hyperplanes);
                 insert_with_hot_bucket_detection(
@@ -693,7 +877,7 @@ fn process_toxic_reference_file(
             for i in 0..=word_tokens.len() - config.ngram_size {
                 let ngram = &word_tokens[i..i + config.ngram_size];
                 let mut dummy_timing = TimingStats::default();
-                let sum_embedding = sum_word_embeddings_eval(ngram, embeddings, config.hash_seed as u64, &mut dummy_timing);
+                let sum_embedding = sum_word_embeddings_eval(ngram, embeddings, config.hash_seed as u64, config.toxic_poison_scale, &mut dummy_timing);
                 // Skip normalization to preserve magnitude information
                 let bucket_id = compute_lsh_bucket(&sum_embedding, hyperplanes);
                 insert_with_hot_bucket_detection(
@@ -1425,6 +1609,7 @@ fn process_toxic_training_file(
             config.ngram_size,
             embeddings,
             config.hash_seed as u64,
+            config.toxic_poison_scale,
             &mut granular_timing
         );
         let embedding_time = embed_start.elapsed();
@@ -1484,7 +1669,8 @@ fn process_toxic_training_file(
                 }
 
                 // Local overlap ratio: unique_ngrams_matched / unique_ngrams_in_eval_doc
-                let local_overlap_ratio = *match_length as f32 / unique_ngrams as f32;
+                // Cap at 1.0 since multiple training n-grams can map to same eval n-grams via LSH
+                let local_overlap_ratio = (*match_length as f32 / unique_ngrams as f32).min(1.0);
                 // debug_println!(config, "    Overlap ratio: {}/{} = {:.3}", match_length, unique_ngrams, local_overlap_ratio);
                 // debug_println!(config, "    Threshold: {:.3}", config.toxic_overlap_threshold);
 
@@ -1984,7 +2170,7 @@ mod tests {
         let tokens: Vec<String> = token_names.iter().map(|s| s.to_string()).collect();
         let mut timing = TimingStats::default();
 
-        let result = compute_ngram_embedding_training(&tokens, 3, &test_embeddings, 42, &mut timing);
+        let result = compute_ngram_embedding_training(&tokens, 3, &test_embeddings, 42, 3.0, &mut timing);
 
         // Should produce 6 n-grams: ["a","b","c"], ["b","c","d"], ["c","d","e"], ["d","e","f"], ["e","f","g"], ["f","g","h"]
         assert_eq!(result.len(), 6);
