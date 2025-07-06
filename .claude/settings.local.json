@@ -9,7 +9,13 @@
       "Bash(cargo check:*)",
       "Bash(cargo:*)",
       "Bash(timeout 90 cargo run --release -- contamination-detect --config examples/eval/toxic.yaml)",
-      "Bash(timeout 60 cargo run --release -- contamination-detect --config examples/eval/toxic.yaml)"
+      "Bash(timeout 60 cargo run --release -- contamination-detect --config examples/eval/toxic.yaml)",
+      "Bash(make:*)",
+      "Bash(/dev/null)",
+      "Bash(rustc:*)",
+      "Bash(./test_hyphen_normalize)",
+      "Bash(rm:*)",
+      "Bash(git restore:*)"
     ],
     "deny": []
   }

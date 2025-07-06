@@ -44,67 +44,6 @@ use mj_io::{expand_dirs, read_pathbuf_to_mem, write_mem_to_pathbuf, build_pbar};
 use crate::{Config, get_nested_json_val, clean_text_allowlist, get_results_filename, debug_println};
 
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_sliding_window_algorithm() {
-        // Test the sliding window optimization with 8-item string and 3-grams
-        let test_embeddings = EmbeddingMap::new();
-
-        // Create test vectors for 8 tokens
-        let test_vectors = vec![
-            vec![1.0, 10.0],   // a
-            vec![2.0, 20.0],   // b
-            vec![3.0, 30.0],   // c
-            vec![4.0, 40.0],   // d
-            vec![5.0, 50.0],   // e
-            vec![6.0, 60.0],   // f
-            vec![7.0, 70.0],   // g
-            vec![8.0, 80.0],   // h
-        ];
-
-        let token_names = vec!["a", "b", "c", "d", "e", "f", "g", "h"];
-
-        for (i, name) in token_names.iter().enumerate() {
-            let mut vec = vec![0.0; EMBEDDING_DIM];
-            vec[0] = test_vectors[i][0];
-            vec[1] = test_vectors[i][1];
-            test_embeddings.insert(name.to_string(), vec);
-        }
-
-        let tokens: Vec<String> = token_names.iter().map(|s| s.to_string()).collect();
-        let mut timing = TimingStats::default();
-
-        let result = compute_ngram_embedding_training(&tokens, 3, &test_embeddings, 42, &mut timing);
-
-        // Should produce 6 n-grams: ["a","b","c"], ["b","c","d"], ["c","d","e"], ["d","e","f"], ["e","f","g"], ["f","g","h"]
-        assert_eq!(result.len(), 6);
-
-        // Expected 3-gram sums:
-        let expected = vec![
-            vec![1.0+2.0+3.0, 10.0+20.0+30.0],  // a+b+c = [6, 60]
-            vec![2.0+3.0+4.0, 20.0+30.0+40.0],  // b+c+d = [9, 90]
-            vec![3.0+4.0+5.0, 30.0+40.0+50.0],  // c+d+e = [12, 120]
-            vec![4.0+5.0+6.0, 40.0+50.0+60.0],  // d+e+f = [15, 150]
-            vec![5.0+6.0+7.0, 50.0+60.0+70.0],  // e+f+g = [18, 180]
-            vec![6.0+7.0+8.0, 60.0+70.0+80.0],  // f+g+h = [21, 210]
-        ];
-
-        for (i, (actual, exp)) in result.iter().zip(expected.iter()).enumerate() {
-            assert!((actual[0] - exp[0]).abs() < 1e-6,
-                   "N-gram {} dim 0: expected {}, got {}", i, exp[0], actual[0]);
-            assert!((actual[1] - exp[1]).abs() < 1e-6,
-                   "N-gram {} dim 1: expected {}, got {}", i, exp[1], actual[1]);
-        }
-
-        println!("✅ Sliding window optimization test passed!");
-        println!("Generated {} 3-grams from 8 tokens", result.len());
-        println!("First 3-gram: [{:.0}, {:.0}] (expected: [6, 60])", result[0][0], result[0][1]);
-        println!("Last 3-gram:  [{:.0}, {:.0}] (expected: [21, 210])", result[5][0], result[5][1]);
-    }
-}
 
 
 // 300-dimensional word embeddings
@@ -121,8 +60,8 @@ type BucketContents = DashMap<u64, HashSet<String>>;
 // Hot bucket tracking: set of bucket IDs that exceed skip_hot_bucket_threshold
 type HotBuckets = HashSet<u64>;
 
-// Eval document metadata: maps document_id to (eval_name, line_num, total_ngrams, live_ngrams)
-type EvalDocuments = DashMap<u32, (String, usize, usize, usize)>;
+// Eval document metadata: maps document_id to (eval_name, line_num, total_ngrams, live_ngrams, unique_ngrams)
+type EvalDocuments = DashMap<u32, (String, usize, usize, usize, usize)>;
 
 // Embedding storage: word -> 300d vector (thread-safe)
 pub type EmbeddingMap = DashMap<String, Vec<f32>>;
@@ -668,7 +607,7 @@ fn process_toxic_reference_file(
         .unwrap_or("unknown")
         .to_string();
 
-    debug_println!(config, "Processing TOXIC embeddings for eval dataset: {}", eval_name);
+    // debug_println!(config, "Processing TOXIC embeddings for eval dataset: {}", eval_name);
 
     let mut lines_processed = 0;
     let mut skipped_entries = 0;
@@ -681,9 +620,9 @@ fn process_toxic_reference_file(
 
         // For TOXIC, we work with words directly, not token IDs
         let word_tokens = extract_words(&line_text, &config.punctuation_chars);
-        
-        debug_println!(config, "📖 REFERENCE {}: '{}' -> '{}'", 
-                      eval_name, line_text, word_tokens.join(" "));
+
+        // debug_println!(config, "📖 REFERENCE {}: '{}' -> '{}'",
+        //               eval_name, line_text, word_tokens.join(" "));
         let word_count = word_tokens.len();
 
         // Track vocabulary from eval data
@@ -706,6 +645,20 @@ fn process_toxic_reference_file(
             word_tokens.len() - config.ngram_size + 1
         };
 
+        // Calculate unique n-grams for this document
+        let mut unique_ngram_texts = HashSet::new();
+        if word_tokens.len() < config.ngram_size {
+            if !word_tokens.is_empty() {
+                unique_ngram_texts.insert(word_tokens.join(" "));
+            }
+        } else {
+            for i in 0..=word_tokens.len() - config.ngram_size {
+                let ngram = &word_tokens[i..i + config.ngram_size];
+                unique_ngram_texts.insert(ngram.join(" "));
+            }
+        }
+        let unique_ngrams = unique_ngram_texts.len();
+
         // Read document ID from JSON (generated in Python download script)
         let doc_id = json_obj.get("doc_id")
             .and_then(|v| v.as_u64())
@@ -713,7 +666,7 @@ fn process_toxic_reference_file(
             as u32;
 
         // Store document metadata (will be updated with live count later)
-        eval_documents.insert(doc_id, (eval_name.clone(), line_num, total_ngrams, total_ngrams));
+        eval_documents.insert(doc_id, (eval_name.clone(), line_num, total_ngrams, total_ngrams, unique_ngrams));
 
         // Process n-grams with hot bucket detection
         if word_tokens.len() < config.ngram_size {
@@ -758,8 +711,8 @@ fn process_toxic_reference_file(
         }
     }
 
-    debug_println!(config, "  → Processed {} lines from {} (skipped {} entries with < {} words)",
-                   lines_processed, eval_name, skipped_entries, min_word_count);
+    // debug_println!(config, "  → Processed {} lines from {} (skipped {} entries with < {} words)",
+    //                lines_processed, eval_name, skipped_entries, min_word_count);
     Ok(())
 }
 
@@ -928,9 +881,9 @@ fn process_ngrams_with_sampling(
                 } else {
                     word_tokens[i..i + config.ngram_size].join(" ")
                 };
-                debug_println!(config, "\n💥 INITIAL HIT DETECTED at n-gram {} with {} documents!", i, document_ids.len());
-                debug_println!(config, "🔤 N-gram text: '{}'", ngram_text);
-                debug_println!(config, "📄 Document IDs: {:?}", document_ids);
+                // debug_println!(config, "\n💥 INITIAL HIT DETECTED at n-gram {} with {} documents!", i, document_ids.len());
+                // debug_println!(config, "🔤 N-gram text: '{}'", ngram_text);
+                // debug_println!(config, "📄 Document IDs: {:?}", document_ids);
 
                 let cluster = expand_contamination_cluster_with_intersection(
                     i,
@@ -942,6 +895,7 @@ fn process_ngrams_with_sampling(
                     hot_buckets,
                     eval_vocabulary,
                     document_ids,
+                    &ngram_text,
                     timing_stats,
                     &mut bucket_hits_count,
                     &mut bucket_misses_count,
@@ -955,8 +909,8 @@ fn process_ngrams_with_sampling(
                 }
 
                 clusters.push(cluster.clone());
-                debug_println!(config, "📍 Cluster completed: indices {}-{}, {} document matches",
-                              cluster.start_idx, cluster.end_idx, cluster.document_matches.len());
+                // debug_println!(config, "📍 Cluster completed: indices {}-{}, {} document matches",
+                //               cluster.start_idx, cluster.end_idx, cluster.document_matches.len());
 
                 // Jump past the processed region
                 i = processed_indices.iter().max().copied().unwrap_or(i) + 1;
@@ -1003,8 +957,8 @@ fn check_ngram_for_collision(
     } else {
         &word_tokens[ngram_idx..ngram_idx + config.ngram_size]
     };
-    
-    debug_println!(config, "🔍 Checking n-gram {}: '{}'", ngram_idx, ngram_tokens.join(" "));
+
+    // debug_println!(config, "🔍 Checking n-gram {}: '{}'", ngram_idx, ngram_tokens.join(" "));
 
     // Check if all tokens in this n-gram exist in eval vocabulary
     let all_tokens_in_eval = ngram_tokens.iter().all(|token| eval_vocabulary.contains(token));
@@ -1014,8 +968,8 @@ fn check_ngram_for_collision(
             .filter(|token| !eval_vocabulary.contains(*token))
             .map(|s| s.to_string())
             .collect();
-        debug_println!(config, "🚫 VOCAB FILTERED n-gram '{}' - missing tokens: {:?}", 
-                      ngram_tokens.join(" "), missing_tokens);
+        // debug_println!(config, "🚫 VOCAB FILTERED n-gram '{}' - missing tokens: {:?}",
+        //               ngram_tokens.join(" "), missing_tokens);
         *vocab_filtered_count += 1;
         return Ok(CollisionResult::VocabFiltered);
     }
@@ -1039,19 +993,19 @@ fn check_ngram_for_collision(
 
         // Collect all document IDs that match this bucket
         let collisions = bucket_contents.value().clone();
-        debug_println!(config, "✅ HIT! Found {} documents: {:?}", collisions.len(), collisions);
+        // debug_println!(config, "✅ HIT! Found {} documents: {:?}", collisions.len(), collisions);
         Ok(CollisionResult::Hit(collisions))
     } else {
         *bucket_misses_count += 1;
         timing_stats.bucket_lookup += lookup_start.elapsed();
-        debug_println!(config, "❌ MISS! No bucket collision");
+        // debug_println!(config, "❌ MISS! No bucket collision");
         Ok(CollisionResult::Miss)
     }
 }
 
 #[derive(Debug, Clone)]
 struct DocumentState {
-    match_length: usize,
+    matched_ngrams: HashSet<String>,
     consecutive_misses: usize,
 }
 
@@ -1069,7 +1023,7 @@ enum CollisionResult {
 /// ====================================
 /// This function implements sophisticated contamination detection that tracks miss counts
 /// individually per document, allowing for more granular and accurate gap handling.
-/// 
+///
 /// Unlike the previous global reset approach, this algorithm maintains separate state
 /// for each document, enabling precise gap tolerance on a per-document basis.
 ///
@@ -1080,10 +1034,10 @@ enum CollisionResult {
 /// Sample:       ✓     ✓     ✓     ✓     ✓     ✓     ✓
 ///                                           ^
 ///                                    Current hit at 50
-///                                    
+///
 /// Left bound = 50 - 10 = 40
 /// ```
-/// 
+///
 /// PER-DOCUMENT TRACKING LOGIC:
 /// - Each document maintains: match_length, consecutive_misses
 /// - Walk left/right, checking each n-gram's bucket
@@ -1097,12 +1051,12 @@ enum CollisionResult {
 /// Initial hit:    [doc1(m:1,miss:0), doc2(m:1,miss:0), doc3(m:1,miss:0)]
 /// Step 1 bucket:  [doc1, doc2]
 /// After step 1:   [doc1(m:2,miss:0), doc2(m:2,miss:0), doc3(m:1,miss:1)]
-/// Step 2 bucket:  [doc1]  
+/// Step 2 bucket:  [doc1]
 /// After step 2:   [doc1(m:3,miss:0), doc2(m:2,miss:1), doc3(m:1,miss:2)]
 /// Step 3 bucket:  []
 /// After step 3:   [doc1(m:3,miss:1), doc2(m:2,miss:2)] + doc3 DROPPED (miss:3 > max:2)
 /// Step 4 bucket:  [doc1]
-/// After step 4:   [doc1(m:4,miss:0)] + doc2 DROPPED (miss:3 > max:2)  
+/// After step 4:   [doc1(m:4,miss:0)] + doc2 DROPPED (miss:3 > max:2)
 /// Step 5 bucket:  []
 /// After step 5:   [doc1(m:4,miss:1)]
 /// Step 6 bucket:  []
@@ -1128,6 +1082,7 @@ fn expand_contamination_cluster_with_intersection(
     hot_buckets: &HotBuckets,
     eval_vocabulary: &HashSet<String>,
     initial_document_ids: Vec<u32>,
+    initial_training_ngram: &str,
     timing_stats: &mut TimingStats,
     bucket_hits_count: &mut usize,
     bucket_misses_count: &mut usize,
@@ -1139,41 +1094,43 @@ fn expand_contamination_cluster_with_intersection(
     let mut matching_ngrams = Vec::new();
     let mut bucket_sizes = Vec::new();
     let mut distinct_buckets = HashSet::new();
-    
+
     // Initialize cumulative stats for ALL documents that participate in the cluster
     let mut all_document_stats: HashMap<u32, DocumentState> = HashMap::new();
     for doc_id in &initial_document_ids {
+        let mut matched_ngrams = HashSet::new();
+        matched_ngrams.insert(initial_training_ngram.to_string());
         all_document_stats.insert(*doc_id, DocumentState {
-            match_length: 1,
+            matched_ngrams,
             consecutive_misses: 0,
         });
     }
-    
+
     // Track which documents are still "active" for continued evaluation
     let mut active_documents: HashSet<u32> = initial_document_ids.iter().cloned().collect();
-    
-    debug_println!(config, "\n🎯 INTERSECTION WALKING DEBUG - Initial hit at index {}", hit_idx);
-    debug_println!(config, "📊 Starting with {} documents: {:?}", initial_document_ids.len(), initial_document_ids);
+
+    // debug_println!(config, "\n🎯 INTERSECTION WALKING DEBUG - Initial hit at index {}", hit_idx);
+    // debug_println!(config, "📊 Starting with {} documents: {:?}", initial_document_ids.len(), initial_document_ids);
 
     // Expand backward (no left bound for debugging)
     let left_bound = 0;
     // TODO: Re-enable left bound optimization: hit_idx.saturating_sub(config.sample_every_m_tokens) when config.sample_every_m_tokens > 1
-    
-    debug_println!(config, "🔍 Left bound: {}, max_misses: {}", left_bound, config.max_consecutive_misses);
-    
-    debug_println!(config, "\n⬅️  STARTING LEFT WALK");
+
+    // debug_println!(config, "🔍 Left bound: {}, max_misses: {}", left_bound, config.max_consecutive_misses);
+
+    // debug_println!(config, "\n⬅️  STARTING LEFT WALK");
     let mut i = hit_idx;
     while i > left_bound && !active_documents.is_empty() {
         i -= 1;
-        
+
         let ngram_text = if word_tokens.len() < config.ngram_size {
             word_tokens.join(" ")
         } else {
             word_tokens[i..i + config.ngram_size].join(" ")
         };
-        debug_println!(config, "\n🔍 Left step {}: '{}'\n   Active docs before: {:?}", 
-                      i, ngram_text, 
-                      active_documents.iter().filter_map(|id| all_document_stats.get(id).map(|state| format!("{}(m:{},miss:{})", id, state.match_length, state.consecutive_misses))).collect::<Vec<_>>());
+        // debug_println!(config, "\n🔍 Left step {}: '{}'\n   Active docs before: {:?}",
+        //               i, ngram_text,
+        //               active_documents.iter().filter_map(|id| all_document_stats.get(id).map(|state| format!("{}(m:{},miss:{})", id, state.matched_ngrams.len(), state.consecutive_misses))).collect::<Vec<_>>());
 
         match check_ngram_for_collision(
             i, word_tokens, &ngram_embeddings[i], config, hyperplanes,
@@ -1184,15 +1141,15 @@ fn expand_contamination_cluster_with_intersection(
                 let current_set: HashSet<u32> = current_documents.iter().cloned().collect();
                 let mut matches = 0;
                 let mut misses = 0;
-                
-                debug_println!(config, "   ✅ Bucket collision! Found {} docs", current_documents.len());
-                
+
+                // debug_println!(config, "   ✅ Bucket collision! Found {} docs", current_documents.len());
+
                 // Update each document's state based on intersection
                 for doc_id in &active_documents.clone() {
                     if let Some(state) = all_document_stats.get_mut(doc_id) {
                         if current_set.contains(doc_id) {
                             // Document found in current bucket
-                            state.match_length += 1;
+                            state.matched_ngrams.insert(ngram_text.clone());
                             state.consecutive_misses = 0;
                             matches += 1;
                         } else {
@@ -1202,16 +1159,16 @@ fn expand_contamination_cluster_with_intersection(
                         }
                     }
                 }
-                
-                debug_println!(config, "   📈 Matches: {}, 📉 Misses: {}", matches, misses);
-                
+
+                // debug_println!(config, "   📈 Matches: {}, 📉 Misses: {}", matches, misses);
+
                 if matches > 0 {
                     start_idx = i;
-                    debug_println!(config, "   ⬅️  Extended cluster start to {}", start_idx);
+                    // debug_println!(config, "   ⬅️  Extended cluster start to {}", start_idx);
                 }
             }
             CollisionResult::Miss => {
-                debug_println!(config, "   ❌ No bucket collision");
+                // debug_println!(config, "   ❌ No bucket collision");
                 // No bucket found, increment miss count for all active documents
                 let miss_count = active_documents.len();
                 for doc_id in &active_documents {
@@ -1219,10 +1176,10 @@ fn expand_contamination_cluster_with_intersection(
                         state.consecutive_misses += 1;
                     }
                 }
-                debug_println!(config, "   📉 All {} docs missed", miss_count);
+                // debug_println!(config, "   📉 All {} docs missed", miss_count);
             }
             CollisionResult::VocabFiltered => {
-                debug_println!(config, "   🚫 Vocabulary filtered - counts as miss");
+                // debug_println!(config, "   🚫 Vocabulary filtered - counts as miss");
                 // Vocabulary filtering counts as a miss for all active documents
                 let miss_count = active_documents.len();
                 for doc_id in &active_documents {
@@ -1230,14 +1187,14 @@ fn expand_contamination_cluster_with_intersection(
                         state.consecutive_misses += 1;
                     }
                 }
-                debug_println!(config, "   📉 All {} docs missed (vocab filtered)", miss_count);
+                // debug_println!(config, "   📉 All {} docs missed (vocab filtered)", miss_count);
             }
             CollisionResult::HotBucketSkipped => {
-                debug_println!(config, "   ⏭️  Skipped hot bucket - no miss penalty");
+                // debug_println!(config, "   ⏭️  Skipped hot bucket - no miss penalty");
                 // Hot bucket skip doesn't count as a miss (performance optimization)
             }
         }
-        
+
         // Remove documents from active set that exceeded miss threshold (but keep their stats)
         let before_count = active_documents.len();
         active_documents.retain(|doc_id| {
@@ -1246,38 +1203,36 @@ fn expand_contamination_cluster_with_intersection(
                 .unwrap_or(false)
         });
         let dropped_count = before_count - active_documents.len();
-        if dropped_count > 0 {
-            debug_println!(config, "   🗑️  DROPPED {} docs from active set (miss >= {}), {} remaining", dropped_count, config.max_consecutive_misses, active_documents.len());
-        }
+
     }
 
     // Reset active documents for right walk, keeping accumulated match lengths in all_document_stats
     active_documents = initial_document_ids.iter().cloned().collect();
-    
+
     // Reset consecutive misses for right walk, but keep match_length accumulated from left walk
     for doc_id in &initial_document_ids {
         if let Some(state) = all_document_stats.get_mut(doc_id) {
             state.consecutive_misses = 0;
         }
     }
-    
-    debug_println!(config, "\n➡️  STARTING RIGHT WALK");
-    debug_println!(config, "📊 Reset to original document set with accumulated matches: {:?}", 
-                  initial_document_ids.iter().filter_map(|id| all_document_stats.get(id).map(|state| format!("{}(m:{},miss:{})", id, state.match_length, state.consecutive_misses))).collect::<Vec<_>>());
-    
+
+    // debug_println!(config, "\n➡️  STARTING RIGHT WALK");
+    // debug_println!(config, "📊 Reset to original document set with accumulated matches: {:?}",
+    //               initial_document_ids.iter().filter_map(|id| all_document_stats.get(id).map(|state| format!("{}(m:{},miss:{})", id, state.matched_ngrams.len(), state.consecutive_misses))).collect::<Vec<_>>());
+
     i = hit_idx;
-    
+
     while i + 1 < ngram_embeddings.len() && !active_documents.is_empty() {
         i += 1;
-        
+
         let ngram_text = if word_tokens.len() < config.ngram_size {
             word_tokens.join(" ")
         } else {
             word_tokens[i..i + config.ngram_size].join(" ")
         };
-        debug_println!(config, "\n🔍 Right step {}: '{}'\n   Active docs before: {:?}", 
-                      i, ngram_text,
-                      active_documents.iter().filter_map(|id| all_document_stats.get(id).map(|state| format!("{}(m:{},miss:{})", id, state.match_length, state.consecutive_misses))).collect::<Vec<_>>());
+        // debug_println!(config, "\n🔍 Right step {}: '{}'\n   Active docs before: {:?}",
+        //               i, ngram_text,
+        //               active_documents.iter().filter_map(|id| all_document_stats.get(id).map(|state| format!("{}(m:{},miss:{})", id, state.matched_ngrams.len(), state.consecutive_misses))).collect::<Vec<_>>());
 
         match check_ngram_for_collision(
             i, word_tokens, &ngram_embeddings[i], config, hyperplanes,
@@ -1288,15 +1243,15 @@ fn expand_contamination_cluster_with_intersection(
                 let current_set: HashSet<u32> = current_documents.iter().cloned().collect();
                 let mut matches = 0;
                 let mut misses = 0;
-                
-                debug_println!(config, "   ✅ Bucket collision! Found {} docs", current_documents.len());
-                
+
+                // debug_println!(config, "   ✅ Bucket collision! Found {} docs", current_documents.len());
+
                 // Update each document's state based on intersection
                 for doc_id in &active_documents.clone() {
                     if let Some(state) = all_document_stats.get_mut(doc_id) {
                         if current_set.contains(doc_id) {
                             // Document found in current bucket
-                            state.match_length += 1;
+                            state.matched_ngrams.insert(ngram_text.clone());
                             state.consecutive_misses = 0;
                             matches += 1;
                         } else {
@@ -1306,16 +1261,16 @@ fn expand_contamination_cluster_with_intersection(
                         }
                     }
                 }
-                
-                debug_println!(config, "   📈 Matches: {}, 📉 Misses: {}", matches, misses);
-                
+
+                // debug_println!(config, "   📈 Matches: {}, 📉 Misses: {}", matches, misses);
+
                 if matches > 0 {
                     end_idx = i;
-                    debug_println!(config, "   ➡️  Extended cluster end to {}", end_idx);
+                    // debug_println!(config, "   ➡️  Extended cluster end to {}", end_idx);
                 }
             }
             CollisionResult::Miss => {
-                debug_println!(config, "   ❌ No bucket collision");
+                // debug_println!(config, "   ❌ No bucket collision");
                 // No bucket found, increment miss count for all active documents
                 let miss_count = active_documents.len();
                 for doc_id in &active_documents {
@@ -1323,10 +1278,10 @@ fn expand_contamination_cluster_with_intersection(
                         state.consecutive_misses += 1;
                     }
                 }
-                debug_println!(config, "   📉 All {} docs missed", miss_count);
+                // debug_println!(config, "   📉 All {} docs missed", miss_count);
             }
             CollisionResult::VocabFiltered => {
-                debug_println!(config, "   🚫 Vocabulary filtered - counts as miss");
+                // debug_println!(config, "   🚫 Vocabulary filtered - counts as miss");
                 // Vocabulary filtering counts as a miss for all active documents
                 let miss_count = active_documents.len();
                 for doc_id in &active_documents {
@@ -1334,14 +1289,14 @@ fn expand_contamination_cluster_with_intersection(
                         state.consecutive_misses += 1;
                     }
                 }
-                debug_println!(config, "   📉 All {} docs missed (vocab filtered)", miss_count);
+                // debug_println!(config, "   📉 All {} docs missed (vocab filtered)", miss_count);
             }
             CollisionResult::HotBucketSkipped => {
-                debug_println!(config, "   ⏭️  Skipped hot bucket - no miss penalty");
+                //debug_println!(config, "   ⏭️  Skipped hot bucket - no miss penalty");
                 // Hot bucket skip doesn't count as a miss (performance optimization)
             }
         }
-        
+
         // Remove documents from active set that exceeded miss threshold (but keep their stats)
         let before_count = active_documents.len();
         active_documents.retain(|doc_id| {
@@ -1350,9 +1305,6 @@ fn expand_contamination_cluster_with_intersection(
                 .unwrap_or(false)
         });
         let dropped_count = before_count - active_documents.len();
-        if dropped_count > 0 {
-            debug_println!(config, "   🗑️  DROPPED {} docs from active set (miss >= {}), {} remaining", dropped_count, config.max_consecutive_misses, active_documents.len());
-        }
     }
 
     // Collect debug information for the final cluster range
@@ -1387,13 +1339,13 @@ fn expand_contamination_cluster_with_intersection(
     // Convert cumulative document stats to simple match counts for all documents that participated
     let document_matches: HashMap<u32, usize> = all_document_stats
         .into_iter()
-        .map(|(doc_id, state)| (doc_id, state.match_length))
+        .map(|(doc_id, state)| (doc_id, state.matched_ngrams.len()))
         .collect();
-    
-    debug_println!(config, "\n🏁 FINAL CLUSTER RESULTS:");
-    debug_println!(config, "📍 Cluster span: {}-{} ({} n-grams)", start_idx, end_idx, end_idx - start_idx + 1);
-    debug_println!(config, "📊 Document matches: {:?}", document_matches);
-    
+
+    // debug_println!(config, "\n🏁 FINAL CLUSTER RESULTS:");
+    // debug_println!(config, "📍 Cluster span: {}-{} ({} n-grams)", start_idx, end_idx, end_idx - start_idx + 1);
+    // debug_println!(config, "📊 Document matches: {:?}", document_matches);
+
     Ok(ContaminationCluster {
         start_idx,
         end_idx,
@@ -1443,11 +1395,11 @@ fn process_toxic_training_file(
         let text_start = Instant::now();
         let json_obj: Value = serde_json::from_str(&line)?;
         let line_text = get_nested_json_val(&json_obj, &config.content_key.to_string())?;
-        
-        debug_println!(config, "\n🔄 PROCESSING TRAINING LINE {} in {}", line_num, file_name);
-        debug_println!(config, "📝 Text: '{}'", line_text);
+
+        // debug_println!(config, "\n🔄 PROCESSING TRAINING LINE {} in {}", line_num, file_name);
+        // debug_println!(config, "📝 Text: '{}'", line_text);
         let word_tokens = extract_words(&line_text, &config.punctuation_chars);
-        debug_println!(config, "🧹 Cleaned: '{}'", word_tokens.join(" "));
+        // debug_println!(config, "🧹 Cleaned: '{}'", word_tokens.join(" "));
         let _training_word_count = word_tokens.len();
 
         // Track vocabulary from training data
@@ -1505,39 +1457,40 @@ fn process_toxic_training_file(
         // 4. Process clusters and calculate local overlap ratios
         let threshold_start = Instant::now();
 
-        debug_println!(config, "\n📊 OVERLAP ANALYSIS for line {} (found {} clusters)", line_num, contamination_clusters.len());
-        debug_println!(config, "🔤 Training text: '{}'", line_text);
+        // debug_println!(config, "\n📊 OVERLAP ANALYSIS for line {} (found {} clusters)", line_num, contamination_clusters.len());
+        // debug_println!(config, "🔤 Training text: '{}'", line_text);
 
         for (cluster_idx, cluster) in contamination_clusters.iter().enumerate() {
-            debug_println!(config, "\n🔍 Cluster {} analysis:", cluster_idx);
-            debug_println!(config, "  Span: {}-{} ({} n-grams)", cluster.start_idx, cluster.end_idx, cluster.end_idx - cluster.start_idx + 1);
-            debug_println!(config, "  Documents: {}", cluster.document_matches.len());
-            
+            // debug_println!(config, "\n🔍 Cluster {} analysis:", cluster_idx);
+            // debug_println!(config, "  Span: {}-{} ({} n-grams)", cluster.start_idx, cluster.end_idx, cluster.end_idx - cluster.start_idx + 1);
+            // debug_println!(config, "  Documents: {}", cluster.document_matches.len());
+
             // Process each document match in the cluster
             for (doc_id, match_length) in &cluster.document_matches {
                 // Get document metadata and live n-gram count
-                let (eval_name, eval_line, _total_ngrams, live_ngrams) = 
+                let (eval_name, eval_line, _total_ngrams, live_ngrams, unique_ngrams) =
                     eval_documents.get(doc_id)
                         .map(|doc| doc.value().clone())
-                        .unwrap_or_else(|| ("unknown".to_string(), 0, 0, 0));
+                        .unwrap_or_else(|| ("unknown".to_string(), 0, 0, 0, 0));
 
-                debug_println!(config, "\n  📄 Document {}: {}:{}", doc_id, eval_name, eval_line);
-                debug_println!(config, "    Match length: {}", match_length);
-                debug_println!(config, "    Live n-grams: {}", live_ngrams);
+                // debug_println!(config, "\n  📄 Document {}: {}:{}", doc_id, eval_name, eval_line);
+                // debug_println!(config, "    Match length: {}", match_length);
+                // debug_println!(config, "    Live n-grams: {}", live_ngrams);
+                // debug_println!(config, "    Unique n-grams: {}", unique_ngrams);
 
-                if live_ngrams == 0 {
-                    debug_println!(config, "    ⚠️  SKIPPED: No live n-grams");
-                    continue; // Skip documents with no live n-grams
+                if unique_ngrams == 0 {
+                    //debug_println!(config, "    ⚠️  SKIPPED: No unique n-grams");
+                    continue; // Skip documents with no unique n-grams
                 }
 
-                // Local overlap ratio: match_length / live_ngrams
-                let local_overlap_ratio = *match_length as f32 / live_ngrams as f32;
-                debug_println!(config, "    Overlap ratio: {}/{} = {:.3}", match_length, live_ngrams, local_overlap_ratio);
-                debug_println!(config, "    Threshold: {:.3}", config.toxic_overlap_threshold);
+                // Local overlap ratio: unique_ngrams_matched / unique_ngrams_in_eval_doc
+                let local_overlap_ratio = *match_length as f32 / unique_ngrams as f32;
+                // debug_println!(config, "    Overlap ratio: {}/{} = {:.3}", match_length, unique_ngrams, local_overlap_ratio);
+                // debug_println!(config, "    Threshold: {:.3}", config.toxic_overlap_threshold);
 
                 if local_overlap_ratio >= config.toxic_overlap_threshold && complete_evaluation() {
-                    debug_println!(config, "    🚨 CONTAMINATION DETECTED! (ratio {:.3} >= threshold {:.3})", local_overlap_ratio, config.toxic_overlap_threshold);
-                    
+                    // debug_println!(config, "    🚨 CONTAMINATION DETECTED! (ratio {:.3} >= threshold {:.3})", local_overlap_ratio, config.toxic_overlap_threshold);
+
                     let (matching_ngrams, bucket_sizes) = if config.debug {
                         (Some(cluster.matching_ngrams.clone()), Some(cluster.bucket_sizes.clone()))
                     } else {
@@ -1557,8 +1510,6 @@ fn process_toxic_training_file(
                         });
 
                     contaminated_lines += 1;
-                } else {
-                    debug_println!(config, "    ❌ No contamination (ratio {:.3} < threshold {:.3})", local_overlap_ratio, config.toxic_overlap_threshold);
                 }
             }
         }
@@ -1986,15 +1937,78 @@ fn update_live_ngram_counts(
     // Update live counts: live_ngrams = total_ngrams - hot_ngrams
     for mut doc_entry in eval_documents.iter_mut() {
         let doc_id = *doc_entry.key();
-        let (eval_name, eval_line, total_ngrams, _old_live) = doc_entry.value().clone();
+        let (eval_name, eval_line, total_ngrams, _old_live, unique_ngrams) = doc_entry.value().clone();
 
         let hot_ngrams = hot_ngram_counts.get(&doc_id).copied().unwrap_or(0);
         let live_ngrams = total_ngrams.saturating_sub(hot_ngrams);
 
-        *doc_entry.value_mut() = (eval_name, eval_line, total_ngrams, live_ngrams);
+        *doc_entry.value_mut() = (eval_name, eval_line, total_ngrams, live_ngrams, unique_ngrams);
     }
 
     let total_docs_with_hot_ngrams = hot_ngram_counts.len();
     println!("Updated live n-gram counts for {} docs affected by hot buckets)", total_docs_with_hot_ngrams);
     Ok(())
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sliding_window_algorithm() {
+        // Test the sliding window optimization with 8-item string and 3-grams
+        let test_embeddings = EmbeddingMap::new();
+
+        // Create test vectors for 8 tokens
+        let test_vectors = vec![
+            vec![1.0, 10.0],   // a
+            vec![2.0, 20.0],   // b
+            vec![3.0, 30.0],   // c
+            vec![4.0, 40.0],   // d
+            vec![5.0, 50.0],   // e
+            vec![6.0, 60.0],   // f
+            vec![7.0, 70.0],   // g
+            vec![8.0, 80.0],   // h
+        ];
+
+        let token_names = vec!["a", "b", "c", "d", "e", "f", "g", "h"];
+
+        for (i, name) in token_names.iter().enumerate() {
+            let mut vec = vec![0.0; EMBEDDING_DIM];
+            vec[0] = test_vectors[i][0];
+            vec[1] = test_vectors[i][1];
+            test_embeddings.insert(name.to_string(), vec);
+        }
+
+        let tokens: Vec<String> = token_names.iter().map(|s| s.to_string()).collect();
+        let mut timing = TimingStats::default();
+
+        let result = compute_ngram_embedding_training(&tokens, 3, &test_embeddings, 42, &mut timing);
+
+        // Should produce 6 n-grams: ["a","b","c"], ["b","c","d"], ["c","d","e"], ["d","e","f"], ["e","f","g"], ["f","g","h"]
+        assert_eq!(result.len(), 6);
+
+        // Expected 3-gram sums:
+        let expected = vec![
+            vec![1.0+2.0+3.0, 10.0+20.0+30.0],  // a+b+c = [6, 60]
+            vec![2.0+3.0+4.0, 20.0+30.0+40.0],  // b+c+d = [9, 90]
+            vec![3.0+4.0+5.0, 30.0+40.0+50.0],  // c+d+e = [12, 120]
+            vec![4.0+5.0+6.0, 40.0+50.0+60.0],  // d+e+f = [15, 150]
+            vec![5.0+6.0+7.0, 50.0+60.0+70.0],  // e+f+g = [18, 180]
+            vec![6.0+7.0+8.0, 60.0+70.0+80.0],  // f+g+h = [21, 210]
+        ];
+
+        for (i, (actual, exp)) in result.iter().zip(expected.iter()).enumerate() {
+            assert!((actual[0] - exp[0]).abs() < 1e-6,
+                   "N-gram {} dim 0: expected {}, got {}", i, exp[0], actual[0]);
+            assert!((actual[1] - exp[1]).abs() < 1e-6,
+                   "N-gram {} dim 1: expected {}, got {}", i, exp[1], actual[1]);
+        }
+
+        println!("✅ Sliding window optimization test passed!");
+        println!("Generated {} 3-grams from 8 tokens", result.len());
+        println!("First 3-gram: [{:.0}, {:.0}] (expected: [6, 60])", result[0][0], result[0][1]);
+        println!("Last 3-gram:  [{:.0}, {:.0}] (expected: [21, 210])", result[5][0], result[5][1]);
+    }
 }

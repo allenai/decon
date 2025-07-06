@@ -7,7 +7,6 @@ local_input: /home/robert/Downloads/input-full
 reference_input: fixtures/reference
 output_dir: fixtures/output
 
-ngram_size: 3
 toxic_embedding_path: fixtures/embeddings/wiki-news-128d-1M.vec
 toxic_hyperplanes: 64
 toxic_overlap_threshold: 0.9
@@ -16,6 +15,7 @@ skip_hot_bucket_threshold: -1  # Skip buckets with more than this many entries (
 
 punctuation_chars: "!\"#&'(),./:;?@`{|}~"  # Excludes: * + - = < > ^ _ []
 
-min_ngram_match_length: 5
-max_consecutive_misses: 2
+ngram_size: 3
 sample_every_m_tokens: 5
+max_consecutive_misses: 4
+

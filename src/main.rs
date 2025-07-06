@@ -120,7 +120,7 @@ pub struct Config {
     pub toxic_poison_scale: f32,
     #[serde(default = "default_skip_hot_bucket_threshold")]
     pub skip_hot_bucket_threshold: i32,
-    
+
     // TOXIC sampling optimization parameters
     #[serde(default = "default_sample_every_m_tokens")]
     pub sample_every_m_tokens: usize,
@@ -325,7 +325,7 @@ pub fn clean_text_allowlist(text: &str, _punctuation_chars: &str) -> String {
     // Whitelist approach: keep only letters, numbers, hyphens, and spaces (used by TOXIC)
     // This ensures consistent matching regardless of Unicode variants, fancy quotes, etc.
     // Hyphens are preserved because they affect tokenization (e.g., "one-to-one" vs "one to one")
-    
+
     text.chars()
         .filter_map(|c| match c {
             // Keep letters (convert to lowercase)
@@ -334,7 +334,7 @@ pub fn clean_text_allowlist(text: &str, _punctuation_chars: &str) -> String {
             // Keep numbers
             '0'..='9' => Some(c),
             // Keep hyphens (important for compound words and tokenization)
-            '-' => Some(c),
+            '-' | '_' | ']' | '[' | '{' | '}' |'–'| => Some(c),
             // Normalize all whitespace to single space
             ' ' | '\t' | '\n' | '\r' => Some(' '),
             // Drop everything else (punctuation, Unicode variants, etc.)
@@ -584,13 +584,13 @@ fn load_ground_truth(input_dir: &PathBuf) -> Result<Vec<GroundTruthRecord>, Erro
             let line = line?;
             if !line.trim().is_empty() {
                 let json_obj: serde_json::Value = serde_json::from_str(&line)?;
-                
+
                 // Check if this record has ground truth information
                 if let Some(text) = json_obj.get("text").and_then(|v| v.as_str()) {
                     let label = json_obj.get("label")
                         .and_then(|v| v.as_str())
                         .unwrap_or("UNKNOWN");
-                        
+
                     let ground_truth_text = if let Some(explicit_gt) = json_obj.get("ground_truth").and_then(|v| v.as_str()) {
                         // Use explicit ground truth field
                         explicit_gt.to_string()
@@ -635,17 +635,17 @@ fn load_ground_truth(input_dir: &PathBuf) -> Result<Vec<GroundTruthRecord>, Erro
 
 fn load_eval_data_for_ground_truth() -> Result<std::collections::HashMap<String, String>, Error> {
     let mut eval_data = std::collections::HashMap::new();
-    
+
     // Load eval files from fixtures/reference
     let eval_dir = std::path::PathBuf::from("fixtures/reference");
     if eval_dir.exists() {
         let eval_files = expand_dirs(vec![eval_dir], Some(vec![".jsonl"].as_slice()))?;
-        
+
         for file_path in eval_files {
             let file_stem = file_path.file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("unknown");
-            
+
             let data = read_pathbuf_to_mem(&file_path)?;
             for line in data.lines() {
                 let line = line?;
@@ -667,7 +667,7 @@ fn load_eval_data_for_ground_truth() -> Result<std::collections::HashMap<String,
             }
         }
     }
-    
+
     Ok(eval_data)
 }
 
@@ -677,7 +677,7 @@ fn calculate_and_display_stats(contamination_results: &[ContaminationResult], gr
         println!("Found {} contamination detections total.", contamination_results.len());
         return Ok(());
     }
-    
+
     let mut stats = ClassificationStats::new();
 
     // Load training cache to get actual text content for mapping
@@ -687,7 +687,7 @@ fn calculate_and_display_stats(contamination_results: &[ContaminationResult], gr
     let mut detected_texts: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut unmapped_detections = 0;
     let mut all_detected_texts: Vec<String> = Vec::new();
-    
+
     for result in contamination_results {
         if let Some(lines) = training_cache.get(&result.training_file) {
             if result.training_line < lines.len() {
@@ -701,7 +701,7 @@ fn calculate_and_display_stats(contamination_results: &[ContaminationResult], gr
             unmapped_detections += 1;
         }
     }
-    
+
     let unique_detections = detected_texts.len();
     let total_detections = all_detected_texts.len();
 
@@ -759,11 +759,11 @@ fn calculate_and_display_stats(contamination_results: &[ContaminationResult], gr
     println!("  Total detections:           {}", total_detections);
     println!("  Missed contamination:       {}", stats.false_negatives);
     println!("  False alarms:               {}", stats.false_positives);
-    
+
     if unmapped_detections > 0 {
         println!("  Unmapped detections:        {}", unmapped_detections);
     }
-    
+
     if total_detections != unique_detections {
         println!("  Duplicate detections:       {}", total_detections - unique_detections);
     }
@@ -877,7 +877,7 @@ fn filter_contamination_results(
                 // Find which file this record is in by searching the training cache
                 let mut found_file = None;
                 let mut found_line = 0;
-                
+
                 for (filename, lines) in training_cache.iter() {
                     if let Some(line_idx) = lines.iter().position(|line| line == &record.text) {
                         found_file = Some(filename.clone());
@@ -885,7 +885,7 @@ fn filter_contamination_results(
                         break;
                     }
                 }
-                
+
                 let placeholder = ContaminationResult {
                     training_file: found_file.unwrap_or_else(|| format!("unknown_{}.jsonl", record.source)),
                     training_line: found_line,
@@ -1088,7 +1088,7 @@ fn display_contamination_case(
     println!("🔍 TRAINING TEXT (line {}):", result.training_line);
     println!("   \"{}\"", training_text);
     println!();
-    
+
     match result.method.as_deref() {
         Some("false_negative") => {
             println!("🔍 GROUND TRUTH (expected):");
@@ -1183,4 +1183,37 @@ fn main() {
 
     };
     result.unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_clean_text_allowlist() {
+        // Test basic text cleaning
+        let input = "Janet's ducks lay 16 eggs per day.";
+        let result = clean_text_allowlist(input, "");
+        assert_eq!(result, "janets ducks lay 16 eggs per day");
+
+        // Test Unicode apostrophe normalization
+        let input_unicode = "Janet's ducks lay 16 eggs per day."; // Unicode right single quotation mark
+        let result_unicode = clean_text_allowlist(input_unicode, "");
+        assert_eq!(result_unicode, "janets ducks lay 16 eggs per day");
+
+        // Test hyphen preservation
+        let input_hyphen = "one-to-one function";
+        let result_hyphen = clean_text_allowlist(input_hyphen, "");
+        assert_eq!(result_hyphen, "one-to-one function");
+
+        // Test multiple whitespace normalization
+        let input_spaces = "hello    world\t\ttest\n\nfoo";
+        let result_spaces = clean_text_allowlist(input_spaces, "");
+        assert_eq!(result_spaces, "hello world test foo");
+
+        // Test punctuation removal
+        let input_punct = "Hello, world! How are you? Fine.";
+        let result_punct = clean_text_allowlist(input_punct, "");
+        assert_eq!(result_punct, "hello world how are you fine");
+    }
 }

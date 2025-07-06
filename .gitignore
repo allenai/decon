@@ -3,3 +3,4 @@
 fixtures/output/*.*
 fixtures/embeddings/*.*
 fixtures/reference/*.*
+tests/output
