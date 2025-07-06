@@ -60,7 +60,7 @@ type BucketContents = DashMap<u64, HashSet<String>>;
 // Hot bucket tracking: set of bucket IDs that exceed skip_hot_bucket_threshold
 type HotBuckets = HashSet<u64>;
 
-// Eval document metadata: maps document_id to (eval_name, line_num, total_ngrams, live_ngrams, unique_ngrams)
+// Eval document metadata: maps document_id to (eval_name, line_num, total_ngrams, live_ngrams, unique_buckets)
 type EvalDocuments = DashMap<u32, (String, usize, usize, usize, usize)>;
 
 // Embedding storage: word -> 300d vector (thread-safe)
@@ -829,19 +829,26 @@ fn process_toxic_reference_file(
             word_tokens.len() - config.ngram_size + 1
         };
 
-        // Calculate unique n-grams for this document
-        let mut unique_ngram_texts = HashSet::new();
+        // Calculate unique buckets for this document
+        let mut unique_bucket_ids = HashSet::new();
         if word_tokens.len() < config.ngram_size {
             if !word_tokens.is_empty() {
-                unique_ngram_texts.insert(word_tokens.join(" "));
+                // For documents shorter than ngram_size, use all tokens
+                let mut dummy_timing = TimingStats::default();
+                let sum_embedding = sum_word_embeddings_eval(&word_tokens, embeddings, config.hash_seed as u64, config.toxic_poison_scale, &mut dummy_timing);
+                let bucket_id = compute_lsh_bucket(&sum_embedding, hyperplanes);
+                unique_bucket_ids.insert(bucket_id);
             }
         } else {
             for i in 0..=word_tokens.len() - config.ngram_size {
                 let ngram = &word_tokens[i..i + config.ngram_size];
-                unique_ngram_texts.insert(ngram.join(" "));
+                let mut dummy_timing = TimingStats::default();
+                let sum_embedding = sum_word_embeddings_eval(ngram, embeddings, config.hash_seed as u64, config.toxic_poison_scale, &mut dummy_timing);
+                let bucket_id = compute_lsh_bucket(&sum_embedding, hyperplanes);
+                unique_bucket_ids.insert(bucket_id);
             }
         }
-        let unique_ngrams = unique_ngram_texts.len();
+        let unique_buckets = unique_bucket_ids.len();
 
         // Read document ID from JSON (generated in Python download script)
         let doc_id = json_obj.get("doc_id")
@@ -850,7 +857,7 @@ fn process_toxic_reference_file(
             as u32;
 
         // Store document metadata (will be updated with live count later)
-        eval_documents.insert(doc_id, (eval_name.clone(), line_num, total_ngrams, total_ngrams, unique_ngrams));
+        eval_documents.insert(doc_id, (eval_name.clone(), line_num, total_ngrams, total_ngrams, unique_buckets));
 
         // Process n-grams with hot bucket detection
         if word_tokens.len() < config.ngram_size {
@@ -984,6 +991,7 @@ struct ToxicContaminationEntry {
     overlap_ratio: f32,
     matching_ngrams: Option<Vec<String>>,
     bucket_sizes: Option<Vec<usize>>,
+    bucket_ids: Option<Vec<u64>>,
 }
 
 #[derive(Clone)]
@@ -1189,7 +1197,7 @@ fn check_ngram_for_collision(
 
 #[derive(Debug, Clone)]
 struct DocumentState {
-    matched_ngrams: HashSet<String>,
+    matched_buckets: HashSet<u64>,
     consecutive_misses: usize,
 }
 
@@ -1281,11 +1289,15 @@ fn expand_contamination_cluster_with_intersection(
 
     // Initialize cumulative stats for ALL documents that participate in the cluster
     let mut all_document_stats: HashMap<u32, DocumentState> = HashMap::new();
+    
+    // Compute the initial bucket ID for the hit
+    let initial_bucket_id = compute_lsh_bucket(&ngram_embeddings[hit_idx], hyperplanes);
+    
     for doc_id in &initial_document_ids {
-        let mut matched_ngrams = HashSet::new();
-        matched_ngrams.insert(initial_training_ngram.to_string());
+        let mut matched_buckets = HashSet::new();
+        matched_buckets.insert(initial_bucket_id);
         all_document_stats.insert(*doc_id, DocumentState {
-            matched_ngrams,
+            matched_buckets,
             consecutive_misses: 0,
         });
     }
@@ -1314,7 +1326,7 @@ fn expand_contamination_cluster_with_intersection(
         };
         // debug_println!(config, "\n🔍 Left step {}: '{}'\n   Active docs before: {:?}",
         //               i, ngram_text,
-        //               active_documents.iter().filter_map(|id| all_document_stats.get(id).map(|state| format!("{}(m:{},miss:{})", id, state.matched_ngrams.len(), state.consecutive_misses))).collect::<Vec<_>>());
+        //               active_documents.iter().filter_map(|id| all_document_stats.get(id).map(|state| format!("{}(m:{},miss:{})", id, state.matched_buckets.len(), state.consecutive_misses))).collect::<Vec<_>>());
 
         match check_ngram_for_collision(
             i, word_tokens, &ngram_embeddings[i], config, hyperplanes,
@@ -1328,12 +1340,15 @@ fn expand_contamination_cluster_with_intersection(
 
                 // debug_println!(config, "   ✅ Bucket collision! Found {} docs", current_documents.len());
 
+                // Compute bucket ID for this n-gram
+                let bucket_id = compute_lsh_bucket(&ngram_embeddings[i], hyperplanes);
+
                 // Update each document's state based on intersection
                 for doc_id in &active_documents.clone() {
                     if let Some(state) = all_document_stats.get_mut(doc_id) {
                         if current_set.contains(doc_id) {
                             // Document found in current bucket
-                            state.matched_ngrams.insert(ngram_text.clone());
+                            state.matched_buckets.insert(bucket_id);
                             state.consecutive_misses = 0;
                             matches += 1;
                         } else {
@@ -1402,7 +1417,7 @@ fn expand_contamination_cluster_with_intersection(
 
     // debug_println!(config, "\n➡️  STARTING RIGHT WALK");
     // debug_println!(config, "📊 Reset to original document set with accumulated matches: {:?}",
-    //               initial_document_ids.iter().filter_map(|id| all_document_stats.get(id).map(|state| format!("{}(m:{},miss:{})", id, state.matched_ngrams.len(), state.consecutive_misses))).collect::<Vec<_>>());
+    //               initial_document_ids.iter().filter_map(|id| all_document_stats.get(id).map(|state| format!("{}(m:{},miss:{})", id, state.matched_buckets.len(), state.consecutive_misses))).collect::<Vec<_>>());
 
     i = hit_idx;
 
@@ -1416,7 +1431,7 @@ fn expand_contamination_cluster_with_intersection(
         };
         // debug_println!(config, "\n🔍 Right step {}: '{}'\n   Active docs before: {:?}",
         //               i, ngram_text,
-        //               active_documents.iter().filter_map(|id| all_document_stats.get(id).map(|state| format!("{}(m:{},miss:{})", id, state.matched_ngrams.len(), state.consecutive_misses))).collect::<Vec<_>>());
+        //               active_documents.iter().filter_map(|id| all_document_stats.get(id).map(|state| format!("{}(m:{},miss:{})", id, state.matched_buckets.len(), state.consecutive_misses))).collect::<Vec<_>>());
 
         match check_ngram_for_collision(
             i, word_tokens, &ngram_embeddings[i], config, hyperplanes,
@@ -1430,12 +1445,15 @@ fn expand_contamination_cluster_with_intersection(
 
                 // debug_println!(config, "   ✅ Bucket collision! Found {} docs", current_documents.len());
 
+                // Compute bucket ID for this n-gram
+                let bucket_id = compute_lsh_bucket(&ngram_embeddings[i], hyperplanes);
+
                 // Update each document's state based on intersection
                 for doc_id in &active_documents.clone() {
                     if let Some(state) = all_document_stats.get_mut(doc_id) {
                         if current_set.contains(doc_id) {
                             // Document found in current bucket
-                            state.matched_ngrams.insert(ngram_text.clone());
+                            state.matched_buckets.insert(bucket_id);
                             state.consecutive_misses = 0;
                             matches += 1;
                         } else {
@@ -1492,6 +1510,9 @@ fn expand_contamination_cluster_with_intersection(
     }
 
     // Collect debug information for the final cluster range
+    // Track buckets we've already added to avoid duplicates in display
+    let mut seen_buckets = HashSet::new();
+    
     for idx in start_idx..=end_idx {
         match check_ngram_for_collision(
             idx, word_tokens, &ngram_embeddings[idx], config, hyperplanes,
@@ -1501,18 +1522,24 @@ fn expand_contamination_cluster_with_intersection(
             CollisionResult::Hit(current_documents) => {
                 // Get n-gram text for any matching documents that were part of the original cluster
                 if current_documents.iter().any(|doc_id| initial_document_ids.contains(doc_id)) {
-                    let ngram_text = if word_tokens.len() < config.ngram_size {
-                        word_tokens.join(" ")
-                    } else {
-                        word_tokens[idx..idx + config.ngram_size].join(" ")
-                    };
-                    matching_ngrams.push(ngram_text);
-
-                    // Get bucket info
                     let bucket_id = compute_lsh_bucket(&ngram_embeddings[idx], hyperplanes);
-                    if let Some(bucket_contents) = toxic_buckets.get(&bucket_id) {
-                        bucket_sizes.push(bucket_contents.value().len());
-                        distinct_buckets.insert(bucket_id);
+                    
+                    // Only include if this bucket hasn't been seen before
+                    if !seen_buckets.contains(&bucket_id) {
+                        seen_buckets.insert(bucket_id);
+                        
+                        let ngram_text = if word_tokens.len() < config.ngram_size {
+                            word_tokens.join(" ")
+                        } else {
+                            word_tokens[idx..idx + config.ngram_size].join(" ")
+                        };
+                        matching_ngrams.push(ngram_text);
+
+                        // Get bucket info
+                        if let Some(bucket_contents) = toxic_buckets.get(&bucket_id) {
+                            bucket_sizes.push(bucket_contents.value().len());
+                            distinct_buckets.insert(bucket_id);
+                        }
                     }
                 }
             }
@@ -1523,7 +1550,7 @@ fn expand_contamination_cluster_with_intersection(
     // Convert cumulative document stats to simple match counts for all documents that participated
     let document_matches: HashMap<u32, usize> = all_document_stats
         .into_iter()
-        .map(|(doc_id, state)| (doc_id, state.matched_ngrams.len()))
+        .map(|(doc_id, state)| (doc_id, state.matched_buckets.len()))
         .collect();
 
     // debug_println!(config, "\n🏁 FINAL CLUSTER RESULTS:");
@@ -1653,7 +1680,7 @@ fn process_toxic_training_file(
             // Process each document match in the cluster
             for (doc_id, match_length) in &cluster.document_matches {
                 // Get document metadata and live n-gram count
-                let (eval_name, eval_line, _total_ngrams, live_ngrams, unique_ngrams) =
+                let (eval_name, eval_line, _total_ngrams, live_ngrams, unique_buckets) =
                     eval_documents.get(doc_id)
                         .map(|doc| doc.value().clone())
                         .unwrap_or_else(|| ("unknown".to_string(), 0, 0, 0, 0));
@@ -1661,26 +1688,27 @@ fn process_toxic_training_file(
                 // debug_println!(config, "\n  📄 Document {}: {}:{}", doc_id, eval_name, eval_line);
                 // debug_println!(config, "    Match length: {}", match_length);
                 // debug_println!(config, "    Live n-grams: {}", live_ngrams);
-                // debug_println!(config, "    Unique n-grams: {}", unique_ngrams);
+                // debug_println!(config, "    Unique buckets: {}", unique_buckets);
 
-                if unique_ngrams == 0 {
-                    //debug_println!(config, "    ⚠️  SKIPPED: No unique n-grams");
-                    continue; // Skip documents with no unique n-grams
+                if unique_buckets == 0 {
+                    //debug_println!(config, "    ⚠️  SKIPPED: No unique buckets");
+                    continue; // Skip documents with no unique buckets
                 }
 
-                // Local overlap ratio: unique_ngrams_matched / unique_ngrams_in_eval_doc
-                // Cap at 1.0 since multiple training n-grams can map to same eval n-grams via LSH
-                let local_overlap_ratio = (*match_length as f32 / unique_ngrams as f32).min(1.0);
-                // debug_println!(config, "    Overlap ratio: {}/{} = {:.3}", match_length, unique_ngrams, local_overlap_ratio);
+                // Local overlap ratio: unique_buckets_matched / unique_buckets_in_eval_doc
+                // No .min(1.0) needed - mathematically impossible to exceed 1.0
+                let local_overlap_ratio = *match_length as f32 / unique_buckets as f32;
+                // debug_println!(config, "    Overlap ratio: {}/{} = {:.3}", match_length, unique_buckets, local_overlap_ratio);
                 // debug_println!(config, "    Threshold: {:.3}", config.toxic_overlap_threshold);
 
                 if local_overlap_ratio >= config.toxic_overlap_threshold && complete_evaluation() {
                     // debug_println!(config, "    🚨 CONTAMINATION DETECTED! (ratio {:.3} >= threshold {:.3})", local_overlap_ratio, config.toxic_overlap_threshold);
 
-                    let (matching_ngrams, bucket_sizes) = if config.debug {
-                        (Some(cluster.matching_ngrams.clone()), Some(cluster.bucket_sizes.clone()))
+                    let (matching_ngrams, bucket_sizes, bucket_ids) = if config.debug {
+                        let bucket_ids_vec: Vec<u64> = cluster.distinct_buckets.iter().cloned().collect();
+                        (Some(cluster.matching_ngrams.clone()), Some(cluster.bucket_sizes.clone()), Some(bucket_ids_vec))
                     } else {
-                        (None, None)
+                        (None, None, None)
                     };
 
                     contamination_results
@@ -1693,6 +1721,7 @@ fn process_toxic_training_file(
                             overlap_ratio: local_overlap_ratio,
                             matching_ngrams,
                             bucket_sizes,
+                            bucket_ids,
                         });
 
                     contaminated_lines += 1;
@@ -1889,12 +1918,15 @@ fn save_toxic_contamination_results(
                 "method": "toxic"
             });
 
-            // Add matching ngrams and bucket sizes if available (debug mode)
+            // Add matching ngrams, bucket sizes, and bucket IDs if available (debug mode)
             if let Some(ref ngrams) = contamination_entry.matching_ngrams {
                 result["matching_ngrams"] = json!(ngrams);
             }
             if let Some(ref sizes) = contamination_entry.bucket_sizes {
                 result["bucket_sizes"] = json!(sizes);
+            }
+            if let Some(ref ids) = contamination_entry.bucket_ids {
+                result["bucket_ids"] = json!(ids);
             }
 
             output_data.push(serde_json::to_vec(&result)?);

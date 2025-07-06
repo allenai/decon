@@ -334,7 +334,7 @@ pub fn clean_text_allowlist(text: &str, _punctuation_chars: &str) -> String {
             // Keep numbers
             '0'..='9' => Some(c),
             // Keep hyphens (important for compound words and tokenization)
-            '-' | '_' | ']' | '[' | '{' | '}' => Some(c),
+            '-' | '_' | ']' | '[' | '{' | '}' | '=' | '(' | ')' | '>' | '<' | '+' | '*' | '/' => Some(c),
             // Normalize all whitespace to single space
             ' ' | '\t' | '\n' | '\r' => Some(' '),
             // Drop everything else (punctuation, Unicode variants, etc.)
@@ -405,6 +405,8 @@ struct ContaminationResult {
     matching_ngrams: Option<Vec<String>>,
     #[serde(default)]
     bucket_sizes: Option<Vec<usize>>,
+    #[serde(default)]
+    bucket_ids: Option<Vec<u64>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -839,6 +841,7 @@ fn filter_contamination_results(
                     method: Some("true_negative".to_string()),
                     matching_ngrams: None,
                     bucket_sizes: None,
+                    bucket_ids: None,
                 };
                 filtered.push(placeholder);
             }
@@ -895,6 +898,7 @@ fn filter_contamination_results(
                     method: Some("false_negative".to_string()),
                     matching_ngrams: None,
                     bucket_sizes: None,
+                    bucket_ids: None,
                 };
                 filtered.push(placeholder);
             }
@@ -1153,8 +1157,16 @@ fn display_contamination_case(
                     _ => "🔴", // Very hot
                 };
                 let rarity_score = if *heat > 0 { 1.0 / (*heat as f64) } else { 0.0 };
-                println!("   {}: \"{}\" {} heat:{} rarity:{:.3}",
-                         i + 1, ngram, heat_indicator, heat, rarity_score);
+
+                // Include bucket ID if available
+                let bucket_id_display = if let Some(ref bucket_ids) = result.bucket_ids {
+                    bucket_ids.get(i).map(|id| format!(" bucket_id:{}", id)).unwrap_or_default()
+                } else {
+                    String::new()
+                };
+
+                println!("   {}: \"{}\" {} heat:{} rarity:{:.3}{}",
+                         i + 1, ngram, heat_indicator, heat, rarity_score, bucket_id_display);
             }
 
             println!();
