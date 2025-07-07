@@ -15,7 +15,7 @@ Comprehensive contamination detection tools for training datasets. Identifies wh
 
 **Contamination detection** is critical for machine learning evaluation. When training data accidentally contains examples from evaluation datasets, it can lead to artificially inflated performance metrics and unreliable model evaluation.
 
-This tool provides two complementary detection approaches to efficiently identify contamination:
+This tool provides three complementary detection approaches to efficiently identify contamination:
 - **Exact matches**: Identical text between training and evaluation data
 - **Near-duplicates**: Text with minor modifications (typos, formatting, small edits)
 - **Semantic similarity**: Paraphrased or reworded content with similar meaning
@@ -37,10 +37,18 @@ Semantic contamination detection using word embeddings and poison tokens.
 - **Memory**: Bounded vocabulary, scalable to large datasets
 - **Accuracy**: Detects subtle semantic contamination that MinHash misses
 
+### 🔍 [SIMPLE Detection](simple.md) (`mode: simple`)
+Efficient n-gram matching with intelligent sampling and cluster expansion.
+- **Best for**: Large-scale exact contamination, performance-critical scenarios
+- **Speed**: Fast with configurable sampling, efficient parallel processing
+- **Memory**: Indexes only evaluation data, streams training data
+- **Accuracy**: High precision for substantial overlaps, tunable via sampling rate
+
 **Choose your method based on your contamination concerns:**
 - Use **MinHash** for fast exact-match detection in large datasets
 - Use **TOXIC** when concerned about paraphrasing and semantic leakage
-- Run both methods for comprehensive coverage
+- Use **SIMPLE** for efficient large-scale detection with sampling trade-offs
+- Run multiple methods for comprehensive coverage
 
 ## Installation
 
@@ -125,6 +133,23 @@ toxic_hyperplanes: 64
 toxic_overlap_threshold: 0.3
 ```
 
+**SIMPLE Configuration (efficient sampled detection):**
+```yaml
+mode: simple
+content_key: text
+local_input: /path/to/training
+reference_input: /path/to/evaluation
+output_dir: /path/to/results
+
+# SIMPLE Parameters
+ngram_size: 13
+sample_every_m_tokens: 50
+max_consecutive_misses: 3
+toxic_overlap_threshold: 0.5
+toxic_score_threshold: 0.5
+tokenizer_str: cl100k
+```
+
 ### 3. Run Contamination Detection
 ```bash
 cargo run --release -- contamination-detect --config config.yaml
@@ -146,7 +171,7 @@ cargo run --release -- review-contamination --config config.yaml
 
 | Parameter | Description | Default | Notes |
 |-----------|-------------|---------|-------|
-| `mode` | Detection method | `minhash` | `minhash` or `toxic` |
+| `mode` | Detection method | `minhash` | `minhash`, `toxic`, or `simple` |
 | `content_key` | JSON field containing text | `text` | Supports nested keys like `data.content` |
 | `local_input` | Training data directory | - | Path to training datasets |
 | `reference_input` | Evaluation data directory | - | Path to evaluation datasets |
@@ -171,6 +196,15 @@ cargo run --release -- review-contamination --config config.yaml
 | `toxic_hyperplanes` | Number of LSH hyperplanes | 64 | More = more precise buckets |
 | `toxic_overlap_threshold` | Minimum overlap ratio | 0.3 | Lower = more sensitive |
 | `toxic_poison_scale` | Poison token amplification | 3.0 | Higher = more destructive to false matches |
+
+### SIMPLE-Specific Parameters
+
+| Parameter | Description | Default | Notes |
+|-----------|-------------|---------|-------|
+| `sample_every_m_tokens` | Sampling rate for training data | 50 | Lower = more thorough but slower |
+| `max_consecutive_misses` | Gap tolerance during expansion | 3 | Higher = more permissive clustering |
+| `toxic_overlap_threshold` | Minimum overlap ratio | 0.5 | Used for document-level filtering |
+| `toxic_score_threshold` | Minimum toxic score | 0.5 | IDF-based contamination score |
 
 ### Performance Tuning
 
@@ -218,6 +252,7 @@ cargo run --release -- contamination-detect --config config.yaml
 **Output**: Creates results file with detected contamination instances:
 - MinHash: `contamination_results.jsonl`
 - TOXIC: `toxic_contamination_results.jsonl`
+- SIMPLE: `simple_contamination_results.jsonl`
 
 ### `review-contamination`
 Interactive tool for reviewing detected contamination with side-by-side text comparison.
