@@ -1,1 +1,0 @@
-{"text": "A robe takes two bolts of blue fiber and half that much white fiber. How many bolts in total does it take?", "eval_dataset": "gsm8k", "eval_line": 2, "ground_truth": "A robe takes 2 bolts of blue fiber and half that much white fiber.  How many bolts in total does it take?", "label": "CONTAMINATED"}

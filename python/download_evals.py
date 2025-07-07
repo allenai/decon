@@ -37,81 +37,81 @@ EVAL_CONFIG = {
                 'extra_fields': ['subject']
             }
         },
-        
-        # 'aimo_validation': {
-        #     'hf_path': 'AI-MO/aimo-validation-aime',
-        #     'splits': ['train'],
-        #     'transform': {
-        #         'text_field': 'problem',
-        #         'answer_field': 'answer'
-        #     }
-        # },
-        
-        # 'ai2_arc_challenge': {
-        #     'hf_path': 'allenai/ai2_arc',
-        #     'hf_config': 'ARC-Challenge',
-        #     'splits': ['train', 'test', 'validation'],
-        #     'transform': {
-        #         'text_field': 'question',
-        #         'answer_field': 'answerKey',
-        #         'choices_field': 'choices'
-        #     }
-        # },
-        
-        # 'ai2_arc_easy': {
-        #     'hf_path': 'allenai/ai2_arc',
-        #     'hf_config': 'ARC-Easy',
-        #     'splits': ['train', 'test', 'validation'],
-        #     'transform': {
-        #         'text_field': 'question',
-        #         'answer_field': 'answerKey',
-        #         'choices_field': 'choices'
-        #     }
-        # },
-        
-        # 'popqa': {
-        #     'hf_path': 'akariasai/PopQA',
-        #     'splits': ['test'],
-        #     'transform': {
-        #         'text_field': 'question',
-        #         'answer_field': 'possible_answers'
-        #     }
-        # },
-        
-        # 'basic_skills_arithmetic': {
-        #     'hf_path': 'allenai/basic-skills',
-        #     'hf_config': 'arithmetic',
-        #     'splits': ['validation'],
-        #     'transform': {
-        #         'text_field': 'question'
-        #     }
-        # },
-        
-        # 'basic_skills_coding': {
-        #     'hf_path': 'allenai/basic-skills',
-        #     'hf_config': 'coding',
-        #     'splits': ['validation'],
-        #     'transform': {
-        #         'text_field': 'question'
-        #     }
-        # },
-        
-        # 'coqa_mc': {
-        #     'hf_path': 'allenai/coqa_mc',
-        #     'splits': ['validation'],
-        #     'transform': {
-        #         'text_field': 'query_original'
-        #     }
-        # },
-        
-        # 'drop_mc': {
-        #     'hf_path': 'allenai/drop_mc',
-        #     'splits': ['validation'],
-        #     'transform': {
-        #         'text_field': 'question_original'
-        #     }
-        # },
-        
+
+        'aimo_validation': {
+            'hf_path': 'AI-MO/aimo-validation-aime',
+            'splits': ['train'],
+            'transform': {
+                'text_field': 'problem',
+                'answer_field': 'answer'
+            }
+        },
+
+        'ai2_arc_challenge': {
+            'hf_path': 'allenai/ai2_arc',
+            'hf_config': 'ARC-Challenge',
+            'splits': ['train', 'test', 'validation'],
+            'transform': {
+                'text_field': 'question',
+                'answer_field': 'answerKey',
+                'choices_field': 'choices'
+            }
+        },
+
+        'ai2_arc_easy': {
+            'hf_path': 'allenai/ai2_arc',
+            'hf_config': 'ARC-Easy',
+            'splits': ['train', 'test', 'validation'],
+            'transform': {
+                'text_field': 'question',
+                'answer_field': 'answerKey',
+                'choices_field': 'choices'
+            }
+        },
+
+        'popqa': {
+            'hf_path': 'akariasai/PopQA',
+            'splits': ['test'],
+            'transform': {
+                'text_field': 'question',
+                'answer_field': 'possible_answers'
+            }
+        },
+
+        'basic_skills_arithmetic': {
+            'hf_path': 'allenai/basic-skills',
+            'hf_config': 'arithmetic',
+            'splits': ['validation'],
+            'transform': {
+                'text_field': 'question'
+            }
+        },
+
+        'basic_skills_coding': {
+            'hf_path': 'allenai/basic-skills',
+            'hf_config': 'coding',
+            'splits': ['validation'],
+            'transform': {
+                'text_field': 'question'
+            }
+        },
+
+        'coqa_mc': {
+            'hf_path': 'allenai/coqa_mc',
+            'splits': ['validation'],
+            'transform': {
+                'text_field': 'query_original'
+            }
+        },
+
+        'drop_mc': {
+            'hf_path': 'allenai/drop_mc',
+            'splits': ['validation'],
+            'transform': {
+                'text_field': 'question_original'
+            }
+        },
+
         # 'jeopardy_mc': {
         #     'hf_path': 'allenai/jeopardy_mc',
         #     'splits': ['test'],
@@ -119,7 +119,7 @@ EVAL_CONFIG = {
         #         'text_field': 'context_original'
         #     }
         # },
-        
+
         # 'multilingual_mbpp_python': {
         #     'hf_path': 'allenai/multilingual_mbpp',
         #     'hf_config': 'python',
@@ -128,7 +128,7 @@ EVAL_CONFIG = {
         #         'text_field': 'text'
         #     }
         # },
-        
+
         # 'nq_open_mc': {
         #     'hf_path': 'allenai/nq_open_mc',
         #     'splits': ['validation'],
@@ -136,7 +136,7 @@ EVAL_CONFIG = {
         #         'text_field': 'question'
         #     }
         # },
-        
+
         # 'qasper_yesno': {
         #     'hf_path': 'allenai/qasper-yesno',
         #     'splits': ['train', 'validation', 'test'],
@@ -144,7 +144,7 @@ EVAL_CONFIG = {
         #         'text_field': 'question'
         #     }
         # },
-        
+
         # 'sciriff_yesno': {
         #     'hf_path': 'allenai/sciriff-yesno',
         #     'splits': ['train', 'validation', 'test'],
@@ -152,7 +152,7 @@ EVAL_CONFIG = {
         #         'text_field': 'question'
         #     }
         # },
-        
+
         # 'simple_tom_mental_state': {
         #     'hf_path': 'allenai/SimpleToM',
         #     'hf_config': 'mental-state-qa',
@@ -161,7 +161,7 @@ EVAL_CONFIG = {
         #         'text_field': 'question'
         #     }
         # },
-        
+
         # 'squad_mc': {
         #     'hf_path': 'allenai/squad_mc',
         #     'splits': ['validation'],
@@ -169,7 +169,7 @@ EVAL_CONFIG = {
         #         'text_field': 'question_original'
         #     }
         # },
-        
+
         # 'zebra_logic_grid': {
         #     'hf_path': 'allenai/ZebraLogicBench-private',
         #     'hf_config': 'grid_mode',
@@ -178,7 +178,7 @@ EVAL_CONFIG = {
         #         'text_field': 'puzzle'
         #     }
         # },
-        
+
         # 'gsm_symbolic': {
         #     'hf_path': 'apple/GSM-Symbolic',
         #     'splits': ['test'],
@@ -186,7 +186,7 @@ EVAL_CONFIG = {
         #         'text_field': 'question'
         #     }
         # },
-        
+
         # 'bigcodebench': {
         #     'hf_path': 'bigcode/bigcodebench',
         #     'splits': ['v0.1.4'],
@@ -194,7 +194,7 @@ EVAL_CONFIG = {
         #         'text_field': 'complete_prompt'
         #     }
         # },
-        
+
         # 'bigcodebench_hard': {
         #     'hf_path': 'bigcode/bigcodebench-hard',
         #     'splits': ['v0.1.4'],
@@ -202,7 +202,7 @@ EVAL_CONFIG = {
         #         'text_field': 'complete_prompt'
         #     }
         # },
-        
+
         # 'cosmos_qa': {
         #     'hf_path': 'allenai/cosmos_qa',
         #     'splits': ['train', 'test', 'validation'],
@@ -210,7 +210,7 @@ EVAL_CONFIG = {
         #         'text_field': 'question'
         #     }
         # },
-        
+
         # 'cruxeval': {
         #     'hf_path': 'cruxeval-org/cruxeval',
         #     'splits': ['test'],
@@ -218,7 +218,7 @@ EVAL_CONFIG = {
         #         'text_field': 'code'
         #     }
         # },
-        
+
         # 'deepseek_leetcode': {
         #     'hf_path': 'davidheineman/deepseek-leetcode',
         #     'splits': ['test'],
@@ -226,7 +226,7 @@ EVAL_CONFIG = {
         #         'text_field': 'prompt'
         #     }
         # },
-        
+
         # 'medqa_en': {
         #     'hf_path': 'davidheineman/medqa-en',
         #     'splits': ['train', 'test', 'dev'],
@@ -234,7 +234,7 @@ EVAL_CONFIG = {
         #         'text_field': 'question'
         #     }
         # },
-        
+
         # 'coqa': {
         #     'hf_path': 'EleutherAI/coqa',
         #     'splits': ['train', 'validation'],
@@ -242,7 +242,7 @@ EVAL_CONFIG = {
         #         'text_field': 'story'
         #     }
         # },
-        
+
         # 'drop': {
         #     'hf_path': 'EleutherAI/drop',
         #     'splits': ['train', 'validation'],
@@ -250,7 +250,7 @@ EVAL_CONFIG = {
         #         'text_field': 'question'
         #     }
         # },
-        
+
         # 'hendrycks_math_algebra': {
         #     'hf_path': 'EleutherAI/hendrycks_math',
         #     'hf_config': 'algebra',
@@ -259,7 +259,7 @@ EVAL_CONFIG = {
         #         'text_field': 'problem'
         #     }
         # },
-        
+
         # 'lambada_openai': {
         #     'hf_path': 'EleutherAI/lambada_openai',
         #     'splits': ['test'],
@@ -267,7 +267,7 @@ EVAL_CONFIG = {
         #         'text_field': 'text'
         #     }
         # },
-        
+
         # 'humaneval_plus': {
         #     'hf_path': 'evalplus/humanevalplus',
         #     'splits': ['test'],
@@ -275,7 +275,7 @@ EVAL_CONFIG = {
         #         'text_field': 'prompt'
         #     }
         # },
-        
+
         # 'mbpp_plus': {
         #     'hf_path': 'evalplus/mbppplus',
         #     'splits': ['test'],
@@ -283,7 +283,7 @@ EVAL_CONFIG = {
         #         'text_field': 'prompt'
         #     }
         # },
-        
+
         # 'mbpp': {
         #     'hf_path': 'google-research-datasets/mbpp',
         #     'splits': ['train', 'test', 'validation'],
@@ -291,7 +291,7 @@ EVAL_CONFIG = {
         #         'text_field': 'text'
         #     }
         # },
-        
+
         # 'nq_open': {
         #     'hf_path': 'google-research-datasets/nq_open',
         #     'splits': ['train', 'validation'],
@@ -299,7 +299,7 @@ EVAL_CONFIG = {
         #         'text_field': 'question'
         #     }
         # },
-        
+
         # 'tydiqa_primary': {
         #     'hf_path': 'google-research-datasets/tydiqa',
         #     'hf_config': 'primary_task',
@@ -308,7 +308,7 @@ EVAL_CONFIG = {
         #         'text_field': 'question_text'
         #     }
         # },
-        
+
         # 'ifeval': {
         #     'hf_path': 'HuggingFaceH4/ifeval',
         #     'splits': ['train'],
@@ -316,7 +316,7 @@ EVAL_CONFIG = {
         #         'text_field': 'prompt'
         #     }
         # },
-        
+
         # 'math_500': {
         #     'hf_path': 'HuggingFaceH4/MATH-500',
         #     'splits': ['test'],
@@ -324,7 +324,7 @@ EVAL_CONFIG = {
         #         'text_field': 'problem'
         #     }
         # },
-        
+
         # 'lexam_mcq': {
         #     'hf_path': 'LEXam-Benchmark/LEXam',
         #     'hf_config': 'mcq_4_choices',
@@ -333,7 +333,7 @@ EVAL_CONFIG = {
         #         'text_field': 'question'
         #     }
         # },
-        
+
         # 'simple_qa': {
         #     'hf_path': 'lighteval/SimpleQA',
         #     'splits': ['test'],
@@ -341,7 +341,7 @@ EVAL_CONFIG = {
         #         'text_field': 'problem'
         #     }
         # },
-        
+
         # 'livecodebench': {
         #     'hf_path': 'livecodebench/code_generation_lite',
         #     'splits': ['test'],
@@ -349,7 +349,7 @@ EVAL_CONFIG = {
         #         'text_field': 'question_content'
         #     }
         # },
-        
+
         # 'humaneval_infilling': {
         #     'hf_path': 'loubnabnl/humaneval_infilling',
         #     'splits': ['test'],
@@ -357,7 +357,7 @@ EVAL_CONFIG = {
         #         'text_field': 'prompt'
         #     }
         # },
-        
+
         # 'logiqa': {
         #     'hf_path': 'lucasmccabe/logiqa',
         #     'splits': ['train', 'validation', 'test'],
@@ -365,7 +365,7 @@ EVAL_CONFIG = {
         #         'text_field': 'query'
         #     }
         # },
-        
+
         # 'bbh_boolean_expressions': {
         #     'hf_path': 'lukaemon/bbh',
         #     'hf_config': 'boolean_expressions',
@@ -374,7 +374,7 @@ EVAL_CONFIG = {
         #         'text_field': 'input'
         #     }
         # },
-        
+
         # 'trivia_qa': {
         #     'hf_path': 'mandarjoshi/trivia_qa',
         #     'hf_config': 'rc',
@@ -383,7 +383,7 @@ EVAL_CONFIG = {
         #         'text_field': 'question'
         #     }
         # },
-        
+
         # 'multipl_e_humaneval_python': {
         #     'hf_path': 'nuprl/MultiPL-E',
         #     'hf_config': 'humaneval-js',
@@ -392,7 +392,7 @@ EVAL_CONFIG = {
         #         'text_field': 'prompt'
         #     }
         # },
-        
+
         # 'mrcr': {
         #     'hf_path': 'openai/mrcr',
         #     'splits': ['train'],
@@ -400,7 +400,7 @@ EVAL_CONFIG = {
         #         'text_field': 'prompt'
         #     }
         # },
-        
+
         # 'openbookqa': {
         #     'hf_path': 'allenai/openbookqa',
         #     'splits': ['train', 'validation', 'test'],
@@ -408,7 +408,7 @@ EVAL_CONFIG = {
         #         'text_field': 'question_stem'
         #     }
         # },
-        
+
         # 'medmcqa': {
         #     'hf_path': 'openlifescienceai/medmcqa',
         #     'splits': ['train', 'test', 'validation'],
@@ -416,7 +416,7 @@ EVAL_CONFIG = {
         #         'text_field': 'question'
         #     }
         # },
-        
+
         # 'gsm_plus': {
         #     'hf_path': 'qintongli/GSM-Plus',
         #     'splits': ['test'],
@@ -424,7 +424,7 @@ EVAL_CONFIG = {
         #         'text_field': 'question'
         #     }
         # },
-        
+
         # 'squad': {
         #     'hf_path': 'rajpurkar/squad',
         #     'splits': ['train', 'validation'],
@@ -432,7 +432,7 @@ EVAL_CONFIG = {
         #         'text_field': 'question'
         #     }
         # },
-        
+
         # 'squad_v2': {
         #     'hf_path': 'rajpurkar/squad_v2',
         #     'splits': ['train', 'validation'],
@@ -440,7 +440,7 @@ EVAL_CONFIG = {
         #         'text_field': 'question'
         #     }
         # },
-        
+
         # 'copycolors_mcqa': {
         #     'hf_path': 'sarahwie/copycolors_mcqa',
         #     'hf_config': '4_answer_choices',
@@ -449,7 +449,7 @@ EVAL_CONFIG = {
         #         'text_field': 'question'
         #     }
         # },
-        
+
         # 'sciq': {
         #     'hf_path': 'allenai/sciq',
         #     'splits': ['train', 'validation', 'test'],
@@ -457,7 +457,7 @@ EVAL_CONFIG = {
         #         'text_field': 'question'
         #     }
         # },
-        
+
         # 'social_i_qa': {
         #     'hf_path': 'allenai/social_i_qa',
         #     'splits': ['train', 'validation'],
@@ -465,7 +465,7 @@ EVAL_CONFIG = {
         #         'text_field': 'question'
         #     }
         # },
-        
+
         # 'jeopardy': {
         #     'hf_path': 'soldni/jeopardy',
         #     'hf_config': 'all_questions',
@@ -474,7 +474,7 @@ EVAL_CONFIG = {
         #         'text_field': 'question'
         #     }
         # },
-        
+
         # 'zero_scrolls_qasper': {
         #     'hf_path': 'tau/zero_scrolls',
         #     'hf_config': 'qasper',
@@ -483,7 +483,7 @@ EVAL_CONFIG = {
         #         'text_field': 'input'
         #     }
         # },
-        
+
         # 'mt_eval_refinement': {
         #     'hf_path': 'wckwan/MT-Eval',
         #     'hf_config': 'refinement_single',
@@ -492,7 +492,7 @@ EVAL_CONFIG = {
         #         'text_field': 'conv'
         #     }
         # },
-        
+
         # 'winogrande': {
         #     'hf_path': 'allenai/winogrande',
         #     'hf_config': 'winogrande_l',
@@ -501,7 +501,7 @@ EVAL_CONFIG = {
         #         'text_field': 'sentence'
         #     }
         # },
-        
+
         # 'ds_1000': {
         #     'hf_path': 'xlangai/DS-1000',
         #     'splits': ['test'],
@@ -551,7 +551,7 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
 
                 # Generate records based on answer field configuration
                 records_to_write = []
-                
+
                 # Create base record template
                 def create_record_template():
                     record = {
@@ -565,18 +565,18 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                             if field in example:
                                 record[field] = example[field]
                     return record
-                
+
                 # Handle answer fields if configured
                 if 'answer_field' in eval_config['transform']:
                     answer_field = eval_config['transform']['answer_field']
                     if answer_field in example:
                         answer_value = example[answer_field]
-                        
+
                         # Always create a question-only record first
                         record_question_only = create_record_template()
                         record_question_only[global_config['jsonl_format']['text_field']] = text
                         records_to_write.append(record_question_only)
-                        
+
                         # Handle different answer field types
                         if isinstance(answer_value, list):
                             # Array of answers - create record for question + each answer
@@ -599,13 +599,13 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                     record = create_record_template()
                     record[global_config['jsonl_format']['text_field']] = text
                     records_to_write.append(record)
-                
+
                 # Handle choices field if configured (e.g., multiple choice questions)
                 if 'choices_field' in eval_config['transform']:
                     choices_field = eval_config['transform']['choices_field']
                     if choices_field in example:
                         choices = example[choices_field]
-                        
+
                         # Handle choices structure: {'text': [...], 'label': [...]}
                         if isinstance(choices, dict) and 'text' in choices:
                             for choice_text in choices['text']:
@@ -623,13 +623,13 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                 for record in records_to_write:
                     text = record[global_config['jsonl_format']['text_field']]
                     word_count = len(text.split())
-                    
+
                     # Skip records with fewer than 8 words
                     if word_count >= 8:
                         # Add unique document ID
                         record['doc_id'] = document_id_counter[0]
                         document_id_counter[0] += 1
-                        
+
                         f.write(json.dumps(record) + '\n')
 
         print(f"Saved {len(dataset[split])} examples to {output_file}")
