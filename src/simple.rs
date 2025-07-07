@@ -368,15 +368,15 @@ fn process_simple_training_file(
                     // println!("DEBUG: eval={}:{}, unique_matches={}, unique_ngrams={}, ratio={:.3}", //debug
                     //          eval_name, eval_line, unique_matches, unique_ngrams, overlap_ratio);
 
-                    // Only record results that exceed the threshold
-                    if overlap_ratio >= config.toxic_overlap_threshold {
-                        // Calculate toxic score using IDF approach
-                        let toxic_score = calculate_simple_toxic_score(
-                            &cluster.matching_ngrams,
-                            ngram_to_id,
-                            id_to_docs
-                        );
+                    // Calculate toxic score using IDF approach
+                    let toxic_score = calculate_simple_toxic_score(
+                        &cluster.matching_ngrams,
+                        ngram_to_id,
+                        id_to_docs
+                    );
 
+                    // Only record results that exceed both thresholds
+                    if overlap_ratio >= config.toxic_overlap_threshold && toxic_score >= config.toxic_score_threshold {
                         let entry = SimpleContaminationEntry {
                             training_line: line_num,
                             eval_name: eval_name.clone(),
@@ -388,11 +388,11 @@ fn process_simple_training_file(
 
                         cluster_results.push(entry);
 
-                        // println!("Found contamination: train_line={}, eval={}:{}, overlap={:.3} (threshold: {:.3})", //debug
-                        //          line_num, eval_name, eval_line, overlap_ratio, config.toxic_overlap_threshold);
+                        // println!("Found contamination: train_line={}, eval={}:{}, overlap={:.3} (>={:.3}), toxic_score={:.3} (>={:.3})", //debug
+                        //          line_num, eval_name, eval_line, overlap_ratio, config.toxic_overlap_threshold, toxic_score, config.toxic_score_threshold);
                     } else {
-                        // println!("Below threshold: train_line={}, eval={}:{}, overlap={:.3} < {:.3}", //debug
-                        //          line_num, eval_name, eval_line, overlap_ratio, config.toxic_overlap_threshold);
+                        // println!("Below threshold: train_line={}, eval={}:{}, overlap={:.3} < {:.3} OR toxic_score={:.3} < {:.3}", //debug
+                        //          line_num, eval_name, eval_line, overlap_ratio, config.toxic_overlap_threshold, toxic_score, config.toxic_score_threshold);
                     }
                 }
             }

@@ -119,6 +119,8 @@ pub struct Config {
     pub toxic_hyperplanes: usize,
     #[serde(default = "default_toxic_overlap_threshold")]
     pub toxic_overlap_threshold: f32,
+    #[serde(default = "default_toxic_score_threshold")]
+    pub toxic_score_threshold: f32,
     #[serde(default = "default_toxic_poison_scale")]
     pub toxic_poison_scale: f32,
     #[serde(default = "default_skip_hot_bucket_threshold")]
@@ -158,6 +160,10 @@ fn default_toxic_hyperplanes() -> usize {
 
 fn default_toxic_overlap_threshold() -> f32 {
     0.3  // 30% n-gram overlap threshold
+}
+
+fn default_toxic_score_threshold() -> f32 {
+    0.0  // Default toxic score threshold (disabled)
 }
 
 fn default_toxic_poison_scale() -> f32 {
