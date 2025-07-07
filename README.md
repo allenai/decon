@@ -1,6 +1,6 @@
 # Contamination Detection for ML Datasets
 
-Comprehensive contamination detection tools for training datasets. Identifies when training data contains text that appears in evaluation datasets using multiple detection approaches. Supports both exact matching and semantic similarity detection.
+Contamination detection tools for training datasets. Identifies when training data contains text that appears in evaluation datasets using multiple detection approaches. Supports both exact matching and semantic similarity detection.
 
 ## Table of Contents
 - [Overview](#overview)
@@ -24,14 +24,13 @@ This tool provides three complementary detection approaches to efficiently ident
 ## Detection Methods
 
 ### 📊 [MinHash Detection](minhash.md) (`mode: minhash`)
-Fast, memory-efficient detection using Jaccard similarity and LSH.
-- **Best for**: Exact matches, copy-paste contamination, template reuse
-- **Speed**: Very fast, O(n) processing
-- **Memory**: Low memory footprint
-- **Accuracy**: High precision for exact/near-exact matches
+Memory-efficient detection using Jaccard similarity and LSH.
+- WIP.
+- Needs sliding window approach tuned, or other adaptations for dissimilar set sizes.
 
 ### 🧬 [TOXIC Detection](toxic.md) (`mode: toxic`)
 Semantic contamination detection using word embeddings and poison tokens.
+- WIP
 - **Best for**: Paraphrased content, semantic similarity, cross-domain leakage
 - **Speed**: Moderate, requires embedding computation
 - **Memory**: Bounded vocabulary, scalable to large datasets
@@ -58,8 +57,8 @@ Efficient n-gram matching with intelligent sampling and cluster expansion.
 
 ### Build from Source
 ```bash
-git clone https://github.com/your-org/minhash-rs.git
-cd minhash-rs
+git clone https://github.com/allenai/decon
+cd decon
 cargo build --release
 ```
 
@@ -100,59 +99,13 @@ Organize your data into two directories:
 Use the `python/download_evals.py` script to download and normalize evaluation datasets based on an eval config. See `examples/decontamination/eval_datasets.yaml`.
 
 ### 2. Create Configuration
-Create a `config.yaml` file. Choose your detection method:
+Create a `config.yaml` file.
 
-**MinHash Configuration (fast exact matching):**
-```yaml
-mode: minhash
-content_key: text
-local_input: /path/to/training
-reference_input: /path/to/evaluation
-output_dir: /path/to/results
-
-# LSH Parameters
-band_size: 8
-ngram_size: 3
-num_bands: 7
-tokenizer_str: uniseg
-jaccard_similarity_threshold: 0.8
-```
-
-**TOXIC Configuration (semantic detection):**
-```yaml
-mode: toxic
-content_key: text
-local_input: /path/to/training
-reference_input: /path/to/evaluation
-output_dir: /path/to/results
-
-# TOXIC Parameters
-ngram_size: 4
-toxic_embedding_path: /path/to/wiki-news-300d-1M.vec
-toxic_hyperplanes: 64
-toxic_overlap_threshold: 0.3
-```
-
-**SIMPLE Configuration (efficient sampled detection):**
-```yaml
-mode: simple
-content_key: text
-local_input: /path/to/training
-reference_input: /path/to/evaluation
-output_dir: /path/to/results
-
-# SIMPLE Parameters
-ngram_size: 13
-sample_every_m_tokens: 50
-max_consecutive_misses: 3
-toxic_overlap_threshold: 0.5
-toxic_score_threshold: 0.5
-tokenizer_str: cl100k
-```
+See /examples/eval.
 
 ### 3. Run Contamination Detection
 ```bash
-cargo run --release -- contamination-detect --config config.yaml
+cargo run --release detect --config config.yaml
 ```
 
 ### 4. Review Results
@@ -162,7 +115,7 @@ cat /path/to/results/contamination_results.jsonl      # MinHash results
 cat /path/to/results/toxic_contamination_results.jsonl # TOXIC results
 
 # Interactive review with side-by-side comparison
-cargo run --release -- review-contamination --config config.yaml
+cargo run --release review --config config.yaml
 ```
 
 ## Configuration
@@ -240,31 +193,6 @@ toxic_overlap_threshold: 0.4    # Higher threshold
 toxic_hyperplanes: 128          # More hyperplanes
 ```
 
-## Commands
-
-### `contamination-detect`
-Performs contamination detection between training and evaluation datasets.
-
-```bash
-cargo run --release -- contamination-detect --config config.yaml
-```
-
-**Output**: Creates results file with detected contamination instances:
-- MinHash: `contamination_results.jsonl`
-- TOXIC: `toxic_contamination_results.jsonl`
-- SIMPLE: `simple_contamination_results.jsonl`
-
-### `review-contamination`
-Interactive tool for reviewing detected contamination with side-by-side text comparison.
-
-```bash
-# Use default results file
-cargo run --release -- review-contamination --config config.yaml
-
-# Use custom results file
-cargo run --release -- review-contamination --config config.yaml --results-file custom_results.jsonl
-```
-
 ## Understanding Results
 
 ### Results Format
@@ -275,7 +203,7 @@ Each detected contamination is saved as a JSON line:
 {
   "training_file": "train_dataset",
   "training_line": 42,
-  "eval_dataset": "gsm8k_test", 
+  "eval_dataset": "gsm8k_test",
   "eval_line": 1,
   "jaccard_similarity": 0.987,
   "method": "minhash"
@@ -288,7 +216,7 @@ Each detected contamination is saved as a JSON line:
   "training_file": "train_dataset",
   "training_line": 42,
   "eval_dataset": "gsm8k_test",
-  "eval_line": 1, 
+  "eval_line": 1,
   "overlap_ratio": 0.673,
   "method": "toxic"
 }
