@@ -54,7 +54,7 @@ pub const EMBEDDING_DIM: usize = 128;
 // Document IDs are now generated in Python download script and read from JSON
 
 // LSH bucket storage: maps bucket_id to list of document IDs
-type ToxicBuckets = DashMap<u64, Vec<u32>>;
+type ToxicBuckets = DashMap<u64, HashSet<u32>>;
 
 // Bucket content storage for debug mode: maps bucket_id to set of ngram texts
 type BucketContents = DashMap<u64, HashSet<String>>;
@@ -1505,7 +1505,7 @@ struct DocumentState {
 
 #[derive(Debug)]
 enum CollisionResult {
-    Hit(Vec<u32>),      // Found documents in bucket
+    Hit(HashSet<u32>),  // Found documents in bucket
     Miss,               // No bucket collision
     VocabFiltered,      // N-gram filtered due to vocabulary
     HotBucketSkipped,   // Skipped hot bucket
@@ -1575,7 +1575,7 @@ fn expand_contamination_cluster_with_intersection(
     toxic_buckets: &ToxicBuckets,
     hot_buckets: &HotBuckets,
     eval_vocabulary: &HashSet<String>,
-    initial_document_ids: Vec<u32>,
+    initial_document_ids: HashSet<u32>,
     _initial_training_ngram: &str,
     timing_stats: &mut TimingStats,
     collision_timing: &mut CollisionTiming,
@@ -1608,7 +1608,7 @@ fn expand_contamination_cluster_with_intersection(
     }
 
     // Track which documents are still "active" for continued evaluation
-    let mut active_documents: HashSet<u32> = initial_document_ids.iter().cloned().collect();
+    let mut active_documents: HashSet<u32> = initial_document_ids.clone();
 
     // Expand backward (no left bound for debugging)
     let left_bound = 0;
@@ -1635,26 +1635,30 @@ fn expand_contamination_cluster_with_intersection(
         )? {
             CollisionResult::Hit(current_documents) => {
                 let intersection_start = std::time::Instant::now();
-                let current_set: HashSet<u32> = current_documents.iter().cloned().collect();
-                let mut matches = 0;
-                let mut _misses = 0;
+                let current_set = &current_documents;
 
                 // Compute bucket ID for this n-gram
                 let bucket_id = compute_lsh_bucket(&ngram_embeddings[i], hyperplanes);
 
                 // Update each document's state based on intersection
                 let doc_state_start = std::time::Instant::now();
-                for doc_id in &active_documents.clone() {
+                
+                // Efficient set intersection: find documents in both active_documents and current_documents
+                let mut match_count = 0;
+                
+                // Update states for intersected documents (found in bucket)
+                for doc_id in active_documents.intersection(current_set) {
                     if let Some(state) = all_document_stats.get_mut(doc_id) {
-                        if current_set.contains(doc_id) {
-                            // Document found in current bucket
-                            state.matched_buckets.insert(bucket_id);
-                            state.consecutive_misses = 0;
-                            matches += 1;
-                        } else {
-                            // Document not found in current bucket
-                            state.consecutive_misses += 1;
-                        }
+                        state.matched_buckets.insert(bucket_id);
+                        state.consecutive_misses = 0;
+                        match_count += 1;
+                    }
+                }
+                
+                // Update states for documents not in intersection (missed)
+                for doc_id in active_documents.difference(current_set) {
+                    if let Some(state) = all_document_stats.get_mut(doc_id) {
+                        state.consecutive_misses += 1;
                     }
                 }
                 collision_timing.document_state_updates += doc_state_start.elapsed();
@@ -1665,7 +1669,7 @@ fn expand_contamination_cluster_with_intersection(
                     collision_counters.empty_intersections += 1;
                 }
 
-                if matches > 0 {
+                if match_count > 0 {
                     start_idx = i;
                 }
             }
@@ -1709,7 +1713,7 @@ fn expand_contamination_cluster_with_intersection(
     collision_counters.max_left_steps = collision_counters.max_left_steps.max(left_steps);
 
     // Reset active documents for right walk, keeping accumulated match lengths in all_document_stats
-    active_documents = initial_document_ids.iter().cloned().collect();
+    active_documents = initial_document_ids.clone();
 
     // Reset consecutive misses for right walk, but keep match_length accumulated from left walk
     for doc_id in &initial_document_ids {
@@ -1739,29 +1743,33 @@ fn expand_contamination_cluster_with_intersection(
             bucket_hits_count, bucket_misses_count, hot_buckets_skipped_count, vocab_filtered_count
         )? {
             CollisionResult::Hit(current_documents) => {
-                let current_set: HashSet<u32> = current_documents.iter().cloned().collect();
-                let mut matches = 0;
-                let mut _misses = 0;
+                let current_set = &current_documents;
 
                 // Compute bucket ID for this n-gram
                 let bucket_id = compute_lsh_bucket(&ngram_embeddings[i], hyperplanes);
 
                 // Update each document's state based on intersection
-                for doc_id in &active_documents.clone() {
+                
+                // Efficient set intersection: find documents in both active_documents and current_documents
+                let mut match_count = 0;
+                
+                // Update states for intersected documents (found in bucket)
+                for doc_id in active_documents.intersection(current_set) {
                     if let Some(state) = all_document_stats.get_mut(doc_id) {
-                        if current_set.contains(doc_id) {
-                            // Document found in current bucket
-                            state.matched_buckets.insert(bucket_id);
-                            state.consecutive_misses = 0;
-                            matches += 1;
-                        } else {
-                            // Document not found in current bucket
-                            state.consecutive_misses += 1;
-                        }
+                        state.matched_buckets.insert(bucket_id);
+                        state.consecutive_misses = 0;
+                        match_count += 1;
+                    }
+                }
+                
+                // Update states for documents not in intersection (missed)
+                for doc_id in active_documents.difference(current_set) {
+                    if let Some(state) = all_document_stats.get_mut(doc_id) {
+                        state.consecutive_misses += 1;
                     }
                 }
 
-                if matches > 0 {
+                if match_count > 0 {
                     end_idx = i;
                 }
             }
@@ -1816,7 +1824,7 @@ fn expand_contamination_cluster_with_intersection(
         )? {
             CollisionResult::Hit(current_documents) => {
                 // Get n-gram text for any matching documents that were part of the original cluster
-                if current_documents.iter().any(|doc_id| initial_document_ids.contains(doc_id)) {
+                if !current_documents.is_disjoint(&initial_document_ids) {
                     let bucket_id = compute_lsh_bucket(&ngram_embeddings[idx], hyperplanes);
 
                     // Only include if this bucket hasn't been seen before
@@ -1886,7 +1894,7 @@ fn process_toxic_training_file(
 
     // Track training vocabulary
     let mut training_vocabulary: HashSet<String> = HashSet::new();
-    
+
     // Create cache for this file (no mutex needed since each file is processed independently)
     let mut bucket_cache = BucketIdLruCache::new(config.ngram_bucket_lru_cache);
 
@@ -2113,7 +2121,7 @@ fn insert_with_hot_bucket_detection(
     toxic_buckets
         .entry(bucket_id)
         .or_default()
-        .push(doc_id);
+        .insert(doc_id);
 }
 
 fn print_timing_category(config: &Config, name: &str, duration: Duration, total_ms: f64) {
