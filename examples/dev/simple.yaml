@@ -2,10 +2,11 @@
 mode: simple
 
 content_key: text
-local_input: fixtures/training
+local_input: fixtures/training-tmp
 reference_input: fixtures/reference
 output_dir: fixtures/output
 
 ngram_size: 3
+max_consecutive_misses: 4
 toxic_overlap_threshold: 0.5
 punctuation_chars: "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"  # (uses default if not specified)

@@ -572,6 +572,11 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                     if answer_field in example:
                         answer_value = example[answer_field]
                         
+                        # Always create a question-only record first
+                        record_question_only = create_record_template()
+                        record_question_only[global_config['jsonl_format']['text_field']] = text
+                        records_to_write.append(record_question_only)
+                        
                         # Handle different answer field types
                         if isinstance(answer_value, list):
                             # Array of answers - create record for question + each answer

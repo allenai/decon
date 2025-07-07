@@ -1,9 +1,9 @@
 # Contamination detection mode (minhash, toxic)
-mode: toxic
+mode: simple
 debug: true
 
 content_key: text
-local_input: fixtures/training
+local_input: fixtures/training-tmp
 reference_input: fixtures/reference
 output_dir: fixtures/output
 

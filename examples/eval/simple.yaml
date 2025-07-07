@@ -7,5 +7,6 @@ reference_input: fixtures/reference
 output_dir: fixtures/output
 
 ngram_size: 3
+max_consecutive_misses: 4
 toxic_overlap_threshold: 0.9
 punctuation_chars: "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"  # (uses default if not specified)

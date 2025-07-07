@@ -261,12 +261,12 @@ fn detect_simple_contamination(
     if lines_processed > 0 {
         let total_micros = processing_time.as_micros() as f64;
         let micros_per_line = total_micros / lines_processed as f64;
-        
+
         if micros_per_line >= 1000.0 {
-            println!("Processed {} training lines in {:.2}s ({:.2} ms/line)", 
+            println!("Processed {} training lines in {:.2}s ({:.2} ms/line)",
                      lines_processed, processing_time.as_secs_f64(), micros_per_line / 1000.0);
         } else {
-            println!("Processed {} training lines in {:.2}s ({:.0} μs/line)", 
+            println!("Processed {} training lines in {:.2}s ({:.0} μs/line)",
                      lines_processed, processing_time.as_secs_f64(), micros_per_line);
         }
     }
@@ -365,6 +365,9 @@ fn process_simple_training_file(
                         0.0
                     };
 
+                    // println!("DEBUG: eval={}:{}, unique_matches={}, unique_ngrams={}, ratio={:.3}", //debug
+                    //          eval_name, eval_line, unique_matches, unique_ngrams, overlap_ratio);
+
                     // Only record results that exceed the threshold
                     if overlap_ratio >= config.toxic_overlap_threshold {
                         // Calculate toxic score using IDF approach
@@ -373,7 +376,7 @@ fn process_simple_training_file(
                             ngram_to_id,
                             id_to_docs
                         );
-                        
+
                         let entry = SimpleContaminationEntry {
                             training_line: line_num,
                             eval_name: eval_name.clone(),
@@ -575,7 +578,7 @@ fn expand_simple_contamination_cluster(
             if !intersection.is_empty() {
                 // println!("Left hit at {}: {} docs intersect", left_idx, intersection.len()); //debug
                 start_idx = left_idx;
-                
+
                 // Get ngram_id before moving ngram_text
                 let ngram_id = ngram_to_id.get(&ngram_text).map(|id| *id).unwrap_or(0);
                 matching_ngrams.insert(0, ngram_text);
@@ -658,8 +661,8 @@ fn expand_simple_contamination_cluster(
             if !intersection.is_empty() {
                 // println!("Right hit at {}: {} docs intersect", right_idx, intersection.len()); //debug
                 end_idx = right_idx;
-                
-                // Get ngram_id before moving ngram_text  
+
+                // Get ngram_id before moving ngram_text
                 let ngram_id = ngram_to_id.get(&ngram_text).map(|id| *id).unwrap_or(0);
                 matching_ngrams.push(ngram_text);
 
@@ -732,14 +735,14 @@ fn calculate_simple_toxic_score(
     id_to_docs: &IdToDocsMap
 ) -> f32 {
     let mut unique_ngram_ids = HashSet::new();
-    
+
     // Collect unique n-gram IDs to avoid double-counting duplicate n-grams
     for ngram_text in matching_ngrams {
         if let Some(ngram_id) = ngram_to_id.get(ngram_text) {
             unique_ngram_ids.insert(*ngram_id);
         }
     }
-    
+
     // Calculate toxic score: sum of 1/ln(document_count) for each unique n-gram
     let toxic_score: f32 = unique_ngram_ids.iter()
         .map(|ngram_id| {
@@ -755,7 +758,7 @@ fn calculate_simple_toxic_score(
             }
         })
         .sum();
-    
+
     toxic_score
 }
 
@@ -813,7 +816,7 @@ fn save_contamination_results_toxic_format(
 ) -> Result<(), Error> {
     // Create output directory if it doesn't exist
     create_dir_all(&config.output_dir)?;
-    
+
     // Use the same filename format as toxic for consistency with review facility
     let output_file = config.output_dir.join(get_results_filename("simple"));
 
