@@ -247,12 +247,12 @@ pub fn get_nested_json_val(obj: &Value, key: &String) -> Result<String, Error> {
 
 
 pub struct OmniTokenizer {
-    tokenizer_name: String,
-    inner: Option<CoreBPE>,
+    pub tokenizer_name: String,
+    pub inner: Option<CoreBPE>,
     // For word mode: vocabulary built from reference set
-    word_to_id: Arc<Mutex<HashMap<String, u32>>>,
-    id_to_word: Arc<Mutex<HashMap<u32, String>>>,
-    next_word_id: Arc<AtomicU32>,
+    pub word_to_id: Arc<Mutex<HashMap<String, u32>>>,
+    pub id_to_word: Arc<Mutex<HashMap<u32, String>>>,
+    pub next_word_id: Arc<AtomicU32>,
 }
 
 impl OmniTokenizer {
@@ -458,6 +458,10 @@ struct ContaminationResult {
     bucket_sizes: Option<Vec<usize>>,
     #[serde(default)]
     bucket_ids: Option<Vec<u64>>,
+    #[serde(default)]
+    contamination_start_idx: Option<usize>,
+    #[serde(default)]
+    contamination_end_idx: Option<usize>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -612,7 +616,7 @@ fn review_contamination(config: &PathBuf, results_file: Option<&PathBuf>, step: 
         println!("CONTAMINATION #{} of {}", idx + 1, filtered_results.len());
         println!("{}", "=".repeat(80));
 
-        display_contamination_case(result, &training_cache, &eval_cache, &ground_truth, full)?;
+        display_contamination_case(result, &training_cache, &eval_cache, &ground_truth, full, &config_obj)?;
         println!();
     }
 
@@ -894,6 +898,8 @@ fn filter_contamination_results(
                     matching_ngrams: None,
                     bucket_sizes: None,
                     bucket_ids: None,
+                    contamination_start_idx: None,
+                    contamination_end_idx: None,
                 };
                 filtered.push(placeholder);
             }
@@ -952,6 +958,8 @@ fn filter_contamination_results(
                     matching_ngrams: None,
                     bucket_sizes: None,
                     bucket_ids: None,
+                    contamination_start_idx: None,
+                    contamination_end_idx: None,
                 };
                 filtered.push(placeholder);
             }
@@ -1094,12 +1102,125 @@ fn truncate_text(text: &str, max_lines: usize) -> String {
     }
 }
 
+/// Extract contaminated text segment using token indices with context
+fn extract_contaminated_segment_with_context(
+    original_text: &str,
+    start_idx: usize,
+    end_idx: usize,
+    config: &Config,
+    context_words: usize
+) -> Option<String> {
+    // Initialize tokenizer based on config
+    let tokenizer = match OmniTokenizer::new(&config.tokenizer_str) {
+        Ok(t) => t,
+        Err(_) => return None,
+    };
+    
+    // First, clean the text the same way as during detection
+    let cleaned_text = clean_text(original_text, &config.punctuation_chars);
+    
+    // For word tokenizer, tokens are just words split by whitespace
+    if config.tokenizer_str == "word" {
+        let words: Vec<&str> = cleaned_text.split_whitespace().collect();
+        
+        // Check if indices are valid
+        if start_idx >= words.len() || end_idx > words.len() || start_idx >= end_idx {
+            return None;
+        }
+        
+        // Calculate context boundaries
+        let context_start = start_idx.saturating_sub(context_words);
+        let context_end = (end_idx + context_words).min(words.len());
+        
+        // Build the output with highlighted contamination
+        let mut result = String::new();
+        
+        // Add leading context
+        if context_start < start_idx {
+            result.push_str("... ");
+            result.push_str(&words[context_start..start_idx].join(" "));
+            result.push_str(" ");
+        }
+        
+        // Add contaminated section with highlighting
+        result.push_str("【");
+        result.push_str(&words[start_idx..end_idx].join(" "));
+        result.push_str("】");
+        
+        // Add trailing context
+        if end_idx < context_end {
+            result.push_str(" ");
+            result.push_str(&words[end_idx..context_end].join(" "));
+            result.push_str(" ...");
+        }
+        
+        return Some(result);
+    }
+    
+    // For other tokenizers, we need to tokenize and then decode
+    let Ok(tokens) = std::panic::catch_unwind(|| tokenizer.encode(&cleaned_text)) else {
+        return None;
+    };
+    
+    // Check if indices are valid
+    if start_idx >= tokens.len() || end_idx > tokens.len() || start_idx >= end_idx {
+        return None;
+    }
+    
+    // For BPE tokenizers, try to decode with context
+    if let Some(inner) = tokenizer.inner.as_ref() {
+        let context_start = start_idx.saturating_sub(context_words);
+        let context_end = (end_idx + context_words).min(tokens.len());
+        
+        let mut result = String::new();
+        
+        // Decode and add leading context
+        if context_start < start_idx {
+            if let Ok(prefix) = inner.decode(tokens[context_start..start_idx].to_vec()) {
+                result.push_str("... ");
+                result.push_str(&prefix);
+                result.push_str(" ");
+            }
+        }
+        
+        // Decode and add contaminated section
+        if let Ok(contaminated) = inner.decode(tokens[start_idx..end_idx].to_vec()) {
+            result.push_str("【");
+            result.push_str(&contaminated);
+            result.push_str("】");
+        }
+        
+        // Decode and add trailing context
+        if end_idx < context_end {
+            if let Ok(suffix) = inner.decode(tokens[end_idx..context_end].to_vec()) {
+                result.push_str(" ");
+                result.push_str(&suffix);
+                result.push_str(" ...");
+            }
+        }
+        
+        if !result.is_empty() {
+            return Some(result);
+        }
+    }
+    
+    // Fallback: show token IDs
+    let token_str = tokens[start_idx..end_idx]
+        .iter()
+        .map(|t| t.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    
+    Some(format!("[Tokens: {}]", token_str))
+}
+
 fn display_contamination_case(
     result: &ContaminationResult,
     training_cache: &HashMap<String, Vec<String>>,
     eval_cache: &HashMap<String, Vec<String>>,
     ground_truth: &[GroundTruthRecord],
-    full: bool
+    full: bool,
+    config: &Config
 ) -> Result<(), Error> {
     println!("📁 TRAINING FILE: {}", result.training_file);
 
@@ -1175,6 +1296,20 @@ fn display_contamination_case(
     };
 
     println!("   \"{}\"", displayed_text);
+    
+    // Show the actual contaminated text segment if we have token indices
+    if let (Some(start_idx), Some(end_idx)) = (result.contamination_start_idx, result.contamination_end_idx) {
+        println!();
+        println!("📍 CONTAMINATED SEGMENT (tokens {} to {}):", start_idx, end_idx);
+        
+        // Try to extract the contaminated segment with 10 words of context on each side
+        if let Some(segment) = extract_contaminated_segment_with_context(training_text, start_idx, end_idx, config, 10) {
+            println!("   {}", segment);
+        } else {
+            println!("   [Unable to extract segment - {} tokens]", end_idx - start_idx);
+        }
+    }
+    
     println!();
 
     match result.method.as_deref() {

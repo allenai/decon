@@ -320,6 +320,9 @@ struct SimpleContaminationEntry {
     overlap_ratio: f32,
     toxic_score: f32,
     matching_ngrams: Vec<String>,
+    // Token indices for position recovery
+    contamination_start_idx: Option<usize>, // Start index in token array
+    contamination_end_idx: Option<usize>,   // End index in token array
 }
 
 #[derive(Clone)]
@@ -423,6 +426,8 @@ fn process_simple_training_file(
                             overlap_ratio,
                             toxic_score,
                             matching_ngrams: cluster.matching_ngrams.clone(),
+                            contamination_start_idx: Some(cluster.start_idx),
+                            contamination_end_idx: Some(cluster.end_idx),
                         };
 
                         cluster_results.push(entry);
@@ -905,7 +910,7 @@ fn save_contamination_results_toxic_format(
     for entry in contamination_results.iter() {
         let training_file = entry.key();
         for contamination_entry in entry.value() {
-            let result = json!({
+            let mut result = json!({
                 "training_file": training_file,
                 "training_line": contamination_entry.training_line,
                 "eval_dataset": contamination_entry.eval_name,
@@ -915,6 +920,14 @@ fn save_contamination_results_toxic_format(
                 "method": "simple",
                 "matching_ngrams": contamination_entry.matching_ngrams
             });
+            
+            // Add token indices if available
+            if let Some(start_idx) = contamination_entry.contamination_start_idx {
+                result["contamination_start_idx"] = json!(start_idx);
+            }
+            if let Some(end_idx) = contamination_entry.contamination_end_idx {
+                result["contamination_end_idx"] = json!(end_idx);
+            }
 
             output_data.push(serde_json::to_vec(&result)?);
             total_contaminations += 1;
