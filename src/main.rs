@@ -13,6 +13,8 @@ use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::{self, BufRead};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 // Internal crate imports
 use mj_io::{expand_dirs, read_pathbuf_to_mem};
@@ -246,29 +248,40 @@ pub fn get_nested_json_val(obj: &Value, key: &String) -> Result<String, Error> {
 
 pub struct OmniTokenizer {
     tokenizer_name: String,
-    inner: CoreBPE
+    inner: Option<CoreBPE>,
+    // For word mode: vocabulary built from reference set
+    word_to_id: Arc<Mutex<HashMap<String, u32>>>,
+    id_to_word: Arc<Mutex<HashMap<u32, String>>>,
+    next_word_id: Arc<AtomicU32>,
 }
 
 impl OmniTokenizer {
     pub fn new(tokenizer_name: &str) -> Result<Self, Error> {
-        let inner_tokenizer = match tokenizer_name.to_string().as_str() {
-            "p50k" => p50k_base().unwrap(),
-            "cl100k" => cl100k_base().unwrap(),
+        let inner_tokenizer = match tokenizer_name {
+            "p50k" => Some(p50k_base().unwrap()),
+            "cl100k" => Some(cl100k_base().unwrap()),
+            "word" => None, // Word mode doesn't need a BPE tokenizer
             _ => {
-                println!("Tokenizer {:?} <--- BE CAREFUL HERE", tokenizer_name.to_string());
-                p50k_base().unwrap()
+                println!("Tokenizer {:?} <--- BE CAREFUL HERE", tokenizer_name);
+                Some(p50k_base().unwrap())
             }
         };
-        Ok(OmniTokenizer { tokenizer_name: tokenizer_name.to_string(), inner: inner_tokenizer})
+        Ok(OmniTokenizer { 
+            tokenizer_name: tokenizer_name.to_string(), 
+            inner: inner_tokenizer,
+            word_to_id: Arc::new(Mutex::new(HashMap::new())),
+            id_to_word: Arc::new(Mutex::new(HashMap::new())),
+            next_word_id: Arc::new(AtomicU32::new(0)),
+        })
     }
 
     pub fn encode(&self, text: &str) -> Vec<usize> {
         match self.tokenizer_name.as_str() {
             "p50k" => {
-                self.inner.encode_with_special_tokens(text)
+                self.inner.as_ref().unwrap().encode_with_special_tokens(text)
             },
             "cl100k" => {
-                self.inner.encode_with_special_tokens(text)
+                self.inner.as_ref().unwrap().encode_with_special_tokens(text)
             }
             "uniseg" => {
                 text.split_word_bounds().map(|w| {
@@ -277,9 +290,36 @@ impl OmniTokenizer {
                     hasher.finish() as usize
                 }).collect()
             },
+            "word" => {
+                // For word mode, tokenize into words and look up IDs
+                // Unknown words get a special ID (u32::MAX)
+                let cleaned = clean_text(text, &default_punctuation_chars());
+                cleaned.split_whitespace()
+                    .map(|word| {
+                        let word_to_id = self.word_to_id.lock().unwrap();
+                        word_to_id.get(word)
+                            .copied()
+                            .unwrap_or(u32::MAX) as usize
+                    })
+                    .collect()
+            },
             _ => { // default to character level
                 text.bytes().map(|b| b as usize).collect()
             },
+        }
+    }
+    
+    // Add word to vocabulary (for building reference vocabulary)
+    pub fn add_word(&self, word: &str) -> u32 {
+        let mut word_to_id = self.word_to_id.lock().unwrap();
+        if let Some(&id) = word_to_id.get(word) {
+            id
+        } else {
+            let id = self.next_word_id.fetch_add(1, Ordering::SeqCst);
+            word_to_id.insert(word.to_string(), id);
+            let mut id_to_word = self.id_to_word.lock().unwrap();
+            id_to_word.insert(id, word.to_string());
+            id
         }
     }
 

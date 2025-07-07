@@ -11,4 +11,4 @@ max_consecutive_misses: 4
 toxic_overlap_threshold: 0.5
 toxic_score_threshold: 1.0
 punctuation_chars: "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"  # (uses default if not specified)
-tokenizer_str: cl100k  # Use the same tokenizer as minhash mode
+tokenizer_str: word  # Use word-based tokenization for maximum speed

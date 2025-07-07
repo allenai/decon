@@ -11,7 +11,7 @@ use std::time::Instant;
 
 use mj_io::{expand_dirs, read_pathbuf_to_mem, write_mem_to_pathbuf, build_pbar};
 
-use crate::{Config, get_nested_json_val, get_results_filename, OmniTokenizer, preprocess_text};
+use crate::{Config, get_nested_json_val, get_results_filename, OmniTokenizer, preprocess_text, clean_text};
 
 // Simple mode structures
 type NgramToIdMap = DashMap<u64, u64>; // Maps n-gram hash to unique ID
@@ -26,14 +26,14 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
     // Step 1: Process eval datasets and build n-gram mappings
     println!("Processing eval datasets and building n-gram index...");
     let index_start = Instant::now();
-    let (ngram_to_id, id_to_docs, eval_documents, id_to_ngram_tokens) = build_simple_index(config)?;
+    let (ngram_to_id, id_to_docs, eval_documents, id_to_ngram_tokens, tokenizer) = build_simple_index(config)?;
     let index_time = index_start.elapsed();
     println!("Built simple index with {} unique n-grams in {:.2}s", ngram_to_id.len(), index_time.as_secs_f64());
 
     // Step 2: Process training data and detect contamination
     println!("Processing training data for contamination detection...");
     let detection_start = Instant::now();
-    let total_contaminations = detect_simple_contamination(config, &ngram_to_id, &id_to_docs, &eval_documents, &id_to_ngram_tokens)?;
+    let total_contaminations = detect_simple_contamination(config, &ngram_to_id, &id_to_docs, &eval_documents, &id_to_ngram_tokens, &tokenizer)?;
     let detection_time = detection_start.elapsed();
 
     let total_time = start_main.elapsed();
@@ -45,7 +45,7 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
     Ok(())
 }
 
-fn build_simple_index(config: &Config) -> Result<(NgramToIdMap, IdToDocsMap, EvalDocuments, IdToNgramTokens), Error> {
+fn build_simple_index(config: &Config) -> Result<(NgramToIdMap, IdToDocsMap, EvalDocuments, IdToNgramTokens, OmniTokenizer), Error> {
     let ngram_to_id: NgramToIdMap = DashMap::new();
     let id_to_docs: IdToDocsMap = DashMap::new();
     let eval_documents: EvalDocuments = DashMap::new();
@@ -85,7 +85,7 @@ fn build_simple_index(config: &Config) -> Result<(NgramToIdMap, IdToDocsMap, Eva
     // println!("Finished processing reference files. Total unique n-grams: {}", ngram_to_id.len()); //debug
     // println!("Total eval documents indexed: {}", eval_documents.len()); //debug
 
-    Ok((ngram_to_id, id_to_docs, eval_documents, id_to_ngram_tokens))
+    Ok((ngram_to_id, id_to_docs, eval_documents, id_to_ngram_tokens, tokenizer))
 }
 
 fn process_simple_reference_file(
@@ -119,10 +119,24 @@ fn process_simple_reference_file(
         let line_text = get_nested_json_val(&json_obj, &config.content_key.to_string())?;
 
         // Use preprocess_text to get token IDs
-        let Ok(word_tokens) = catch_unwind(|| preprocess_text(&line_text, tokenizer, &config.punctuation_chars)) else {
-            println!("Tokenization failed on {:?} | line {:?}", file_path, line_num);
-            _skipped_entries += 1;
-            continue;
+        let word_tokens = if config.tokenizer_str == "word" {
+            // For word mode, build vocabulary from reference set
+            let cleaned = clean_text(&line_text, &config.punctuation_chars);
+            let words: Vec<String> = cleaned.split_whitespace()
+                .map(|s| s.to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            // Add words to vocabulary and get IDs
+            words.iter()
+                .map(|word| tokenizer.add_word(word) as usize)
+                .collect()
+        } else {
+            let Ok(tokens) = catch_unwind(|| preprocess_text(&line_text, tokenizer, &config.punctuation_chars)) else {
+                println!("Tokenization failed on {:?} | line {:?}", file_path, line_num);
+                _skipped_entries += 1;
+                continue;
+            };
+            tokens
         };
         let word_count = word_tokens.len();
 
@@ -229,12 +243,10 @@ fn detect_simple_contamination(
     ngram_to_id: &NgramToIdMap,
     id_to_docs: &IdToDocsMap,
     eval_documents: &EvalDocuments,
-    id_to_ngram_tokens: &IdToNgramTokens
+    id_to_ngram_tokens: &IdToNgramTokens,
+    tokenizer: &OmniTokenizer
 ) -> Result<usize, Error> {
     // println!("Starting training data contamination detection..."); //debug
-    
-    // Initialize tokenizer
-    let tokenizer = OmniTokenizer::new(&config.tokenizer_str)?;
 
     // Find all training files
     let training_files = expand_dirs(
@@ -258,7 +270,7 @@ fn detect_simple_contamination(
             id_to_docs,
             eval_documents,
             &contamination_results,
-            &tokenizer,
+            tokenizer,
             id_to_ngram_tokens
         ) {
             Ok(lines_processed) => {
@@ -528,6 +540,11 @@ fn check_ngram_for_match(
     } else {
         word_tokens[ngram_idx..ngram_idx + config.ngram_size].to_vec()
     };
+    
+    // Skip n-grams containing unknown words (u32::MAX)
+    if ngram_tokens.iter().any(|&token| token == u32::MAX as usize) {
+        return None;
+    }
     
     let ngram_hash = hash_ngram(&ngram_tokens);
 
