@@ -18,7 +18,7 @@ help:
 	@echo "  status     - Check job status (usage: make status JOB_ID=<id>)"
 
 detect:
-	cargo run --release detect --config examples/eval/.yaml
+	cargo run --release detect --config examples/eval/simple.yaml
 
 review:
 	cargo run --release review --config examples/eval/simple.yaml --step
