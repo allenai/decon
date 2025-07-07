@@ -10,7 +10,12 @@ ngram_size: 1
 num_bands: 7
 tokenizer_str: uniseg
 exact_override: true
-jaccard_similarity_threshold: 0.8
+jaccard_similarity_threshold: 0.5
 
 # Text processing - default aggressive punctuation removal for minhash
-# punctuation_chars: "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"  # (uses default if not specified)
+punctuation_chars: "!\"#&',./:;?@`~"  # Excludes: * + - = < > ^ _ []
+
+# Window-based processing (optional) - enables multiple window sizes per document
+window_size_increment: 10   # Size increment for each window (in tokens)
+num_windows: 5              # Number of incrementally sized windows (128, 256, 384 tokens)
+window_step_size: 25        # Step size for sliding windows

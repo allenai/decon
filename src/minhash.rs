@@ -16,6 +16,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 use std::fs::create_dir_all;
 use std::io::BufRead;
+use unicode_segmentation::UnicodeSegmentation;
 
 use mj_io::{expand_dirs, read_pathbuf_to_mem, write_mem_to_pathbuf, build_pbar};
 
@@ -170,7 +171,7 @@ fn detect_contamination_in_training_data(
     println!("Found {} training files to process", training_files.len());
     let pbar = build_pbar(training_files.len(), "Training files");
 
-    let contamination_results: DashMap<String, Vec<(usize, String, usize, f32)>> = DashMap::new();
+    let contamination_results: DashMap<String, Vec<(usize, String, usize, f32, Option<String>)>> = DashMap::new();
 
     training_files.par_iter().for_each(|file_path| {
         let file_name = if file_path.extension().and_then(|s| s.to_str()) == Some("gz") {
@@ -203,7 +204,8 @@ fn detect_contamination_in_training_data(
             &contamination_results,
             config.exact_override,
             config.jaccard_similarity_threshold,
-            &config.punctuation_chars
+            &config.punctuation_chars,
+            config
         ) {
             println!("Error processing training file {:?}: {:?}", file_path, e);
         }
@@ -214,6 +216,58 @@ fn detect_contamination_in_training_data(
     save_contamination_results(&contamination_results, &config.output_dir)?;
 
     Ok(())
+}
+
+fn reconstruct_text_from_tokens(tokens: &[usize], original_text: &str, tokenizer: &OmniTokenizer) -> String {
+    // For uniseg tokenizer, we need to reconstruct from the original text
+    // This is a simplified approach - in practice we'd need better token mapping
+    match tokenizer.tokenizer_name.as_str() {
+        "uniseg" => {
+            // For uniseg (word boundaries), try to reconstruct by taking a substring
+            // This is an approximation since we don't have perfect token-to-text mapping
+            let words: Vec<&str> = original_text.split_word_bounds().collect();
+            let window_size = std::cmp::min(tokens.len(), words.len());
+            words.iter().take(window_size).cloned().collect::<Vec<_>>().join("")
+        }
+        _ => {
+            // For other tokenizers, return a placeholder
+            format!("[Window of {} tokens]", tokens.len())
+        }
+    }
+}
+
+fn generate_document_windows(tokens: &[usize], window_size_increment: usize, num_windows: usize, window_step_size: usize) -> Vec<Vec<usize>> {
+    let mut windows = Vec::new();
+    
+    if tokens.len() <= window_size_increment {
+        // Document is smaller than the smallest window, return the full document
+        windows.push(tokens.to_vec());
+        return windows;
+    }
+    
+    let mut start_pos = 0;
+    
+    // Generate windows at each step position
+    while start_pos < tokens.len() {
+        // Generate incrementally sized windows from this starting position
+        for window_idx in 0..num_windows {
+            let window_size = window_size_increment * (window_idx + 1);
+            let end_pos = std::cmp::min(start_pos + window_size, tokens.len());
+            
+            if end_pos > start_pos {
+                let window = tokens[start_pos..end_pos].to_vec();
+                windows.push(window);
+            }
+        }
+        
+        // Move to next step position
+        start_pos += window_step_size;
+        if start_pos >= tokens.len() - window_size_increment {
+            break; // Avoid generating tiny windows at the end
+        }
+    }
+    
+    windows
 }
 
 fn process_training_file(
@@ -227,10 +281,11 @@ fn process_training_file(
     content_key: &str,
     reference_bands: &ReferenceBands,
     reference_signatures: &ReferenceSignatures,
-    contamination_results: &DashMap<String, Vec<(usize, String, usize, f32)>>,
+    contamination_results: &DashMap<String, Vec<(usize, String, usize, f32, Option<String>)>>,
     exact_override: bool,
     jaccard_threshold: f32,
-    punctuation_chars: &str
+    punctuation_chars: &str,
+    config: &Config
 ) -> Result<(), Error> {
     let data = read_pathbuf_to_mem(file_path)?;
     let tokenizer = OmniTokenizer::new(tokenizer_str)?;
@@ -246,64 +301,140 @@ fn process_training_file(
         let line_text = get_nested_json_val(&json_obj, &content_key.to_string())?;
         total_lines += 1;
 
-        let hash_vals = if exact_override {
+        // Check if windowing is enabled
+        let use_windowing = config.window_size_increment.is_some() && 
+                           config.num_windows.is_some() && 
+                           config.window_step_size.is_some();
+
+        if use_windowing && exact_override {
+            // Generate document windows and check each one
             let Ok(tokens) = catch_unwind(|| preprocess_text(&line_text, &tokenizer, punctuation_chars)) else {
                 continue;
             };
-            get_hash_vals_from_tokens(tokens, perm_seeds, ngram_size)
-        } else {
-            let n = perm_seeds.len();
-            let mut hash_vals: Array1<u64> = Array1::ones(n);
-            hash_vals = hash_vals * (hash_object(&line_text) as u64);
-            hash_vals
-        };
+            
+            let window_size_increment = config.window_size_increment.unwrap();
+            let num_windows = config.num_windows.unwrap();
+            let window_step_size = config.window_step_size.unwrap();
+            
+            let windows = generate_document_windows(&tokens, window_size_increment, num_windows, window_step_size);
+            let mut best_line_matches: HashMap<(String, usize), (f32, Option<String>)> = HashMap::new();
+            
+            // Process each window and keep the best matches
+            for window_tokens in windows {
+                let hash_vals = get_hash_vals_from_tokens(window_tokens.clone(), perm_seeds, ngram_size);
+                
+                // Check for collisions with reference bands
+                let bands = hash_vals.clone().into_shape((num_bands, band_size))?;
+                
+                for (_band_idx, row) in bands.rows().into_iter().enumerate() {
+                    let mut hasher = Sha256::new();
+                    hasher.update(bytemuck::cast_slice(row.as_slice().unwrap()));
+                    let hash = hasher.finalize();
+                    let band_signature = hash[..8].to_vec();
 
-        // Check for collisions with reference bands
-        let bands = hash_vals.clone().into_shape((num_bands, band_size))?;
-        let mut line_matches: HashMap<(String, usize), f32> = HashMap::new();
+                    if let Some(matches) = reference_bands.get(&band_signature) {
+                        // Found potential contamination - calculate Jaccard similarity
+                        for (eval_name, eval_line_num) in matches.value() {
+                            if let Some(ref_sig_entry) = reference_signatures.get(&(eval_name.clone(), *eval_line_num)) {
+                                let jaccard_sim = calculate_jaccard_similarity(&hash_vals, ref_sig_entry.value());
 
-        for (_band_idx, row) in bands.rows().into_iter().enumerate() {
-            let mut hasher = Sha256::new();
-            hasher.update(bytemuck::cast_slice(row.as_slice().unwrap()));
-            let hash = hasher.finalize();
-            let band_signature = hash[..8].to_vec();
-
-            if let Some(matches) = reference_bands.get(&band_signature) {
-                // Found potential contamination - calculate Jaccard similarity
-                for (eval_name, eval_line_num) in matches.value() {
-                    if let Some(ref_sig_entry) = reference_signatures.get(&(eval_name.clone(), *eval_line_num)) {
-                        let jaccard_sim = calculate_jaccard_similarity(&hash_vals, ref_sig_entry.value());
-
-                        // Store contamination result (threshold configurable)
-                        if jaccard_sim > jaccard_threshold {
-                            let key = (eval_name.clone(), *eval_line_num);
-                            // Keep the highest Jaccard similarity for each unique eval match
-                            line_matches.entry(key)
-                                .and_modify(|existing_sim| *existing_sim = existing_sim.max(jaccard_sim))
-                                .or_insert(jaccard_sim);
+                                // Store contamination result (threshold configurable)
+                                if jaccard_sim > jaccard_threshold {
+                                    let key = (eval_name.clone(), *eval_line_num);
+                                    
+                                    // Generate window content if debug mode is enabled
+                                    let window_content = if config.debug {
+                                        Some(reconstruct_text_from_tokens(&window_tokens, &line_text, &tokenizer))
+                                    } else {
+                                        None
+                                    };
+                                    
+                                    // Keep the highest Jaccard similarity across all windows for each unique eval match
+                                    best_line_matches.entry(key)
+                                        .and_modify(|existing| {
+                                            if jaccard_sim > existing.0 {
+                                                *existing = (jaccard_sim, window_content.clone());
+                                            }
+                                        })
+                                        .or_insert((jaccard_sim, window_content));
+                                }
+                            }
                         }
                     }
                 }
             }
-        }
+            
+            // Add deduplicated matches to results
+            if !best_line_matches.is_empty() {
+                contaminated_lines += 1;
+                for ((eval_name, eval_line_num), (jaccard_sim, window_content)) in best_line_matches {
+                    contamination_results
+                        .entry(file_name.to_string())
+                        .or_default()
+                        .push((line_num, eval_name, eval_line_num, jaccard_sim, window_content));
+                }
+            }
+        } else {
+            // Original processing logic (no windowing or non-exact mode)
+            let hash_vals = if exact_override {
+                let Ok(tokens) = catch_unwind(|| preprocess_text(&line_text, &tokenizer, punctuation_chars)) else {
+                    continue;
+                };
+                get_hash_vals_from_tokens(tokens, perm_seeds, ngram_size)
+            } else {
+                let n = perm_seeds.len();
+                let mut hash_vals: Array1<u64> = Array1::ones(n);
+                hash_vals = hash_vals * (hash_object(&line_text) as u64);
+                hash_vals
+            };
 
-        // Add deduplicated matches to results
-        if !line_matches.is_empty() {
-            contaminated_lines += 1;
-            for ((eval_name, eval_line_num), jaccard_sim) in line_matches {
-                contamination_results
-                    .entry(file_name.to_string())
-                    .or_default()
-                    .push((line_num, eval_name, eval_line_num, jaccard_sim));
+            // Check for collisions with reference bands
+            let bands = hash_vals.clone().into_shape((num_bands, band_size))?;
+            let mut line_matches: HashMap<(String, usize), f32> = HashMap::new();
+
+            for (_band_idx, row) in bands.rows().into_iter().enumerate() {
+                let mut hasher = Sha256::new();
+                hasher.update(bytemuck::cast_slice(row.as_slice().unwrap()));
+                let hash = hasher.finalize();
+                let band_signature = hash[..8].to_vec();
+
+                if let Some(matches) = reference_bands.get(&band_signature) {
+                    // Found potential contamination - calculate Jaccard similarity
+                    for (eval_name, eval_line_num) in matches.value() {
+                        if let Some(ref_sig_entry) = reference_signatures.get(&(eval_name.clone(), *eval_line_num)) {
+                            let jaccard_sim = calculate_jaccard_similarity(&hash_vals, ref_sig_entry.value());
+
+                            // Store contamination result (threshold configurable)
+                            if jaccard_sim > jaccard_threshold {
+                                let key = (eval_name.clone(), *eval_line_num);
+                                // Keep the highest Jaccard similarity for each unique eval match
+                                line_matches.entry(key)
+                                    .and_modify(|existing_sim| *existing_sim = existing_sim.max(jaccard_sim))
+                                    .or_insert(jaccard_sim);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Add deduplicated matches to results
+            if !line_matches.is_empty() {
+                contaminated_lines += 1;
+                for ((eval_name, eval_line_num), jaccard_sim) in line_matches {
+                    contamination_results
+                        .entry(file_name.to_string())
+                        .or_default()
+                        .push((line_num, eval_name, eval_line_num, jaccard_sim, None));
+                }
             }
         }
     }
 
     if contaminated_lines > 0 {
-        println!("  → Found {} contaminated lines out of {} total lines in {}",
-                contaminated_lines, total_lines, file_name);
+        // println!("  → Found {} contaminated lines out of {} total lines in {}",
+        //         contaminated_lines, total_lines, file_name);
     } else {
-        println!("  → No contamination found in {} ({} lines)", file_name, total_lines);
+        // println!("  → No contamination found in {} ({} lines)", file_name, total_lines);
     }
 
     Ok(())
@@ -394,7 +525,7 @@ fn calculate_jaccard_similarity(sig1: &Array1<u64>, sig2: &Array1<u64>) -> f32 {
 }
 
 fn save_contamination_results(
-    results: &DashMap<String, Vec<(usize, String, usize, f32)>>,
+    results: &DashMap<String, Vec<(usize, String, usize, f32, Option<String>)>>,
     output_dir: &PathBuf
 ) -> Result<(), Error> {
     create_dir_all(output_dir)?;
@@ -405,14 +536,20 @@ fn save_contamination_results(
 
     for entry in results.iter() {
         let training_file = entry.key();
-        for (training_line, eval_name, eval_line, jaccard_sim) in entry.value() {
-            let result = json!({
+        for (training_line, eval_name, eval_line, jaccard_sim, window_content) in entry.value() {
+            let mut result = json!({
                 "training_file": training_file,
                 "training_line": training_line,
                 "eval_dataset": eval_name,
                 "eval_line": eval_line,
                 "jaccard_similarity": jaccard_sim
             });
+            
+            // Add window content if available
+            if let Some(content) = window_content {
+                result["window_content"] = json!(content);
+            }
+            
             output_data.push(serde_json::to_vec(&result)?);
             total_contaminations += 1;
         }

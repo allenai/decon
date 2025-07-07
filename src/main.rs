@@ -133,7 +133,15 @@ pub struct Config {
 
     // Debug options
     #[serde(default = "default_debug")]
-    pub debug: bool
+    pub debug: bool,
+
+    // Windowing options
+    #[serde(default)]
+    pub window_size_increment: Option<usize>,
+    #[serde(default)]
+    pub num_windows: Option<usize>,
+    #[serde(default)]
+    pub window_step_size: Option<usize>,
 
 }
 
@@ -409,6 +417,8 @@ struct ContaminationResult {
     bucket_sizes: Option<Vec<usize>>,
     #[serde(default)]
     bucket_ids: Option<Vec<u64>>,
+    #[serde(default)]
+    window_content: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -845,6 +855,7 @@ fn filter_contamination_results(
                     matching_ngrams: None,
                     bucket_sizes: None,
                     bucket_ids: None,
+                    window_content: None,
                 };
                 filtered.push(placeholder);
             }
@@ -903,6 +914,7 @@ fn filter_contamination_results(
                     matching_ngrams: None,
                     bucket_sizes: None,
                     bucket_ids: None,
+                    window_content: None,
                 };
                 filtered.push(placeholder);
             }
@@ -1101,9 +1113,15 @@ fn display_contamination_case(
         }
     };
 
-    // Display side by side
-    println!("🔍 TRAINING TEXT (line {}):", result.training_line);
-    println!("   \"{}\"", training_text);
+    // Display training content - prefer window content if available
+    if let Some(ref window_content) = result.window_content {
+        println!("🔍 MATCHING WINDOW (from line {}):", result.training_line);
+        println!("   \"{}\"", window_content);
+    } else {
+        println!("🔍 TRAINING TEXT (line {}):", result.training_line);
+        println!("   \"{}\"", training_text);
+    }
+    
     println!();
 
     match result.method.as_deref() {

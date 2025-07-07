@@ -18,6 +18,9 @@ detect:
 review:
 	cargo run --release review --config examples/dev/toxic.yaml --step
 
+minhash:
+	cargo run --release review --config examples/dev/minhash.yaml
+
 stats:
 	cargo run -- review --config examples/dev/toxic.yaml --stats
 
@@ -32,6 +35,8 @@ tp:
 
 tn:
 	cargo run -- review --config examples/dev/toxic.yaml --tn
+
+
 
 evals:
 	python python/download_evals.py

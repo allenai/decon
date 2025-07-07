@@ -17,5 +17,3 @@ skip_hot_bucket_threshold: -1  # Skip buckets with more than this many entries
 ngram_size: 3
 sample_every_m_tokens: 5  # Sample every 10th n-gram (set to 1 to disable sampling)
 max_consecutive_misses: 4  # Stop expansion after 2 consecutive misses
-
-punctuation_chars: "!\"#&'(),./:;?@`{|}~"  # Excludes: * + - = < > ^ _ []
