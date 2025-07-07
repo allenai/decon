@@ -1423,6 +1423,7 @@ fn process_ngrams_with_sampling(
 }
 
 /// Check a single n-gram for collisions, return document IDs that match
+#[allow(unused_variables)]
 fn check_ngram_for_collision(
     ngram_idx: usize,
     word_tokens: &[String],
@@ -1465,15 +1466,15 @@ fn check_ngram_for_collision(
 
     // Cache statistics will be updated at file level to avoid overwriting
 
-    // Hot bucket optimization - skip hot buckets immediately
-    let hot_bucket_start = std::time::Instant::now();
-    if !hot_buckets.is_empty() && hot_buckets.contains(&bucket_id) {
-        collision_timing.hot_bucket_filtering += hot_bucket_start.elapsed();
-        collision_counters.hot_buckets_skipped += 1;
-        *hot_buckets_skipped_count += 1;
-        return Ok(CollisionResult::HotBucketSkipped);
-    }
-    collision_timing.hot_bucket_filtering += hot_bucket_start.elapsed();
+    // // Hot bucket optimization - skip hot buckets immediately
+    // let hot_bucket_start = std::time::Instant::now();
+    // if !hot_buckets.is_empty() && hot_buckets.contains(&bucket_id) {
+    //     collision_timing.hot_bucket_filtering += hot_bucket_start.elapsed();
+    //     collision_counters.hot_buckets_skipped += 1;
+    //     *hot_buckets_skipped_count += 1;
+    //     return Ok(CollisionResult::HotBucketSkipped);
+    // }
+    // collision_timing.hot_bucket_filtering += hot_bucket_start.elapsed();
 
     // Bucket lookup
     let lookup_start = Instant::now();
@@ -1508,6 +1509,7 @@ enum CollisionResult {
     Hit(HashSet<u32>),  // Found documents in bucket
     Miss,               // No bucket collision
     VocabFiltered,      // N-gram filtered due to vocabulary
+    #[allow(dead_code)]
     HotBucketSkipped,   // Skipped hot bucket
 }
 
@@ -1642,10 +1644,10 @@ fn expand_contamination_cluster_with_intersection(
 
                 // Update each document's state based on intersection
                 let doc_state_start = std::time::Instant::now();
-                
+
                 // Efficient set intersection: find documents in both active_documents and current_documents
                 let mut match_count = 0;
-                
+
                 // Update states for intersected documents (found in bucket)
                 for doc_id in active_documents.intersection(current_set) {
                     if let Some(state) = all_document_stats.get_mut(doc_id) {
@@ -1654,7 +1656,7 @@ fn expand_contamination_cluster_with_intersection(
                         match_count += 1;
                     }
                 }
-                
+
                 // Update states for documents not in intersection (missed)
                 for doc_id in active_documents.difference(current_set) {
                     if let Some(state) = all_document_stats.get_mut(doc_id) {
@@ -1749,10 +1751,10 @@ fn expand_contamination_cluster_with_intersection(
                 let bucket_id = compute_lsh_bucket(&ngram_embeddings[i], hyperplanes);
 
                 // Update each document's state based on intersection
-                
+
                 // Efficient set intersection: find documents in both active_documents and current_documents
                 let mut match_count = 0;
-                
+
                 // Update states for intersected documents (found in bucket)
                 for doc_id in active_documents.intersection(current_set) {
                     if let Some(state) = all_document_stats.get_mut(doc_id) {
@@ -1761,7 +1763,7 @@ fn expand_contamination_cluster_with_intersection(
                         match_count += 1;
                     }
                 }
-                
+
                 // Update states for documents not in intersection (missed)
                 for doc_id in active_documents.difference(current_set) {
                     if let Some(state) = all_document_stats.get_mut(doc_id) {
