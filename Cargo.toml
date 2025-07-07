@@ -30,3 +30,5 @@ serde_yaml = "0.9.34"
 unicode-segmentation = "1.12.0"
 ahash = "0.8.11"
 mj_io = "0.1.3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+axum = "0.7"

@@ -23,6 +23,7 @@ use mj_io::{expand_dirs, read_pathbuf_to_mem};
 mod minhash;
 mod toxic;
 mod simple;
+mod daemon;
 
 
 
@@ -74,8 +75,12 @@ enum Commands {
 
         #[arg(long, help = "Display full training documents (default: truncate at 50 lines)")]
         full: bool
-    }
+    },
 
+    Daemon {
+        #[arg(long, default_value_t = 8080)]
+        port: u16,
+    }
 }
 
 /*=================================================================
@@ -1426,6 +1431,10 @@ fn main() {
             review_contamination(config, results_file.as_ref(), *step, *stats, *fp, *fn_, *tp, *tn, *full)
         }
 
+        Commands::Daemon {port} => {
+            let runtime = tokio::runtime::Runtime::new().unwrap();
+            runtime.block_on(daemon::run_daemon(*port))
+        }
     };
     result.unwrap()
 }

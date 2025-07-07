@@ -12,6 +12,8 @@ help:
 	@echo "  fn         - Run review mode to show False Negatives"
 	@echo "  evals      - Download evaluation datasets using Python script"
 	@echo "  embeddings - Download and prepare word embeddings using Python script"
+	@echo "  daemon     - Start the daemon server on port 8080"
+	@echo "  health     - Check daemon health status"
 
 detect:
 	cargo run --release detect --config examples/eval/.yaml
@@ -50,3 +52,9 @@ evals:
 
 embeddings:
 	python python/prepare_embeddings.py
+
+daemon:
+	cargo run --release daemon --port 8080
+
+health:
+	@curl -s http://localhost:8080/health | jq . || echo "Daemon is not running"
