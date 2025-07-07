@@ -17,35 +17,32 @@ help:
 	@echo "  submit     - Submit a file for processing (usage: make submit FILE=<path>)"
 	@echo "  status     - Check job status (usage: make status JOB_ID=<id>)"
 
-detect:
-	cargo run --release detect --config examples/eval/simple.yaml
-
-review:
-	cargo run --release review --config examples/eval/simple.yaml --step
-
 minhash:
-	cargo run --release detect --config examples/eval/minhash.yaml
+	cargo run --release detect --config examples/minhash.yaml
 
 toxic:
-	cargo run --release detect --config examples/eval/toxic.yaml
+	cargo run --release detect --config examples/toxic.yaml
 
 simple:
-	cargo run --release detect --config examples/eval/simple.yaml
+	cargo run --release detect --config examples/simple.yaml
+
+review:
+	cargo run --release review --config examples/toxic.yaml --step
 
 stats:
-	cargo run -- review --config examples/eval/simple.yaml --stats
+	cargo run -- review --config examples/simple.yaml --stats
 
 fn:
-	cargo run -- review --config examples/eval/simple.yaml --fn
+	cargo run -- review --config examples/simple.yaml --fn
 
 fp:
-	cargo run -- review --config examples/eval/simple.yaml --fp
+	cargo run -- review --config examples/simple.yaml --fp
 
 tp:
-	cargo run -- review --config examples/eval/simple.yaml --tp
+	cargo run -- review --config examples/simple.yaml --tp
 
 tn:
-	cargo run -- review --config examples/eval/simple.yaml --tn
+	cargo run -- review --config examples/simple.yaml --tn
 
 
 
@@ -56,7 +53,7 @@ embeddings:
 	python python/prepare_embeddings.py
 
 daemon:
-	cargo run --release daemon --config examples/eval/simple.yaml --port 8080
+	cargo run --release daemon --config examples/simple.yaml --port 8080
 
 health:
 	@curl -s http://localhost:8080/health | jq . || echo "Daemon is not running"
