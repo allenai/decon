@@ -31,6 +31,9 @@ type ReferenceBands = DashMap<Vec<u8>, Vec<(String, usize)>>;
 // Reference signatures storage: maps (eval_name, line_num) to full signature
 type ReferenceSignatures = DashMap<(String, usize), Array1<u64>>;
 
+// Public type alias for MinHash index
+pub type MinHashIndex = (ReferenceBands, ReferenceSignatures);
+
 pub fn contamination_detect(config: &Config) -> Result<(), Error> {
     println!("Starting MinHash contamination detection...");
     let start_main = Instant::now();
@@ -49,7 +52,7 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
     Ok(())
 }
 
-fn build_reference_index(config: &Config) -> Result<(ReferenceBands, ReferenceSignatures), Error> {
+pub fn build_reference_index(config: &Config) -> Result<MinHashIndex, Error> {
     let reference_bands: ReferenceBands = DashMap::new();
     let reference_signatures: ReferenceSignatures = DashMap::new();
 
@@ -270,7 +273,7 @@ fn generate_document_windows(tokens: &[usize], window_size_increment: usize, num
     windows
 }
 
-fn process_training_file(
+pub fn process_training_file(
     file_path: &PathBuf,
     file_name: &str,
     band_seeds: &Vec<u32>,
@@ -501,7 +504,7 @@ fn _update_hash_vals(mut hash_vals: Array1<u64>, a: &Array1<u128>, ngram: &VecDe
     hash_vals
 }
 
-fn _expand_band_seeds(band_seeds: &Vec<u32>, band_size: usize) -> Vec<u64> {
+pub fn _expand_band_seeds(band_seeds: &Vec<u32>, band_size: usize) -> Vec<u64> {
     // Each "band seed" is expanded here to band_size random u64s, and flattened. (used to seed permutations)
     // Probably like no collisions here, so let's just not worry about that ;)
 
@@ -524,7 +527,7 @@ fn calculate_jaccard_similarity(sig1: &Array1<u64>, sig2: &Array1<u64>) -> f32 {
     matches as f32 / sig1.len() as f32
 }
 
-fn save_contamination_results(
+pub fn save_contamination_results(
     results: &DashMap<String, Vec<(usize, String, usize, f32, Option<String>)>>,
     output_dir: &PathBuf
 ) -> Result<(), Error> {

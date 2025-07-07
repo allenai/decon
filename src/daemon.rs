@@ -47,6 +47,7 @@ struct Job {
 enum IndexType {
     Simple(crate::simple::SimpleIndex),
     Toxic(crate::toxic::ToxicIndex),
+    MinHash(crate::minhash::MinHashIndex),
 }
 
 // Shared application state
@@ -89,6 +90,12 @@ pub async fn run_daemon(config_path: PathBuf, port: u16) -> Result<()> {
             // Create full index tuple
             let index = (toxic_buckets, hot_buckets, eval_documents, eval_vocabulary, bucket_contents, embeddings, hyperplanes);
             Arc::new(IndexType::Toxic(index))
+        }
+        "minhash" => {
+            let index = crate::minhash::build_reference_index(&config)?;
+            println!("Built MinHash index with {} bands and {} signatures", 
+                     index.0.len(), index.1.len());
+            Arc::new(IndexType::MinHash(index))
         }
         _ => {
             return Err(anyhow::anyhow!("Unsupported mode for daemon: {}", config.mode));
@@ -329,6 +336,48 @@ fn process_single_file(
             crate::toxic::save_toxic_contamination_results(&contamination_results, &config.output_dir)?;
             
             println!("Processed file {:?} using toxic mode", file_path);
+        }
+        IndexType::MinHash(minhash_index) => {
+            let (reference_bands, reference_signatures) = minhash_index;
+            
+            // Use the existing detection logic from minhash.rs
+            let contamination_results = dashmap::DashMap::new();
+            
+            // Set up hashing parameters
+            let band_seeds: Vec<u32> = crate::minhash::_expand_band_seeds(&vec![config.hash_seed as u32], config.num_bands)
+                .into_iter()
+                .map(|x| x as u32)
+                .collect();
+            let perm_seeds = crate::minhash::_expand_band_seeds(&band_seeds, config.band_size);
+            
+            // Extract filename for minhash processing
+            let file_name = file_path
+                .file_name()
+                .and_then(|f| f.to_str())
+                .unwrap_or("unknown");
+            
+            crate::minhash::process_training_file(
+                file_path,
+                file_name,
+                &band_seeds,
+                &perm_seeds,
+                config.band_size,
+                config.ngram_size,
+                &config.tokenizer_str,
+                &config.content_key,
+                reference_bands,
+                reference_signatures,
+                &contamination_results,
+                config.exact_override,
+                config.jaccard_similarity_threshold,
+                &config.punctuation_chars,
+                config,
+            )?;
+            
+            // Save results
+            crate::minhash::save_contamination_results(&contamination_results, &config.output_dir)?;
+            
+            println!("Processed file {:?} using minhash mode", file_path);
         }
     }
     
