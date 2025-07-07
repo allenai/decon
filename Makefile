@@ -14,6 +14,8 @@ help:
 	@echo "  embeddings - Download and prepare word embeddings using Python script"
 	@echo "  daemon     - Start the daemon server on port 8080"
 	@echo "  health     - Check daemon health status"
+	@echo "  submit     - Submit a file for processing (usage: make submit FILE=<path>)"
+	@echo "  status     - Check job status (usage: make status JOB_ID=<id>)"
 
 detect:
 	cargo run --release detect --config examples/eval/.yaml
@@ -54,7 +56,23 @@ embeddings:
 	python python/prepare_embeddings.py
 
 daemon:
-	cargo run --release daemon --port 8080
+	cargo run --release daemon --config examples/eval/simple.yaml --port 8080
 
 health:
 	@curl -s http://localhost:8080/health | jq . || echo "Daemon is not running"
+
+submit:
+	@if [ -z "$(FILE)" ]; then \
+		echo "Usage: make submit FILE=<path-to-file>"; \
+	else \
+		curl -s -X POST http://localhost:8080/submit \
+			-H "Content-Type: application/json" \
+			-d '{"file_path":"$(FILE)"}' | jq . || echo "Failed to submit job"; \
+	fi
+
+status:
+	@if [ -z "$(JOB_ID)" ]; then \
+		echo "Usage: make status JOB_ID=<job-id>"; \
+	else \
+		curl -s http://localhost:8080/status/$(JOB_ID) | jq . || echo "Failed to get status"; \
+	fi

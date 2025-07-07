@@ -45,7 +45,10 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
     Ok(())
 }
 
-fn build_simple_index(config: &Config) -> Result<(NgramToIdMap, IdToDocsMap, EvalDocuments, IdToNgramTokens, OmniTokenizer), Error> {
+// Public type for the index
+pub type SimpleIndex = (NgramToIdMap, IdToDocsMap, EvalDocuments, IdToNgramTokens, OmniTokenizer);
+
+pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
     let ngram_to_id: NgramToIdMap = DashMap::new();
     let id_to_docs: IdToDocsMap = DashMap::new();
     let eval_documents: EvalDocuments = DashMap::new();

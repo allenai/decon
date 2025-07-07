@@ -78,6 +78,9 @@ enum Commands {
     },
 
     Daemon {
+        #[arg(required=true, long)]
+        config: PathBuf,
+        
         #[arg(long, default_value_t = 8080)]
         port: u16,
     }
@@ -227,7 +230,7 @@ fn default_punctuation_chars() -> String {
     "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~".to_string()  // Default punctuation for minhash
 }
 
-fn read_config(config_path: &PathBuf) -> Result<Config, Error> {
+pub fn read_config(config_path: &PathBuf) -> Result<Config, Error> {
     let contents = read_pathbuf_to_mem(config_path).unwrap();
     let config: Config = serde_yaml::from_reader(contents).unwrap();
     Ok(config)
@@ -1431,9 +1434,9 @@ fn main() {
             review_contamination(config, results_file.as_ref(), *step, *stats, *fp, *fn_, *tp, *tn, *full)
         }
 
-        Commands::Daemon {port} => {
+        Commands::Daemon {config, port} => {
             let runtime = tokio::runtime::Runtime::new().unwrap();
-            runtime.block_on(daemon::run_daemon(*port))
+            runtime.block_on(daemon::run_daemon(config.clone(), *port))
         }
     };
     result.unwrap()
