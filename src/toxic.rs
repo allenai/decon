@@ -146,7 +146,7 @@ impl BucketIdLruCache {
 
 // LSH hyperplane storage: vectorized format for efficient matrix operations
 #[derive(Clone)]
-struct VectorizedHyperplanes {
+pub struct VectorizedHyperplanes {
     // Matrix shape: (num_hyperplanes, EMBEDDING_DIM)
     // Each row is a hyperplane, enabling efficient matrix-vector multiplication
     data: Array2<f32>,
@@ -374,7 +374,7 @@ fn load_embeddings_text(embedding_path: &PathBuf, _poison_scale: f32) -> Result<
     Ok(embeddings)
 }
 
-fn load_embeddings(embedding_path: &PathBuf, config: &Config) -> Result<EmbeddingMap, Error> {
+pub fn load_embeddings(embedding_path: &PathBuf, config: &Config) -> Result<EmbeddingMap, Error> {
     // Try binary format first (.bin extension)
     let binary_path = embedding_path.with_extension("bin");
     if binary_path.exists() {
@@ -626,7 +626,7 @@ fn add_word_embedding_inplace(sum_vector: &mut [f32], word_embedding: &[f32], ti
     timing.vector_arithmetic += arith_start.elapsed();
 }
 
-fn generate_hyperplanes(k: usize, seed: usize) -> Result<Hyperplanes, Error> {
+pub fn generate_hyperplanes(k: usize, seed: usize) -> Result<Hyperplanes, Error> {
     let mut rng = ChaCha20Rng::seed_from_u64(seed as u64);
     let mut hyperplanes = Vec::with_capacity(k);
 
@@ -773,7 +773,10 @@ fn compute_lsh_bucket(normalized_vector: &[f32], hyperplanes: &Hyperplanes) -> u
     bucket_id
 }
 
-fn build_toxic_index(
+// Public type for the toxic index
+pub type ToxicIndex = (ToxicBuckets, HotBuckets, EvalDocuments, HashSet<String>, Option<BucketContents>, EmbeddingMap, Hyperplanes);
+
+pub fn build_toxic_index(
     config: &Config,
     embeddings: &EmbeddingMap,
     hyperplanes: &Hyperplanes
@@ -1252,7 +1255,7 @@ pub struct CollisionCounters {
 }
 
 #[derive(Default)]
-struct FileProcessingStats {
+pub struct FileProcessingStats {
     timing: TimingStats,
     collision_timing: CollisionTiming,
     collision_counters: CollisionCounters,
@@ -1266,7 +1269,7 @@ struct FileProcessingStats {
 }
 
 #[derive(Clone)]
-struct ToxicContaminationEntry {
+pub struct ToxicContaminationEntry {
     training_line: usize,
     eval_name: String,
     eval_line: usize,
@@ -1868,7 +1871,7 @@ fn expand_contamination_cluster_with_intersection(
     })
 }
 
-fn process_toxic_training_file(
+pub fn process_toxic_training_file(
     file_path: &PathBuf,
     file_name: &str,
     config: &Config,
@@ -2284,7 +2287,7 @@ fn save_bucket_contents(
     Ok(())
 }
 
-fn save_toxic_contamination_results(
+pub fn save_toxic_contamination_results(
     results: &DashMap<String, Vec<ToxicContaminationEntry>>,
     output_dir: &PathBuf
 ) -> Result<(), Error> {

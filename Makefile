@@ -53,7 +53,10 @@ embeddings:
 	python python/prepare_embeddings.py
 
 daemon:
-	cargo run --release daemon --config examples/simple.yaml --port 8080
+	cargo run --release daemon --config examples/toxic.yaml --port 8080
+
+daemon-toxic:
+	cargo run --release daemon --config examples/toxic.yaml --port 8080
 
 health:
 	@curl -s http://localhost:8080/health | jq . || echo "Daemon is not running"

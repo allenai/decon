@@ -43,13 +43,19 @@ struct Job {
     status: JobStatus,
 }
 
+// Index types enum to support multiple modes
+enum IndexType {
+    Simple(crate::simple::SimpleIndex),
+    Toxic(crate::toxic::ToxicIndex),
+}
+
 // Shared application state
 #[derive(Clone)]
 struct AppState {
     config: Arc<Config>,
     job_sender: mpsc::Sender<Job>,
     jobs: Arc<Mutex<std::collections::HashMap<String, Job>>>,
-    index: Arc<crate::simple::SimpleIndex>,
+    index: Arc<IndexType>,
 }
 
 pub async fn run_daemon(config_path: PathBuf, port: u16) -> Result<()> {
@@ -63,7 +69,26 @@ pub async fn run_daemon(config_path: PathBuf, port: u16) -> Result<()> {
         "simple" => {
             let index = crate::simple::build_simple_index(&config)?;
             println!("Built simple index with {} unique n-grams", index.0.len());
-            Arc::new(index)
+            Arc::new(IndexType::Simple(index))
+        }
+        "toxic" => {
+            // Load embeddings
+            println!("Loading embeddings...");
+            let embeddings = crate::toxic::load_embeddings(&config.toxic_embedding_path, &config)?;
+            println!("Loaded {} word embeddings", embeddings.len());
+            
+            // Generate hyperplanes
+            println!("Generating {} random hyperplanes...", config.toxic_hyperplanes);
+            let hyperplanes = crate::toxic::generate_hyperplanes(config.toxic_hyperplanes, config.hash_seed)?;
+            
+            // Build index
+            let (toxic_buckets, hot_buckets, eval_documents, eval_vocabulary, bucket_contents) = 
+                crate::toxic::build_toxic_index(&config, &embeddings, &hyperplanes)?;
+            println!("Built toxic index with {} buckets", toxic_buckets.len());
+            
+            // Create full index tuple
+            let index = (toxic_buckets, hot_buckets, eval_documents, eval_vocabulary, bucket_contents, embeddings, hyperplanes);
+            Arc::new(IndexType::Toxic(index))
         }
         _ => {
             return Err(anyhow::anyhow!("Unsupported mode for daemon: {}", config.mode));
@@ -186,7 +211,7 @@ async fn worker_loop(
     state: AppState,
     job_receiver: Arc<Mutex<mpsc::Receiver<Job>>>,
     config: Config,
-    index: Arc<crate::simple::SimpleIndex>,
+    index: Arc<IndexType>,
 ) {
     println!("Worker {} started", worker_id);
     
@@ -250,28 +275,62 @@ async fn worker_loop(
 fn process_single_file(
     config: &Config,
     file_path: &PathBuf,
-    index: &crate::simple::SimpleIndex,
+    index: &IndexType,
 ) -> Result<()> {
-    let (ngram_to_id, id_to_docs, eval_documents, id_to_ngram_tokens, tokenizer) = index;
-    
-    // Use the existing detection logic from simple.rs
-    let contamination_results = dashmap::DashMap::new();
-    
-    let lines_processed = crate::simple::process_simple_training_file(
-        file_path,
-        config,
-        ngram_to_id,
-        id_to_docs,
-        eval_documents,
-        &contamination_results,
-        tokenizer,
-        id_to_ngram_tokens,
-    )?;
-    
-    // Save results
-    crate::simple::save_contamination_results_toxic_format(config, &contamination_results)?;
-    
-    println!("Processed {} lines from {:?}", lines_processed, file_path);
+    match index {
+        IndexType::Simple(simple_index) => {
+            let (ngram_to_id, id_to_docs, eval_documents, id_to_ngram_tokens, tokenizer) = simple_index;
+            
+            // Use the existing detection logic from simple.rs
+            let contamination_results = dashmap::DashMap::new();
+            
+            let lines_processed = crate::simple::process_simple_training_file(
+                file_path,
+                config,
+                ngram_to_id,
+                id_to_docs,
+                eval_documents,
+                &contamination_results,
+                tokenizer,
+                id_to_ngram_tokens,
+            )?;
+            
+            // Save results
+            crate::simple::save_contamination_results_toxic_format(config, &contamination_results)?;
+            
+            println!("Processed {} lines from {:?}", lines_processed, file_path);
+        }
+        IndexType::Toxic(toxic_index) => {
+            let (toxic_buckets, hot_buckets, eval_documents, eval_vocabulary, _bucket_contents, embeddings, hyperplanes) = toxic_index;
+            
+            // Use the existing detection logic from toxic.rs
+            let contamination_results = dashmap::DashMap::new();
+            
+            // Extract filename for toxic processing
+            let file_name = file_path
+                .file_name()
+                .and_then(|f| f.to_str())
+                .unwrap_or("unknown");
+            
+            let _stats = crate::toxic::process_toxic_training_file(
+                file_path,
+                file_name,
+                config,
+                embeddings,
+                hyperplanes,
+                toxic_buckets,
+                hot_buckets,
+                eval_documents,
+                eval_vocabulary,
+                &contamination_results,
+            )?;
+            
+            // Save results
+            crate::toxic::save_toxic_contamination_results(&contamination_results, &config.output_dir)?;
+            
+            println!("Processed file {:?} using toxic mode", file_path);
+        }
+    }
     
     Ok(())
 }
