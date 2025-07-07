@@ -730,9 +730,9 @@ fn expand_simple_contamination_cluster(
                 let ngram_id = ngram_to_id.get(&ngram_hash).map(|id| *id).unwrap_or(0);
                 // Store display format
                 if let Some(tokens) = id_to_ngram_tokens.get(&ngram_id) {
-                    matching_ngrams.push(format!("{:?}", tokens.value()));
+                    matching_ngrams.insert(0, format!("{:?}", tokens.value()));
                 } else {
-                    matching_ngrams.push(format!("{:?}", ngram_tokens));
+                    matching_ngrams.insert(0, format!("{:?}", ngram_tokens));
                 }
 
                 // Update matches and reset misses for intersecting documents
@@ -917,8 +917,7 @@ fn save_contamination_results_toxic_format(
                 "eval_line": contamination_entry.eval_line,
                 "overlap_ratio": contamination_entry.overlap_ratio,
                 "toxic_score": contamination_entry.toxic_score,
-                "method": "simple",
-                "matching_ngrams": contamination_entry.matching_ngrams
+                "method": "simple"
             });
             
             // Add token indices if available
