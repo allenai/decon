@@ -71,7 +71,7 @@ pub async fn run_daemon(config_path: PathBuf, port: u16) -> Result<()> {
     };
     
     // Create job queue channel
-    let (job_sender, mut job_receiver) = mpsc::channel::<Job>(100);
+    let (job_sender, job_receiver) = mpsc::channel::<Job>(100);
     
     // Create shared state
     let state = AppState {
@@ -81,11 +81,23 @@ pub async fn run_daemon(config_path: PathBuf, port: u16) -> Result<()> {
         index: index.clone(),
     };
     
-    // Spawn worker thread to process jobs
-    let worker_state = state.clone();
-    tokio::spawn(async move {
-        worker_loop(worker_state, &mut job_receiver, config, index).await;
-    });
+    // Spawn worker threads based on config
+    let num_workers = config.worker_threads;
+    println!("Starting {} worker threads", num_workers);
+    
+    // Wrap receiver in Arc<Mutex> for sharing between workers
+    let job_receiver = Arc::new(Mutex::new(job_receiver));
+    
+    for worker_id in 0..num_workers {
+        let worker_state = state.clone();
+        let worker_config = config.clone();
+        let worker_index = index.clone();
+        let worker_receiver = job_receiver.clone();
+        
+        tokio::spawn(async move {
+            worker_loop(worker_id, worker_state, worker_receiver, worker_config, worker_index).await;
+        });
+    }
     
     let app = Router::new()
         .route("/health", get(health_check))
@@ -170,54 +182,68 @@ async fn get_job_status(
 }
 
 async fn worker_loop(
+    worker_id: usize,
     state: AppState,
-    job_receiver: &mut mpsc::Receiver<Job>,
+    job_receiver: Arc<Mutex<mpsc::Receiver<Job>>>,
     config: Config,
     index: Arc<crate::simple::SimpleIndex>,
 ) {
-    println!("Worker thread started");
+    println!("Worker {} started", worker_id);
     
-    while let Some(job) = job_receiver.recv().await {
-        println!("Processing job {} for file: {:?}", job.id, job.file_path);
+    loop {
+        // Lock receiver and try to get a job
+        let job = {
+            let mut receiver = job_receiver.lock().await;
+            receiver.recv().await
+        };
         
-        // Update status to processing
-        {
-            let mut jobs = state.jobs.lock().await;
-            if let Some(stored_job) = jobs.get_mut(&job.id) {
-                stored_job.status = JobStatus::Processing;
+        match job {
+            Some(job) => {
+                println!("Worker {} processing job {} for file: {:?}", 
+                         worker_id, job.id, job.file_path);
+                
+                // Update status to processing
+                {
+                    let mut jobs = state.jobs.lock().await;
+                    if let Some(stored_job) = jobs.get_mut(&job.id) {
+                        stored_job.status = JobStatus::Processing;
+                    }
+                }
+                
+                // Process the file
+                let job_id = job.id.clone();
+                let file_path = job.file_path.clone();
+                let config_clone = config.clone();
+                let index_clone = index.clone();
+                let result = tokio::task::spawn_blocking(move || {
+                    process_single_file(&config_clone, &file_path, &index_clone)
+                }).await;
+                
+                // Update status based on result
+                let mut jobs = state.jobs.lock().await;
+                if let Some(stored_job) = jobs.get_mut(&job_id) {
+                    match result {
+                        Ok(Ok(_)) => {
+                            stored_job.status = JobStatus::Completed;
+                            println!("Worker {} completed job {} successfully", worker_id, job_id);
+                        }
+                        Ok(Err(e)) => {
+                            stored_job.status = JobStatus::Failed(format!("Processing error: {}", e));
+                            eprintln!("Worker {} - job {} failed: {}", worker_id, job_id, e);
+                        }
+                        Err(e) => {
+                            stored_job.status = JobStatus::Failed(format!("Task error: {}", e));
+                            eprintln!("Worker {} - job {} task failed: {}", worker_id, job_id, e);
+                        }
+                    }
+                }
             }
-        }
-        
-        // Process the file
-        let job_id = job.id.clone();
-        let file_path = job.file_path.clone();
-        let config_clone = config.clone();
-        let index_clone = index.clone();
-        let result = tokio::task::spawn_blocking(move || {
-            process_single_file(&config_clone, &file_path, &index_clone)
-        }).await;
-        
-        // Update status based on result
-        let mut jobs = state.jobs.lock().await;
-        if let Some(stored_job) = jobs.get_mut(&job_id) {
-            match result {
-                Ok(Ok(_)) => {
-                    stored_job.status = JobStatus::Completed;
-                    println!("Job {} completed successfully", job_id);
-                }
-                Ok(Err(e)) => {
-                    stored_job.status = JobStatus::Failed(format!("Processing error: {}", e));
-                    eprintln!("Job {} failed: {}", job_id, e);
-                }
-                Err(e) => {
-                    stored_job.status = JobStatus::Failed(format!("Task error: {}", e));
-                    eprintln!("Job {} task failed: {}", job_id, e);
-                }
+            None => {
+                println!("Worker {} shutting down - channel closed", worker_id);
+                break;
             }
         }
     }
-    
-    println!("Worker thread shutting down");
 }
 
 // Process a single file using the pre-built index

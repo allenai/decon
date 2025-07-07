@@ -13,3 +13,4 @@ toxic_score_threshold: 2.0
 sample_every_m_tokens: 10
 punctuation_chars: "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"  # (uses default if not specified)
 tokenizer_str: word
+worker_threads: 8  # Number of worker threads for daemon mode

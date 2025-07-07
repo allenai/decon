@@ -151,6 +151,10 @@ pub struct Config {
     // Debug options
     #[serde(default = "default_debug")]
     pub debug: bool,
+    
+    // Daemon options
+    #[serde(default = "default_worker_threads")]
+    pub worker_threads: usize,
 
     // Windowing options
     #[serde(default)]
@@ -228,6 +232,10 @@ fn default_ngram_bucket_lru_cache() -> usize {
 
 fn default_punctuation_chars() -> String {
     "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~".to_string()  // Default punctuation for minhash
+}
+
+fn default_worker_threads() -> usize {
+    4  // Default to 4 worker threads
 }
 
 pub fn read_config(config_path: &PathBuf) -> Result<Config, Error> {

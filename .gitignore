@@ -5,3 +5,4 @@ fixtures/embeddings/*.*
 fixtures/reference/*.*
 tests/output
 test_daemon.sh
+test_multi_thread.sh
