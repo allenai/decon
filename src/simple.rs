@@ -5,17 +5,19 @@ use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::fs::{create_dir_all, File};
 use std::io::{BufRead, BufWriter, Write};
+use std::panic::catch_unwind;
 use std::path::PathBuf;
 use std::time::Instant;
 
 use mj_io::{expand_dirs, read_pathbuf_to_mem, write_mem_to_pathbuf, build_pbar};
 
-use crate::{Config, get_nested_json_val, clean_text, get_results_filename};
+use crate::{Config, get_nested_json_val, get_results_filename, OmniTokenizer, preprocess_text};
 
 // Simple mode structures
-type NgramToIdMap = DashMap<String, u64>; // Maps n-gram text to unique ID
+type NgramToIdMap = DashMap<u64, u64>; // Maps n-gram hash to unique ID
 type IdToDocsMap = DashMap<u64, HashSet<u32>>; // Maps n-gram ID to set of document IDs
 type EvalDocuments = DashMap<u32, (String, usize, usize, usize)>; // Maps doc_id to (eval_name, line_num, total_ngrams, unique_ngrams)
+type IdToNgramTokens = DashMap<u64, Vec<usize>>; // Maps unique ID to token IDs for display
 
 pub fn contamination_detect(config: &Config) -> Result<(), Error> {
     println!("Starting SIMPLE contamination detection...");
@@ -24,14 +26,14 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
     // Step 1: Process eval datasets and build n-gram mappings
     println!("Processing eval datasets and building n-gram index...");
     let index_start = Instant::now();
-    let (ngram_to_id, id_to_docs, eval_documents) = build_simple_index(config)?;
+    let (ngram_to_id, id_to_docs, eval_documents, id_to_ngram_tokens) = build_simple_index(config)?;
     let index_time = index_start.elapsed();
     println!("Built simple index with {} unique n-grams in {:.2}s", ngram_to_id.len(), index_time.as_secs_f64());
 
     // Step 2: Process training data and detect contamination
     println!("Processing training data for contamination detection...");
     let detection_start = Instant::now();
-    let total_contaminations = detect_simple_contamination(config, &ngram_to_id, &id_to_docs, &eval_documents)?;
+    let total_contaminations = detect_simple_contamination(config, &ngram_to_id, &id_to_docs, &eval_documents, &id_to_ngram_tokens)?;
     let detection_time = detection_start.elapsed();
 
     let total_time = start_main.elapsed();
@@ -43,13 +45,17 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
     Ok(())
 }
 
-fn build_simple_index(config: &Config) -> Result<(NgramToIdMap, IdToDocsMap, EvalDocuments), Error> {
+fn build_simple_index(config: &Config) -> Result<(NgramToIdMap, IdToDocsMap, EvalDocuments, IdToNgramTokens), Error> {
     let ngram_to_id: NgramToIdMap = DashMap::new();
     let id_to_docs: IdToDocsMap = DashMap::new();
     let eval_documents: EvalDocuments = DashMap::new();
+    let id_to_ngram_tokens: IdToNgramTokens = DashMap::new();
 
     use std::sync::atomic::AtomicU64;
     let next_ngram_id = AtomicU64::new(0);
+    
+    // Initialize tokenizer
+    let tokenizer = OmniTokenizer::new(&config.tokenizer_str)?;
 
     // Find all reference files
     let reference_files = expand_dirs(
@@ -67,7 +73,9 @@ fn build_simple_index(config: &Config) -> Result<(NgramToIdMap, IdToDocsMap, Eva
             &ngram_to_id,
             &id_to_docs,
             &eval_documents,
-            &next_ngram_id
+            &next_ngram_id,
+            &tokenizer,
+            &id_to_ngram_tokens
         ) {
             println!("Error processing reference file {:?}: {:?}", file_path, e);
         }
@@ -77,7 +85,7 @@ fn build_simple_index(config: &Config) -> Result<(NgramToIdMap, IdToDocsMap, Eva
     // println!("Finished processing reference files. Total unique n-grams: {}", ngram_to_id.len()); //debug
     // println!("Total eval documents indexed: {}", eval_documents.len()); //debug
 
-    Ok((ngram_to_id, id_to_docs, eval_documents))
+    Ok((ngram_to_id, id_to_docs, eval_documents, id_to_ngram_tokens))
 }
 
 fn process_simple_reference_file(
@@ -86,7 +94,9 @@ fn process_simple_reference_file(
     ngram_to_id: &NgramToIdMap,
     id_to_docs: &IdToDocsMap,
     eval_documents: &EvalDocuments,
-    next_ngram_id: &std::sync::atomic::AtomicU64
+    next_ngram_id: &std::sync::atomic::AtomicU64,
+    tokenizer: &OmniTokenizer,
+    id_to_ngram_tokens: &IdToNgramTokens
 ) -> Result<(), Error> {
     let data = read_pathbuf_to_mem(file_path)?;
 
@@ -108,11 +118,15 @@ fn process_simple_reference_file(
         let json_obj: Value = serde_json::from_str(&line)?;
         let line_text = get_nested_json_val(&json_obj, &config.content_key.to_string())?;
 
-        // Extract words using the same text cleaning approach as minhash
-        let word_tokens = extract_words(&line_text, &config.punctuation_chars);
+        // Use preprocess_text to get token IDs
+        let Ok(word_tokens) = catch_unwind(|| preprocess_text(&line_text, tokenizer, &config.punctuation_chars)) else {
+            println!("Tokenization failed on {:?} | line {:?}", file_path, line_num);
+            _skipped_entries += 1;
+            continue;
+        };
         let word_count = word_tokens.len();
 
-        // Skip entries with insufficient words for meaningful n-gram analysis
+        // Skip entries with insufficient tokens for meaningful n-gram analysis
         if word_count < min_word_count {
             _skipped_entries += 1;
             continue;
@@ -137,23 +151,23 @@ fn process_simple_reference_file(
         if word_tokens.len() < config.ngram_size {
             if !word_tokens.is_empty() {
                 // For documents shorter than ngram_size, use all tokens
-                let ngram_text = word_tokens.join(" ");
-                let ngram_id = get_or_create_ngram_id(&ngram_text, ngram_to_id, next_ngram_id);
+                let ngram_tokens = word_tokens.clone();
+                let ngram_id = get_or_create_ngram_id(&ngram_tokens, ngram_to_id, next_ngram_id, id_to_ngram_tokens);
                 unique_ngrams_set.insert(ngram_id);
                 add_doc_to_ngram(ngram_id, doc_id, id_to_docs);
 
-                // println!("Short doc ngram: '{}' -> ID: {}", ngram_text, ngram_id); //debug
+                // println!("Short doc ngram: '{:?}' -> ID: {}", ngram_tokens, ngram_id); //debug
             }
         } else {
             for i in 0..=word_tokens.len() - config.ngram_size {
                 let ngram_slice = &word_tokens[i..i + config.ngram_size];
-                let ngram_text = ngram_slice.join(" ");
-                let ngram_id = get_or_create_ngram_id(&ngram_text, ngram_to_id, next_ngram_id);
+                let ngram_tokens = ngram_slice.to_vec();
+                let ngram_id = get_or_create_ngram_id(&ngram_tokens, ngram_to_id, next_ngram_id, id_to_ngram_tokens);
                 unique_ngrams_set.insert(ngram_id);
                 add_doc_to_ngram(ngram_id, doc_id, id_to_docs);
 
                 // if i < 3 { // Only log first few for debugging
-                //     println!("Ngram {}: '{}' -> ID: {}", i, ngram_text, ngram_id); //debug
+                //     println!("Ngram {}: '{:?}' -> ID: {}", i, ngram_tokens, ngram_id); //debug
                 // }
             }
         }
@@ -173,16 +187,11 @@ fn process_simple_reference_file(
 }
 
 // Helper functions
-fn extract_words(text: &str, punctuation_chars: &str) -> Vec<String> {
-    // Clean text using the same approach as minhash
-    let cleaned = clean_text(text, punctuation_chars);
-
-    // Split into words and filter out empty strings
-    cleaned
-        .split_whitespace()
-        .map(|s| s.to_string())
-        .filter(|s| !s.is_empty())
-        .collect()
+fn hash_ngram(tokens: &[usize]) -> u64 {
+    use std::hash::{Hash, Hasher, DefaultHasher};
+    let mut hasher = DefaultHasher::new();
+    tokens.hash(&mut hasher);
+    hasher.finish()
 }
 
 fn generate_doc_id(eval_name: &str, line_num: usize) -> u32 {
@@ -194,15 +203,20 @@ fn generate_doc_id(eval_name: &str, line_num: usize) -> u32 {
     (hasher.finish() & 0xFFFFFFFF) as u32
 }
 
-fn get_or_create_ngram_id(ngram_text: &str, ngram_to_id: &NgramToIdMap, next_id: &std::sync::atomic::AtomicU64) -> u64 {
+fn get_or_create_ngram_id(ngram_tokens: &[usize], ngram_to_id: &NgramToIdMap, next_id: &std::sync::atomic::AtomicU64, id_to_ngram_tokens: &IdToNgramTokens) -> u64 {
     use std::sync::atomic::Ordering;
+    
+    let ngram_hash = hash_ngram(ngram_tokens);
 
-    if let Some(existing_id) = ngram_to_id.get(ngram_text) {
+    if let Some(existing_id) = ngram_to_id.get(&ngram_hash) {
         *existing_id
     } else {
         let new_id = next_id.fetch_add(1, Ordering::SeqCst);
         // Insert and handle potential race condition
-        ngram_to_id.entry(ngram_text.to_string()).or_insert(new_id).clone()
+        let id = ngram_to_id.entry(ngram_hash).or_insert(new_id).clone();
+        // Store the tokens for display/lookup
+        id_to_ngram_tokens.insert(id, ngram_tokens.to_vec());
+        id
     }
 }
 
@@ -214,9 +228,13 @@ fn detect_simple_contamination(
     config: &Config,
     ngram_to_id: &NgramToIdMap,
     id_to_docs: &IdToDocsMap,
-    eval_documents: &EvalDocuments
+    eval_documents: &EvalDocuments,
+    id_to_ngram_tokens: &IdToNgramTokens
 ) -> Result<usize, Error> {
     // println!("Starting training data contamination detection..."); //debug
+    
+    // Initialize tokenizer
+    let tokenizer = OmniTokenizer::new(&config.tokenizer_str)?;
 
     // Find all training files
     let training_files = expand_dirs(
@@ -239,7 +257,9 @@ fn detect_simple_contamination(
             ngram_to_id,
             id_to_docs,
             eval_documents,
-            &contamination_results
+            &contamination_results,
+            &tokenizer,
+            id_to_ngram_tokens
         ) {
             Ok(lines_processed) => {
                 total_lines_processed.fetch_add(lines_processed, std::sync::atomic::Ordering::SeqCst);
@@ -304,7 +324,9 @@ fn process_simple_training_file(
     ngram_to_id: &NgramToIdMap,
     id_to_docs: &IdToDocsMap,
     eval_documents: &EvalDocuments,
-    contamination_results: &ContaminationResults
+    contamination_results: &ContaminationResults,
+    tokenizer: &OmniTokenizer,
+    id_to_ngram_tokens: &IdToNgramTokens
 ) -> Result<usize, Error> {
     let data = read_pathbuf_to_mem(file_path)?;
 
@@ -332,11 +354,14 @@ fn process_simple_training_file(
         let json_obj: Value = serde_json::from_str(&line)?;
         let line_text = get_nested_json_val(&json_obj, &config.content_key.to_string())?;
 
-        // Extract words using the same text cleaning approach as minhash
-        let word_tokens = extract_words(&line_text, &config.punctuation_chars);
+        // Use preprocess_text to get token IDs
+        let Ok(word_tokens) = catch_unwind(|| preprocess_text(&line_text, tokenizer, &config.punctuation_chars)) else {
+            println!("Tokenization failed on {:?} | line {:?}", file_path, line_num);
+            continue;
+        };
         let word_count = word_tokens.len();
 
-        // Skip entries with insufficient words
+        // Skip entries with insufficient tokens
         if word_count < min_word_count {
             continue;
         }
@@ -348,7 +373,8 @@ fn process_simple_training_file(
             &word_tokens,
             config,
             ngram_to_id,
-            id_to_docs
+            id_to_docs,
+            id_to_ngram_tokens
         )?;
 
         // Convert clusters to contamination entries
@@ -372,7 +398,8 @@ fn process_simple_training_file(
                     let toxic_score = calculate_simple_toxic_score(
                         &cluster.matching_ngrams,
                         ngram_to_id,
-                        id_to_docs
+                        id_to_docs,
+                        id_to_ngram_tokens
                     );
 
                     // Only record results that exceed both thresholds
@@ -413,10 +440,11 @@ fn process_simple_training_file(
 
 /// Process n-grams with sampling: sample every M n-grams, then expand around hits
 fn process_ngrams_with_simple_sampling(
-    word_tokens: &[String],
+    word_tokens: &[usize],
     config: &Config,
     ngram_to_id: &NgramToIdMap,
-    id_to_docs: &IdToDocsMap
+    id_to_docs: &IdToDocsMap,
+    id_to_ngram_tokens: &IdToNgramTokens
 ) -> Result<Vec<SimpleContaminationCluster>, Error> {
     let mut clusters = Vec::new();
     let mut processed_indices = HashSet::new();
@@ -446,13 +474,13 @@ fn process_ngrams_with_simple_sampling(
 
         // Check this n-gram for contamination
         if let Some(document_ids) = check_ngram_for_match(i, word_tokens, config, ngram_to_id, id_to_docs) {
-            let ngram_text = if word_tokens.len() < config.ngram_size {
-                word_tokens.join(" ")
+            let ngram_tokens = if word_tokens.len() < config.ngram_size {
+                word_tokens.to_vec()
             } else {
-                word_tokens[i..i + config.ngram_size].join(" ")
+                word_tokens[i..i + config.ngram_size].to_vec()
             };
 
-            // println!("HIT DETECTED at n-gram {}: '{}' with {} documents", i, ngram_text, document_ids.len()); //debug
+            // println!("HIT DETECTED at n-gram {}: '{:?}' with {} documents", i, ngram_tokens, document_ids.len()); //debug
 
             // Found contamination! Expand around this hit using intersection-based walking
             let cluster = expand_simple_contamination_cluster(
@@ -462,7 +490,8 @@ fn process_ngrams_with_simple_sampling(
                 ngram_to_id,
                 id_to_docs,
                 document_ids,
-                &ngram_text
+                &ngram_tokens,
+                id_to_ngram_tokens
             )?;
 
             // Mark all indices in this cluster as processed
@@ -489,23 +518,25 @@ fn process_ngrams_with_simple_sampling(
 /// Check a single n-gram for matches, return document IDs that match
 fn check_ngram_for_match(
     ngram_idx: usize,
-    word_tokens: &[String],
+    word_tokens: &[usize],
     config: &Config,
     ngram_to_id: &NgramToIdMap,
     id_to_docs: &IdToDocsMap
 ) -> Option<HashSet<u32>> {
-    let ngram_text = if word_tokens.len() < config.ngram_size {
-        word_tokens.join(" ")
+    let ngram_tokens = if word_tokens.len() < config.ngram_size {
+        word_tokens.to_vec()
     } else {
-        word_tokens[ngram_idx..ngram_idx + config.ngram_size].join(" ")
+        word_tokens[ngram_idx..ngram_idx + config.ngram_size].to_vec()
     };
+    
+    let ngram_hash = hash_ngram(&ngram_tokens);
 
     // Look up n-gram ID
-    if let Some(ngram_id) = ngram_to_id.get(&ngram_text) {
+    if let Some(ngram_id) = ngram_to_id.get(&ngram_hash) {
         // Look up documents containing this n-gram
         if let Some(doc_set) = id_to_docs.get(&ngram_id) {
             if !doc_set.is_empty() {
-                // println!("N-gram '{}' found in {} documents", ngram_text, doc_set.len()); //debug
+                // println!("N-gram '{:?}' found in {} documents", ngram_tokens, doc_set.len()); //debug
                 return Some(doc_set.clone());
             }
         }
@@ -516,12 +547,13 @@ fn check_ngram_for_match(
 /// Expand contamination cluster using intersection-based left/right traversal
 fn expand_simple_contamination_cluster(
     hit_idx: usize,
-    word_tokens: &[String],
+    word_tokens: &[usize],
     config: &Config,
     ngram_to_id: &NgramToIdMap,
     id_to_docs: &IdToDocsMap,
     initial_document_ids: HashSet<u32>,
-    initial_training_ngram: &str
+    initial_training_ngram: &[usize],
+    id_to_ngram_tokens: &IdToNgramTokens
 ) -> Result<SimpleContaminationCluster, Error> {
     let mut start_idx = hit_idx;
     let mut end_idx = hit_idx;
@@ -533,7 +565,8 @@ fn expand_simple_contamination_cluster(
     let mut active_documents: HashSet<u32> = initial_document_ids.clone();
 
     // Get the initial n-gram ID for tracking
-    let initial_ngram_id = ngram_to_id.get(initial_training_ngram)
+    let initial_ngram_hash = hash_ngram(initial_training_ngram);
+    let initial_ngram_id = ngram_to_id.get(&initial_ngram_hash)
         .map(|id| *id)
         .unwrap_or(0);
 
@@ -544,7 +577,12 @@ fn expand_simple_contamination_cluster(
         document_misses.insert(*doc_id, 0);
     }
 
-    matching_ngrams.push(initial_training_ngram.to_string());
+    // Store display format for the initial ngram
+    if let Some(tokens) = id_to_ngram_tokens.get(&initial_ngram_id) {
+        matching_ngrams.push(format!("{:?}", tokens.value()));
+    } else {
+        matching_ngrams.push(format!("{:?}", initial_training_ngram));
+    }
 
     // println!("Starting intersection walking with {} documents", initial_document_ids.len()); //debug
     // println!("Initial n-gram: '{}'", initial_training_ngram); //debug
@@ -562,13 +600,13 @@ fn expand_simple_contamination_cluster(
         left_idx -= 1;
 
         if let Some(matched_docs) = check_ngram_for_match(left_idx, word_tokens, config, ngram_to_id, id_to_docs) {
-            let ngram_text = if word_tokens.len() < config.ngram_size {
-                word_tokens.join(" ")
+            let ngram_tokens = if word_tokens.len() < config.ngram_size {
+                word_tokens.to_vec()
             } else {
-                word_tokens[left_idx..left_idx + config.ngram_size].join(" ")
+                word_tokens[left_idx..left_idx + config.ngram_size].to_vec()
             };
 
-            // println!("Left traversal: checking n-gram {} '{}'", left_idx, ngram_text); //debug
+            // println!("Left traversal: checking n-gram {} '{:?}'", left_idx, ngram_tokens); //debug
 
             // Check intersection with active documents
             let intersection: Vec<u32> = active_documents.intersection(&matched_docs).cloned().collect();
@@ -577,9 +615,15 @@ fn expand_simple_contamination_cluster(
                 // println!("Left hit at {}: {} docs intersect", left_idx, intersection.len()); //debug
                 start_idx = left_idx;
 
-                // Get ngram_id before moving ngram_text
-                let ngram_id = ngram_to_id.get(&ngram_text).map(|id| *id).unwrap_or(0);
-                matching_ngrams.insert(0, ngram_text);
+                // Get ngram_id before moving ngram_tokens
+                let ngram_hash = hash_ngram(&ngram_tokens);
+                let ngram_id = ngram_to_id.get(&ngram_hash).map(|id| *id).unwrap_or(0);
+                // Store display format
+                if let Some(tokens) = id_to_ngram_tokens.get(&ngram_id) {
+                    matching_ngrams.insert(0, format!("{:?}", tokens.value()));
+                } else {
+                    matching_ngrams.insert(0, format!("{:?}", ngram_tokens));
+                }
 
                 // Update matches and reset misses for intersecting documents
                 for doc_id in &intersection {
@@ -644,13 +688,13 @@ fn expand_simple_contamination_cluster(
         right_idx += 1;
 
         if let Some(matched_docs) = check_ngram_for_match(right_idx, word_tokens, config, ngram_to_id, id_to_docs) {
-            let ngram_text = if word_tokens.len() < config.ngram_size {
-                word_tokens.join(" ")
+            let ngram_tokens = if word_tokens.len() < config.ngram_size {
+                word_tokens.to_vec()
             } else {
-                word_tokens[right_idx..right_idx + config.ngram_size].join(" ")
+                word_tokens[right_idx..right_idx + config.ngram_size].to_vec()
             };
 
-            // println!("Right traversal: checking n-gram {} '{}'", right_idx, ngram_text); //debug
+            // println!("Right traversal: checking n-gram {} '{:?}'", right_idx, ngram_tokens); //debug
 
             // Check intersection with active documents
             let intersection: Vec<u32> = active_documents.intersection(&matched_docs).cloned().collect();
@@ -659,9 +703,15 @@ fn expand_simple_contamination_cluster(
                 // println!("Right hit at {}: {} docs intersect", right_idx, intersection.len()); //debug
                 end_idx = right_idx;
 
-                // Get ngram_id before moving ngram_text
-                let ngram_id = ngram_to_id.get(&ngram_text).map(|id| *id).unwrap_or(0);
-                matching_ngrams.push(ngram_text);
+                // Get ngram_id before moving ngram_tokens
+                let ngram_hash = hash_ngram(&ngram_tokens);
+                let ngram_id = ngram_to_id.get(&ngram_hash).map(|id| *id).unwrap_or(0);
+                // Store display format
+                if let Some(tokens) = id_to_ngram_tokens.get(&ngram_id) {
+                    matching_ngrams.push(format!("{:?}", tokens.value()));
+                } else {
+                    matching_ngrams.push(format!("{:?}", ngram_tokens));
+                }
 
                 // Update matches and reset misses for intersecting documents
                 for doc_id in &intersection {
@@ -729,14 +779,20 @@ fn expand_simple_contamination_cluster(
 fn calculate_simple_toxic_score(
     matching_ngrams: &[String],
     ngram_to_id: &NgramToIdMap,
-    id_to_docs: &IdToDocsMap
+    id_to_docs: &IdToDocsMap,
+    _id_to_ngram_tokens: &IdToNgramTokens
 ) -> f32 {
     let mut unique_ngram_ids = HashSet::new();
 
-    // Collect unique n-gram IDs to avoid double-counting duplicate n-grams
-    for ngram_text in matching_ngrams {
-        if let Some(ngram_id) = ngram_to_id.get(ngram_text) {
-            unique_ngram_ids.insert(*ngram_id);
+    // For display ngrams (formatted as "[id1, id2, id3]"), we need to extract the actual ngram IDs
+    // This is a bit inefficient but maintains compatibility with the display format
+    for ngram_str in matching_ngrams {
+        // Parse the string representation back to token IDs
+        if let Ok(tokens) = parse_ngram_string(ngram_str) {
+            let ngram_hash = hash_ngram(&tokens);
+            if let Some(ngram_id) = ngram_to_id.get(&ngram_hash) {
+                unique_ngram_ids.insert(*ngram_id);
+            }
         }
     }
 
@@ -759,6 +815,15 @@ fn calculate_simple_toxic_score(
     toxic_score
 }
 
+fn parse_ngram_string(ngram_str: &str) -> Result<Vec<usize>, Error> {
+    // Parse "[123, 456, 789]" format back to Vec<usize>
+    let trimmed = ngram_str.trim_start_matches('[').trim_end_matches(']');
+    trimmed.split(", ")
+        .map(|s| s.parse::<usize>().map_err(|e| anyhow::anyhow!("Failed to parse token ID: {}", e)))
+        .collect()
+}
+
+#[allow(dead_code)]
 fn save_contamination_results(
     config: &Config,
     contamination_results: &ContaminationResults
