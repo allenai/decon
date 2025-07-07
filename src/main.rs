@@ -13,6 +13,8 @@ use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::{self, BufRead};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 // Internal crate imports
 use mj_io::{expand_dirs, read_pathbuf_to_mem};
@@ -68,7 +70,10 @@ enum Commands {
         tp: bool,
 
         #[arg(long, help = "Show only true negatives (correctly identified as clean - requires ground truth)")]
-        tn: bool
+        tn: bool,
+
+        #[arg(long, help = "Display full training documents (default: truncate at 50 lines)")]
+        full: bool
     }
 
 }
@@ -116,6 +121,8 @@ pub struct Config {
     pub toxic_hyperplanes: usize,
     #[serde(default = "default_toxic_overlap_threshold")]
     pub toxic_overlap_threshold: f32,
+    #[serde(default = "default_toxic_score_threshold")]
+    pub toxic_score_threshold: f32,
     #[serde(default = "default_toxic_poison_scale")]
     pub toxic_poison_scale: f32,
     #[serde(default = "default_skip_hot_bucket_threshold")]
@@ -157,6 +164,10 @@ fn default_toxic_hyperplanes() -> usize {
 
 fn default_toxic_overlap_threshold() -> f32 {
     0.3  // 30% n-gram overlap threshold
+}
+
+fn default_toxic_score_threshold() -> f32 {
+    0.0  // Default toxic score threshold (disabled)
 }
 
 fn default_toxic_poison_scale() -> f32 {
@@ -242,30 +253,41 @@ pub fn get_nested_json_val(obj: &Value, key: &String) -> Result<String, Error> {
 
 
 pub struct OmniTokenizer {
-    tokenizer_name: String,
-    inner: CoreBPE
+    pub tokenizer_name: String,
+    pub inner: Option<CoreBPE>,
+    // For word mode: vocabulary built from reference set
+    pub word_to_id: Arc<Mutex<HashMap<String, u32>>>,
+    pub id_to_word: Arc<Mutex<HashMap<u32, String>>>,
+    pub next_word_id: Arc<AtomicU32>,
 }
 
 impl OmniTokenizer {
     pub fn new(tokenizer_name: &str) -> Result<Self, Error> {
-        let inner_tokenizer = match tokenizer_name.to_string().as_str() {
-            "p50k" => p50k_base().unwrap(),
-            "cl100k" => cl100k_base().unwrap(),
+        let inner_tokenizer = match tokenizer_name {
+            "p50k" => Some(p50k_base().unwrap()),
+            "cl100k" => Some(cl100k_base().unwrap()),
+            "word" => None, // Word mode doesn't need a BPE tokenizer
             _ => {
-                println!("Tokenizer {:?} <--- BE CAREFUL HERE", tokenizer_name.to_string());
-                p50k_base().unwrap()
+                println!("Tokenizer {:?} <--- BE CAREFUL HERE", tokenizer_name);
+                Some(p50k_base().unwrap())
             }
         };
-        Ok(OmniTokenizer { tokenizer_name: tokenizer_name.to_string(), inner: inner_tokenizer})
+        Ok(OmniTokenizer { 
+            tokenizer_name: tokenizer_name.to_string(), 
+            inner: inner_tokenizer,
+            word_to_id: Arc::new(Mutex::new(HashMap::new())),
+            id_to_word: Arc::new(Mutex::new(HashMap::new())),
+            next_word_id: Arc::new(AtomicU32::new(0)),
+        })
     }
 
     pub fn encode(&self, text: &str) -> Vec<usize> {
         match self.tokenizer_name.as_str() {
             "p50k" => {
-                self.inner.encode_with_special_tokens(text)
+                self.inner.as_ref().unwrap().encode_with_special_tokens(text)
             },
             "cl100k" => {
-                self.inner.encode_with_special_tokens(text)
+                self.inner.as_ref().unwrap().encode_with_special_tokens(text)
             }
             "uniseg" => {
                 text.split_word_bounds().map(|w| {
@@ -274,9 +296,36 @@ impl OmniTokenizer {
                     hasher.finish() as usize
                 }).collect()
             },
+            "word" => {
+                // For word mode, tokenize into words and look up IDs
+                // Unknown words get a special ID (u32::MAX)
+                let cleaned = clean_text(text, &default_punctuation_chars());
+                cleaned.split_whitespace()
+                    .map(|word| {
+                        let word_to_id = self.word_to_id.lock().unwrap();
+                        word_to_id.get(word)
+                            .copied()
+                            .unwrap_or(u32::MAX) as usize
+                    })
+                    .collect()
+            },
             _ => { // default to character level
                 text.bytes().map(|b| b as usize).collect()
             },
+        }
+    }
+    
+    // Add word to vocabulary (for building reference vocabulary)
+    pub fn add_word(&self, word: &str) -> u32 {
+        let mut word_to_id = self.word_to_id.lock().unwrap();
+        if let Some(&id) = word_to_id.get(word) {
+            id
+        } else {
+            let id = self.next_word_id.fetch_add(1, Ordering::SeqCst);
+            word_to_id.insert(word.to_string(), id);
+            let mut id_to_word = self.id_to_word.lock().unwrap();
+            id_to_word.insert(id, word.to_string());
+            id
         }
     }
 
@@ -415,6 +464,10 @@ struct ContaminationResult {
     bucket_sizes: Option<Vec<usize>>,
     #[serde(default)]
     bucket_ids: Option<Vec<u64>>,
+    #[serde(default)]
+    contamination_start_idx: Option<usize>,
+    #[serde(default)]
+    contamination_end_idx: Option<usize>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -493,7 +546,7 @@ impl ClassificationStats {
     }
 }
 
-fn review_contamination(config: &PathBuf, results_file: Option<&PathBuf>, step: bool, stats: bool, fp: bool, fn_: bool, tp: bool, tn: bool) -> Result<(), Error> {
+fn review_contamination(config: &PathBuf, results_file: Option<&PathBuf>, step: bool, stats: bool, fp: bool, fn_: bool, tp: bool, tn: bool, full: bool) -> Result<(), Error> {
     println!("=== CONTAMINATION REVIEW ===");
 
     let config_obj = read_config(config)?;
@@ -569,7 +622,7 @@ fn review_contamination(config: &PathBuf, results_file: Option<&PathBuf>, step: 
         println!("CONTAMINATION #{} of {}", idx + 1, filtered_results.len());
         println!("{}", "=".repeat(80));
 
-        display_contamination_case(result, &training_cache, &eval_cache, &ground_truth)?;
+        display_contamination_case(result, &training_cache, &eval_cache, &ground_truth, full, &config_obj)?;
         println!();
     }
 
@@ -798,7 +851,7 @@ fn classify_contamination_result(result: &ContaminationResult, ground_truth: &[G
                     _ => ClassificationType::TruePositive, // Fallback, shouldn't happen for detected items
                 }
             } else {
-                eprintln!("DEBUG: Could not find ground truth for text: {}", &training_text[..std::cmp::min(50, training_text.len())]);
+                eprintln!("DEBUG: Could not find ground truth for text: {}", &training_text[..std::cmp::min(25, training_text.len())]);
                 ClassificationType::FalsePositive
             }
         } else {
@@ -851,6 +904,8 @@ fn filter_contamination_results(
                     matching_ngrams: None,
                     bucket_sizes: None,
                     bucket_ids: None,
+                    contamination_start_idx: None,
+                    contamination_end_idx: None,
                 };
                 filtered.push(placeholder);
             }
@@ -909,6 +964,8 @@ fn filter_contamination_results(
                     matching_ngrams: None,
                     bucket_sizes: None,
                     bucket_ids: None,
+                    contamination_start_idx: None,
+                    contamination_end_idx: None,
                 };
                 filtered.push(placeholder);
             }
@@ -1038,11 +1095,138 @@ fn load_eval_files(reference_dir: &PathBuf, content_key: &str) -> Result<HashMap
     Ok(cache)
 }
 
+fn truncate_text(text: &str, max_lines: usize) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+
+    if lines.len() <= max_lines {
+        text.to_string()
+    } else {
+        let truncated_lines = &lines[..max_lines];
+        let mut result = truncated_lines.join("\n");
+        result.push_str(&format!("\n... [truncated: showing {} of {} lines, use --full to see all]", max_lines, lines.len()));
+        result
+    }
+}
+
+/// Extract contaminated text segment using token indices with context
+fn extract_contaminated_segment_with_context(
+    original_text: &str,
+    start_idx: usize,
+    end_idx: usize,
+    config: &Config,
+    context_words: usize
+) -> Option<String> {
+    // Initialize tokenizer based on config
+    let tokenizer = match OmniTokenizer::new(&config.tokenizer_str) {
+        Ok(t) => t,
+        Err(_) => return None,
+    };
+    
+    // First, clean the text the same way as during detection
+    let cleaned_text = clean_text(original_text, &config.punctuation_chars);
+    
+    // For word tokenizer, tokens are just words split by whitespace
+    if config.tokenizer_str == "word" {
+        let words: Vec<&str> = cleaned_text.split_whitespace().collect();
+        
+        // Check if indices are valid
+        if start_idx >= words.len() || end_idx > words.len() || start_idx >= end_idx {
+            return None;
+        }
+        
+        // Calculate context boundaries
+        let context_start = start_idx.saturating_sub(context_words);
+        let context_end = (end_idx + context_words).min(words.len());
+        
+        // Build the output with highlighted contamination
+        let mut result = String::new();
+        
+        // Add leading context
+        if context_start < start_idx {
+            result.push_str("... ");
+            result.push_str(&words[context_start..start_idx].join(" "));
+            result.push_str(" ");
+        }
+        
+        // Add contaminated section with highlighting
+        result.push_str("【");
+        result.push_str(&words[start_idx..end_idx].join(" "));
+        result.push_str("】");
+        
+        // Add trailing context
+        if end_idx < context_end {
+            result.push_str(" ");
+            result.push_str(&words[end_idx..context_end].join(" "));
+            result.push_str(" ...");
+        }
+        
+        return Some(result);
+    }
+    
+    // For other tokenizers, we need to tokenize and then decode
+    let Ok(tokens) = std::panic::catch_unwind(|| tokenizer.encode(&cleaned_text)) else {
+        return None;
+    };
+    
+    // Check if indices are valid
+    if start_idx >= tokens.len() || end_idx > tokens.len() || start_idx >= end_idx {
+        return None;
+    }
+    
+    // For BPE tokenizers, try to decode with context
+    if let Some(inner) = tokenizer.inner.as_ref() {
+        let context_start = start_idx.saturating_sub(context_words);
+        let context_end = (end_idx + context_words).min(tokens.len());
+        
+        let mut result = String::new();
+        
+        // Decode and add leading context
+        if context_start < start_idx {
+            if let Ok(prefix) = inner.decode(tokens[context_start..start_idx].to_vec()) {
+                result.push_str("... ");
+                result.push_str(&prefix);
+                result.push_str(" ");
+            }
+        }
+        
+        // Decode and add contaminated section
+        if let Ok(contaminated) = inner.decode(tokens[start_idx..end_idx].to_vec()) {
+            result.push_str("【");
+            result.push_str(&contaminated);
+            result.push_str("】");
+        }
+        
+        // Decode and add trailing context
+        if end_idx < context_end {
+            if let Ok(suffix) = inner.decode(tokens[end_idx..context_end].to_vec()) {
+                result.push_str(" ");
+                result.push_str(&suffix);
+                result.push_str(" ...");
+            }
+        }
+        
+        if !result.is_empty() {
+            return Some(result);
+        }
+    }
+    
+    // Fallback: show token IDs
+    let token_str = tokens[start_idx..end_idx]
+        .iter()
+        .map(|t| t.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    
+    Some(format!("[Tokens: {}]", token_str))
+}
+
 fn display_contamination_case(
     result: &ContaminationResult,
     training_cache: &HashMap<String, Vec<String>>,
     eval_cache: &HashMap<String, Vec<String>>,
-    ground_truth: &[GroundTruthRecord]
+    ground_truth: &[GroundTruthRecord],
+    full: bool,
+    config: &Config
 ) -> Result<(), Error> {
     println!("📁 TRAINING FILE: {}", result.training_file);
 
@@ -1061,7 +1245,7 @@ fn display_contamination_case(
         _ => {
             println!("📋 EVAL DATASET:  {}", result.eval_dataset);
             let similarity_label = match result.method.as_deref() {
-                Some("toxic") => "OVERLAP RATIO",
+                Some("toxic") | Some("simple") => "OVERLAP RATIO",
                 _ => "JACCARD SIM"
             };
             println!("🎯 {}:   {:.3}", similarity_label, result.jaccard_similarity);
@@ -1109,7 +1293,29 @@ fn display_contamination_case(
 
     // Display side by side
     println!("🔍 TRAINING TEXT (line {}):", result.training_line);
-    println!("   \"{}\"", training_text);
+
+    // Apply truncation if not in full mode
+    let displayed_text = if full {
+        training_text.to_string()
+    } else {
+        truncate_text(training_text, 25)
+    };
+
+    println!("   \"{}\"", displayed_text);
+    
+    // Show the actual contaminated text segment if we have token indices
+    if let (Some(start_idx), Some(end_idx)) = (result.contamination_start_idx, result.contamination_end_idx) {
+        println!();
+        println!("📍 CONTAMINATED SEGMENT (tokens {} to {}):", start_idx, end_idx);
+        
+        // Try to extract the contaminated segment with 10 words of context on each side
+        if let Some(segment) = extract_contaminated_segment_with_context(training_text, start_idx, end_idx, config, 10) {
+            println!("   {}", segment);
+        } else {
+            println!("   [Unable to extract segment - {} tokens]", end_idx - start_idx);
+        }
+    }
+    
     println!();
 
     match result.method.as_deref() {
@@ -1208,8 +1414,8 @@ fn main() {
             contamination_detect(config)
         }
 
-        Commands::Review {config, results_file, step, stats, fp, fn_, tp, tn} => {
-            review_contamination(config, results_file.as_ref(), *step, *stats, *fp, *fn_, *tp, *tn)
+        Commands::Review {config, results_file, step, stats, fp, fn_, tp, tn, full} => {
+            review_contamination(config, results_file.as_ref(), *step, *stats, *fp, *fn_, *tp, *tn, *full)
         }
 
     };

@@ -92,6 +92,10 @@ def apply_pca_to_embeddings(input_vec_file, target_dimensions=128, output_dir=".
     
     print(f"Applying PCA to reduce dimensions to {target_dimensions}...")
     
+    # Ensure output directory exists
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    
     # Load original embeddings
     embeddings, vectors, words = load_embeddings(input_vec_file)
     original_dim = vectors.shape[1]
@@ -149,6 +153,11 @@ def main():
     args = parser.parse_args()
     
     output_dir = "../fixtures/embeddings"
+    
+    # Ensure output directory exists at the start
+    print(f"Ensuring output directory exists: {output_dir}")
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
     
     # Step 1: Download embeddings
     print("=== Step 1: Downloading FastText embeddings ===")

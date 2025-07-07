@@ -2,13 +2,14 @@
 mode: simple
 
 content_key: text
-local_input: fixtures/training-tmp
+local_input: /home/robert/Downloads/input-full
 reference_input: fixtures/reference
 output_dir: fixtures/output
 
 ngram_size: 3
-max_consecutive_misses: 4
-toxic_overlap_threshold: 0.5
-toxic_score_threshold: 1.0
+max_consecutive_misses: 6
+toxic_overlap_threshold: 0.8
+toxic_score_threshold: 2.0
+sample_every_m_tokens: 10
 punctuation_chars: "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"  # (uses default if not specified)
-tokenizer_str: word  # Use word-based tokenization for maximum speed
+tokenizer_str: word  # Use the same tokenizer as minhash mode
