@@ -1,10 +1,15 @@
 content_key: text
-local_input: /home/robert/Downloads/input
-reference_input: /home/robert/Downloads/reference
-output_dir: /home/robert/Downloads/output
+local_input: /home/robert/Downloads/input-full
+reference_input: fixtures/reference
+output_dir: fixtures/output
 band_size: 8
 ngram_size: 1
 num_bands: 7
 tokenizer_str: uniseg
 exact_override: true
-jaccard_similarity_threshold: 0.8
+jaccard_similarity_threshold: 0.5
+
+# Window-based processing (optional) - enables multiple window sizes per document
+window_size_increment: 10    # Size increment for each window (in tokens)
+num_windows: 5               # Number of incrementally sized windows (128, 256, 384 tokens)
+window_step_size: 20         # Step size for sliding windows

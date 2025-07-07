@@ -142,7 +142,15 @@ pub struct Config {
 
     // Debug options
     #[serde(default = "default_debug")]
-    pub debug: bool
+    pub debug: bool,
+
+    // Windowing options
+    #[serde(default)]
+    pub window_size_increment: Option<usize>,
+    #[serde(default)]
+    pub num_windows: Option<usize>,
+    #[serde(default)]
+    pub window_step_size: Option<usize>,
 
 }
 
@@ -272,8 +280,8 @@ impl OmniTokenizer {
                 Some(p50k_base().unwrap())
             }
         };
-        Ok(OmniTokenizer { 
-            tokenizer_name: tokenizer_name.to_string(), 
+        Ok(OmniTokenizer {
+            tokenizer_name: tokenizer_name.to_string(),
             inner: inner_tokenizer,
             word_to_id: Arc::new(Mutex::new(HashMap::new())),
             id_to_word: Arc::new(Mutex::new(HashMap::new())),
@@ -314,7 +322,7 @@ impl OmniTokenizer {
             },
         }
     }
-    
+
     // Add word to vocabulary (for building reference vocabulary)
     pub fn add_word(&self, word: &str) -> u32 {
         let mut word_to_id = self.word_to_id.lock().unwrap();
@@ -1121,65 +1129,65 @@ fn extract_contaminated_segment_with_context(
         Ok(t) => t,
         Err(_) => return None,
     };
-    
+
     // First, clean the text the same way as during detection
     let cleaned_text = clean_text(original_text, &config.punctuation_chars);
-    
+
     // For word tokenizer, tokens are just words split by whitespace
     if config.tokenizer_str == "word" {
         let words: Vec<&str> = cleaned_text.split_whitespace().collect();
-        
+
         // Check if indices are valid
         if start_idx >= words.len() || end_idx > words.len() || start_idx >= end_idx {
             return None;
         }
-        
+
         // Calculate context boundaries
         let context_start = start_idx.saturating_sub(context_words);
         let context_end = (end_idx + context_words).min(words.len());
-        
+
         // Build the output with highlighted contamination
         let mut result = String::new();
-        
+
         // Add leading context
         if context_start < start_idx {
             result.push_str("... ");
             result.push_str(&words[context_start..start_idx].join(" "));
             result.push_str(" ");
         }
-        
+
         // Add contaminated section with highlighting
         result.push_str("【");
         result.push_str(&words[start_idx..end_idx].join(" "));
         result.push_str("】");
-        
+
         // Add trailing context
         if end_idx < context_end {
             result.push_str(" ");
             result.push_str(&words[end_idx..context_end].join(" "));
             result.push_str(" ...");
         }
-        
+
         return Some(result);
     }
-    
+
     // For other tokenizers, we need to tokenize and then decode
     let Ok(tokens) = std::panic::catch_unwind(|| tokenizer.encode(&cleaned_text)) else {
         return None;
     };
-    
+
     // Check if indices are valid
     if start_idx >= tokens.len() || end_idx > tokens.len() || start_idx >= end_idx {
         return None;
     }
-    
+
     // For BPE tokenizers, try to decode with context
     if let Some(inner) = tokenizer.inner.as_ref() {
         let context_start = start_idx.saturating_sub(context_words);
         let context_end = (end_idx + context_words).min(tokens.len());
-        
+
         let mut result = String::new();
-        
+
         // Decode and add leading context
         if context_start < start_idx {
             if let Ok(prefix) = inner.decode(tokens[context_start..start_idx].to_vec()) {
@@ -1188,14 +1196,14 @@ fn extract_contaminated_segment_with_context(
                 result.push_str(" ");
             }
         }
-        
+
         // Decode and add contaminated section
         if let Ok(contaminated) = inner.decode(tokens[start_idx..end_idx].to_vec()) {
             result.push_str("【");
             result.push_str(&contaminated);
             result.push_str("】");
         }
-        
+
         // Decode and add trailing context
         if end_idx < context_end {
             if let Ok(suffix) = inner.decode(tokens[end_idx..context_end].to_vec()) {
@@ -1204,19 +1212,19 @@ fn extract_contaminated_segment_with_context(
                 result.push_str(" ...");
             }
         }
-        
+
         if !result.is_empty() {
             return Some(result);
         }
     }
-    
+
     // Fallback: show token IDs
     let token_str = tokens[start_idx..end_idx]
         .iter()
         .map(|t| t.to_string())
         .collect::<Vec<_>>()
         .join(", ");
-    
+
     Some(format!("[Tokens: {}]", token_str))
 }
 
@@ -1302,20 +1310,20 @@ fn display_contamination_case(
     };
 
     println!("   \"{}\"", displayed_text);
-    
+
     // Show the actual contaminated text segment if we have token indices
     if let (Some(start_idx), Some(end_idx)) = (result.contamination_start_idx, result.contamination_end_idx) {
         println!();
         println!("📍 CONTAMINATED SEGMENT (tokens {} to {}):", start_idx, end_idx);
-        
+
         // Try to extract the contaminated segment with 10 words of context on each side
         if let Some(segment) = extract_contaminated_segment_with_context(training_text, start_idx, end_idx, config, 10) {
             println!("   {}", segment);
         } else {
             println!("   [Unable to extract segment - {} tokens]", end_idx - start_idx);
-        }
+        };
     }
-    
+
     println!();
 
     match result.method.as_deref() {

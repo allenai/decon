@@ -14,10 +14,19 @@ help:
 	@echo "  embeddings - Download and prepare word embeddings using Python script"
 
 detect:
-	cargo run --release detect --config examples/eval/simple.yaml
+	cargo run --release detect --config examples/eval/.yaml
 
 review:
 	cargo run --release review --config examples/eval/simple.yaml --step
+
+minhash:
+	cargo run --release detect --config examples/eval/minhash.yaml
+
+toxic:
+	cargo run --release detect --config examples/eval/toxic.yaml
+
+simple:
+	cargo run --release detect --config examples/eval/simple.yaml
 
 stats:
 	cargo run -- review --config examples/eval/simple.yaml --stats
@@ -33,6 +42,8 @@ tp:
 
 tn:
 	cargo run -- review --config examples/eval/simple.yaml --tn
+
+
 
 evals:
 	python python/download_evals.py
