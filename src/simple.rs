@@ -493,7 +493,7 @@ fn check_ngram_for_match(
     config: &Config,
     ngram_to_id: &NgramToIdMap,
     id_to_docs: &IdToDocsMap
-) -> Option<Vec<u32>> {
+) -> Option<HashSet<u32>> {
     let ngram_text = if word_tokens.len() < config.ngram_size {
         word_tokens.join(" ")
     } else {
@@ -504,10 +504,9 @@ fn check_ngram_for_match(
     if let Some(ngram_id) = ngram_to_id.get(&ngram_text) {
         // Look up documents containing this n-gram
         if let Some(doc_set) = id_to_docs.get(&ngram_id) {
-            let doc_ids: Vec<u32> = doc_set.iter().cloned().collect();
-            if !doc_ids.is_empty() {
-                // println!("N-gram '{}' found in {} documents", ngram_text, doc_ids.len()); //debug
-                return Some(doc_ids);
+            if !doc_set.is_empty() {
+                // println!("N-gram '{}' found in {} documents", ngram_text, doc_set.len()); //debug
+                return Some(doc_set.clone());
             }
         }
     }
@@ -521,7 +520,7 @@ fn expand_simple_contamination_cluster(
     config: &Config,
     ngram_to_id: &NgramToIdMap,
     id_to_docs: &IdToDocsMap,
-    initial_document_ids: Vec<u32>,
+    initial_document_ids: HashSet<u32>,
     initial_training_ngram: &str
 ) -> Result<SimpleContaminationCluster, Error> {
     let mut start_idx = hit_idx;
@@ -531,7 +530,7 @@ fn expand_simple_contamination_cluster(
     // Initialize document match tracking - track consecutive misses for each document
     let mut document_matches: HashMap<u32, HashSet<u64>> = HashMap::new();
     let mut document_misses: HashMap<u32, usize> = HashMap::new();
-    let mut active_documents: HashSet<u32> = initial_document_ids.iter().cloned().collect();
+    let mut active_documents: HashSet<u32> = initial_document_ids.clone();
 
     // Get the initial n-gram ID for tracking
     let initial_ngram_id = ngram_to_id.get(initial_training_ngram)
@@ -572,8 +571,7 @@ fn expand_simple_contamination_cluster(
             // println!("Left traversal: checking n-gram {} '{}'", left_idx, ngram_text); //debug
 
             // Check intersection with active documents
-            let matched_set: HashSet<u32> = matched_docs.iter().cloned().collect();
-            let intersection: Vec<u32> = active_documents.intersection(&matched_set).cloned().collect();
+            let intersection: Vec<u32> = active_documents.intersection(&matched_docs).cloned().collect();
 
             if !intersection.is_empty() {
                 // println!("Left hit at {}: {} docs intersect", left_idx, intersection.len()); //debug
@@ -590,7 +588,7 @@ fn expand_simple_contamination_cluster(
                 }
 
                 // Remove documents that didn't match this n-gram
-                let to_remove: Vec<u32> = active_documents.difference(&matched_set).cloned().collect();
+                let to_remove: Vec<u32> = active_documents.difference(&matched_docs).cloned().collect();
                 for doc_id in to_remove {
                     let miss_count = document_misses.entry(doc_id).or_insert(0);
                     *miss_count += 1;
@@ -634,7 +632,7 @@ fn expand_simple_contamination_cluster(
     }
 
     // Reset active documents and misses for right traversal
-    active_documents = initial_document_ids.iter().cloned().collect();
+    active_documents = initial_document_ids.clone();
     for doc_id in &initial_document_ids {
         document_misses.insert(*doc_id, 0);
     }
@@ -655,8 +653,7 @@ fn expand_simple_contamination_cluster(
             // println!("Right traversal: checking n-gram {} '{}'", right_idx, ngram_text); //debug
 
             // Check intersection with active documents
-            let matched_set: HashSet<u32> = matched_docs.iter().cloned().collect();
-            let intersection: Vec<u32> = active_documents.intersection(&matched_set).cloned().collect();
+            let intersection: Vec<u32> = active_documents.intersection(&matched_docs).cloned().collect();
 
             if !intersection.is_empty() {
                 // println!("Right hit at {}: {} docs intersect", right_idx, intersection.len()); //debug
@@ -673,7 +670,7 @@ fn expand_simple_contamination_cluster(
                 }
 
                 // Remove documents that didn't match this n-gram
-                let to_remove: Vec<u32> = active_documents.difference(&matched_set).cloned().collect();
+                let to_remove: Vec<u32> = active_documents.difference(&matched_docs).cloned().collect();
                 for doc_id in to_remove {
                     let miss_count = document_misses.entry(doc_id).or_insert(0);
                     *miss_count += 1;
