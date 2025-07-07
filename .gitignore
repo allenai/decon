@@ -4,3 +4,4 @@ fixtures/output/*.*
 fixtures/embeddings/*.*
 fixtures/reference/*.*
 tests/output
+test_daemon.sh

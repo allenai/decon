@@ -90,7 +90,7 @@ enum Commands {
 =                             CONFIG                              =
 =================================================================*/
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     // Detection mode
     #[serde(default = "default_mode")]

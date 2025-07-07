@@ -313,10 +313,10 @@ fn detect_simple_contamination(
     Ok(total_contaminations)
 }
 
-type ContaminationResults = DashMap<String, Vec<SimpleContaminationEntry>>;
+pub type ContaminationResults = DashMap<String, Vec<SimpleContaminationEntry>>;
 
 #[derive(Clone)]
-struct SimpleContaminationEntry {
+pub struct SimpleContaminationEntry {
     training_line: usize,
     eval_name: String,
     eval_line: usize,
@@ -336,7 +336,7 @@ struct SimpleContaminationCluster {
     matching_ngrams: Vec<String>,
 }
 
-fn process_simple_training_file(
+pub fn process_simple_training_file(
     file_path: &PathBuf,
     config: &Config,
     ngram_to_id: &NgramToIdMap,
@@ -897,7 +897,7 @@ fn save_contamination_results(
     Ok(())
 }
 
-fn save_contamination_results_toxic_format(
+pub fn save_contamination_results_toxic_format(
     config: &Config,
     contamination_results: &ContaminationResults
 ) -> Result<(), Error> {
