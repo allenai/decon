@@ -8,8 +8,8 @@ output_dir: fixtures/output
 
 ngram_size: 3
 max_consecutive_misses: 6
-toxic_overlap_threshold: 0.9
-toxic_score_threshold: 1.0
+toxic_overlap_threshold: 0.8
+toxic_score_threshold: 2.0
 sample_every_m_tokens: 10
 punctuation_chars: "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"  # (uses default if not specified)
 tokenizer_str: word  # Use the same tokenizer as minhash mode
