@@ -23,7 +23,14 @@ This tool provides three complementary detection approaches to efficiently ident
 
 ## Detection Methods
 
-### 📊 [MinHash Detection](minhash.md) (`mode: minhash`)
+### 🔍 [SIMPLE Detection](simple.md) (`mode: simple`)
+Efficient n-gram matching with intelligent sampling and cluster expansion.
+- **Best for**: Large-scale exact contamination, performance-critical scenarios
+- **Speed**: Fast with configurable sampling, efficient parallel processing
+- **Memory**: Indexes only evaluation data, streams training data
+- **Accuracy**: High precision for substantial overlaps, tunable via sampling rate
+
+### 📊 [Windowed MinHash Detection](minhash.md) (`mode: minhash`)
 Memory-efficient detection using Jaccard similarity and LSH.
 - WIP.
 - Needs sliding window approach tuned, or other adaptations for dissimilar set sizes.
@@ -36,18 +43,8 @@ Semantic contamination detection using word embeddings and poison tokens.
 - **Memory**: Bounded vocabulary, scalable to large datasets
 - **Accuracy**: Detects subtle semantic contamination that MinHash misses
 
-### 🔍 [SIMPLE Detection](simple.md) (`mode: simple`)
-Efficient n-gram matching with intelligent sampling and cluster expansion.
-- **Best for**: Large-scale exact contamination, performance-critical scenarios
-- **Speed**: Fast with configurable sampling, efficient parallel processing
-- **Memory**: Indexes only evaluation data, streams training data
-- **Accuracy**: High precision for substantial overlaps, tunable via sampling rate
 
-**Choose your method based on your contamination concerns:**
-- Use **MinHash** for fast exact-match detection in large datasets
-- Use **TOXIC** when concerned about paraphrasing and semantic leakage
-- Use **SIMPLE** for efficient large-scale detection with sampling trade-offs
-- Run multiple methods for comprehensive coverage
+**Use SIMPLE as it is tested and complete**
 
 ## Installation
 
