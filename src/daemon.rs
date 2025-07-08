@@ -56,10 +56,8 @@ enum IndexType {
 // Shared application state
 #[derive(Clone)]
 struct AppState {
-    config: Arc<Config>,
     job_sender: mpsc::Sender<Job>,
     jobs: Arc<Mutex<std::collections::HashMap<String, Job>>>,
-    index: Arc<IndexType>,
 }
 
 pub async fn run_daemon(config_path: PathBuf, port: u16) -> Result<()> {
@@ -110,10 +108,8 @@ pub async fn run_daemon(config_path: PathBuf, port: u16) -> Result<()> {
     
     // Create shared state
     let state = AppState {
-        config: Arc::new(config.clone()),
         job_sender,
         jobs: Arc::new(Mutex::new(std::collections::HashMap::new())),
-        index: index.clone(),
     };
     
     // Spawn worker threads based on config
