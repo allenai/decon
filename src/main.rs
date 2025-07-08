@@ -567,6 +567,10 @@ struct ContaminationResult {
     contamination_start_idx: Option<usize>,
     #[serde(default)]
     contamination_end_idx: Option<usize>,
+    #[serde(default)]
+    training_overlap_text: Option<String>,
+    #[serde(default)]
+    eval_overlap_text: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1005,6 +1009,8 @@ fn filter_contamination_results(
                     bucket_ids: None,
                     contamination_start_idx: None,
                     contamination_end_idx: None,
+                    training_overlap_text: None,
+                    eval_overlap_text: None,
                 };
                 filtered.push(placeholder);
             }
@@ -1065,6 +1071,8 @@ fn filter_contamination_results(
                     bucket_ids: None,
                     contamination_start_idx: None,
                     contamination_end_idx: None,
+                    training_overlap_text: None,
+                    eval_overlap_text: None,
                 };
                 filtered.push(placeholder);
             }

@@ -5,7 +5,7 @@ local_input: /home/robert/Downloads/input-full
 reference_input: fixtures/reference
 output_dir: fixtures/output
 cleaned_file_output: fixtures/cleaned  # Optional: separate directory for purified files
-purify: true  # Enable creation of cleaned files
+purify: false  # Enable creation of cleaned files
 
 ngram_size: 3
 max_consecutive_misses: 6
@@ -14,4 +14,4 @@ toxic_score_threshold: 2.0
 sample_every_m_tokens: 5
 punctuation_chars: "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"  # (uses default if not specified)
 tokenizer_str: word
-# worker_threads: 8  # Number of worker threads for daemon mode
+# worker_threads: 8  # Number of worker threads for daemon mode, controls downloads

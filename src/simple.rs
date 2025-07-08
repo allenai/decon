@@ -17,6 +17,7 @@ use crate::{Config, get_nested_json_val, get_results_filename, write_purified_fi
 type NgramToIdMap = DashMap<u64, u64>; // Maps n-gram hash to unique ID
 type IdToDocsMap = DashMap<u64, HashSet<u32>>; // Maps n-gram ID to set of document IDs
 type EvalDocuments = DashMap<u32, (String, usize, usize, usize)>; // Maps doc_id to (eval_name, line_num, total_ngrams, unique_ngrams)
+type EvalTextSnippets = DashMap<(String, usize), String>; // Maps (eval_name, line_num) to text snippet (first 1000 words)
 type IdToNgramTokens = DashMap<u64, Vec<usize>>; // Maps unique ID to token IDs for display
 
 pub fn contamination_detect(config: &Config) -> Result<(), Error> {
@@ -26,14 +27,14 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
     // Step 1: Process eval datasets and build n-gram mappings
     println!("Processing eval datasets and building n-gram index...");
     let index_start = Instant::now();
-    let (ngram_to_id, id_to_docs, eval_documents, id_to_ngram_tokens, tokenizer) = build_simple_index(config)?;
+    let (ngram_to_id, id_to_docs, eval_documents, id_to_ngram_tokens, tokenizer, eval_text_snippets) = build_simple_index(config)?;
     let index_time = index_start.elapsed();
     println!("Built simple index with {} unique n-grams in {:.2}s", ngram_to_id.len(), index_time.as_secs_f64());
 
     // Step 2: Process training data and detect contamination
     println!("Processing training data for contamination detection...");
     let detection_start = Instant::now();
-    let total_contaminations = detect_simple_contamination(config, &ngram_to_id, &id_to_docs, &eval_documents, &id_to_ngram_tokens, &tokenizer)?;
+    let total_contaminations = detect_simple_contamination(config, &ngram_to_id, &id_to_docs, &eval_documents, &id_to_ngram_tokens, &tokenizer, &eval_text_snippets)?;
     let detection_time = detection_start.elapsed();
 
     let total_time = start_main.elapsed();
@@ -46,13 +47,14 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
 }
 
 // Public type for the index
-pub type SimpleIndex = (NgramToIdMap, IdToDocsMap, EvalDocuments, IdToNgramTokens, OmniTokenizer);
+pub type SimpleIndex = (NgramToIdMap, IdToDocsMap, EvalDocuments, IdToNgramTokens, OmniTokenizer, EvalTextSnippets);
 
 pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
     let ngram_to_id: NgramToIdMap = DashMap::new();
     let id_to_docs: IdToDocsMap = DashMap::new();
     let eval_documents: EvalDocuments = DashMap::new();
     let id_to_ngram_tokens: IdToNgramTokens = DashMap::new();
+    let eval_text_snippets: EvalTextSnippets = DashMap::new();
 
     use std::sync::atomic::AtomicU64;
     let next_ngram_id = AtomicU64::new(0);
@@ -78,7 +80,8 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
             &eval_documents,
             &next_ngram_id,
             &tokenizer,
-            &id_to_ngram_tokens
+            &id_to_ngram_tokens,
+            &eval_text_snippets
         ) {
             println!("Error processing reference file {:?}: {:?}", file_path, e);
         }
@@ -88,7 +91,7 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
     // println!("Finished processing reference files. Total unique n-grams: {}", ngram_to_id.len()); //debug
     // println!("Total eval documents indexed: {}", eval_documents.len()); //debug
 
-    Ok((ngram_to_id, id_to_docs, eval_documents, id_to_ngram_tokens, tokenizer))
+    Ok((ngram_to_id, id_to_docs, eval_documents, id_to_ngram_tokens, tokenizer, eval_text_snippets))
 }
 
 fn process_simple_reference_file(
@@ -99,7 +102,8 @@ fn process_simple_reference_file(
     eval_documents: &EvalDocuments,
     next_ngram_id: &std::sync::atomic::AtomicU64,
     tokenizer: &OmniTokenizer,
-    id_to_ngram_tokens: &IdToNgramTokens
+    id_to_ngram_tokens: &IdToNgramTokens,
+    eval_text_snippets: &EvalTextSnippets
 ) -> Result<(), Error> {
     let data = read_pathbuf_to_mem(file_path)?;
 
@@ -121,10 +125,17 @@ fn process_simple_reference_file(
         let json_obj: Value = serde_json::from_str(&line)?;
         let line_text = get_nested_json_val(&json_obj, &config.content_key.to_string())?;
 
+        // Clean text for both tokenizer types
+        let cleaned = clean_text(&line_text, &config.punctuation_chars);
+        
+        // Store eval text snippet (first 1000 words)
+        let snippet_words: Vec<&str> = cleaned.split_whitespace().take(1000).collect();
+        let text_snippet = snippet_words.join(" ");
+        eval_text_snippets.insert((eval_name.clone(), line_num), text_snippet);
+        
         // Use preprocess_text to get token IDs
         let word_tokens = if config.tokenizer_str == "word" {
             // For word mode, build vocabulary from reference set
-            let cleaned = clean_text(&line_text, &config.punctuation_chars);
             let words: Vec<String> = cleaned.split_whitespace()
                 .map(|s| s.to_string())
                 .filter(|s| !s.is_empty())
@@ -247,7 +258,8 @@ fn detect_simple_contamination(
     id_to_docs: &IdToDocsMap,
     eval_documents: &EvalDocuments,
     id_to_ngram_tokens: &IdToNgramTokens,
-    tokenizer: &OmniTokenizer
+    tokenizer: &OmniTokenizer,
+    eval_text_snippets: &EvalTextSnippets
 ) -> Result<usize, Error> {
     // println!("Starting training data contamination detection..."); //debug
 
@@ -274,7 +286,8 @@ fn detect_simple_contamination(
             eval_documents,
             &contamination_results,
             tokenizer,
-            id_to_ngram_tokens
+            id_to_ngram_tokens,
+            eval_text_snippets
         ) {
             Ok(lines_processed) => {
                 total_lines_processed.fetch_add(lines_processed, std::sync::atomic::Ordering::SeqCst);
@@ -307,7 +320,7 @@ fn detect_simple_contamination(
     }
 
     // Save results
-    save_contamination_results_toxic_format(config, &contamination_results)?;
+    save_contamination_results_toxic_format_with_eval_text(config, &contamination_results, eval_text_snippets)?;
 
     // Create purified files if requested
     if config.purify {
@@ -320,6 +333,79 @@ fn detect_simple_contamination(
 
 pub type ContaminationResults = DashMap<String, Vec<SimpleContaminationEntry>>;
 
+/// Extract overlapping text with context from cleaned text
+fn extract_overlap_with_context(
+    cleaned_text: &str,
+    start_idx: usize,
+    end_idx: usize,
+    tokenizer_str: &str,
+    context_words: usize,
+) -> Option<String> {
+    // For word tokenizer, tokens are just words split by whitespace
+    if tokenizer_str == "word" {
+        // Only iterate through the words we need
+        let context_start = start_idx.saturating_sub(context_words);
+        let needed_end = end_idx + context_words;
+        
+        let mut word_iter = cleaned_text.split_whitespace();
+        let mut current_idx = 0;
+        let mut words_buffer = Vec::new();
+        
+        // Skip to context_start
+        while current_idx < context_start {
+            if word_iter.next().is_none() {
+                return None; // Invalid indices
+            }
+            current_idx += 1;
+        }
+        
+        // Collect only the words we need
+        while current_idx < needed_end {
+            if let Some(word) = word_iter.next() {
+                words_buffer.push(word);
+                current_idx += 1;
+            } else {
+                break;
+            }
+        }
+        
+        // Check if we have enough words
+        let relative_start = start_idx - context_start;
+        let relative_end = end_idx - context_start;
+        if relative_end > words_buffer.len() || relative_start >= relative_end {
+            return None;
+        }
+        
+        // Build the output with highlighted contamination
+        let mut result = String::new();
+        
+        // Add leading context
+        if relative_start > 0 {
+            result.push_str("... ");
+            result.push_str(&words_buffer[0..relative_start].join(" "));
+            result.push(' ');
+        }
+        
+        // Add contaminated section with highlighting
+        result.push_str("【");
+        result.push_str(&words_buffer[relative_start..relative_end].join(" "));
+        result.push_str("】");
+        
+        // Add trailing context
+        if relative_end < words_buffer.len() {
+            result.push(' ');
+            result.push_str(&words_buffer[relative_end..].join(" "));
+            result.push_str(" ...");
+        }
+        
+        return Some(result);
+    }
+    
+    // For other tokenizers, just return the segment without fancy formatting
+    // since we'd need the actual tokenizer instance to decode properly
+    None
+}
+
 #[derive(Clone)]
 pub struct SimpleContaminationEntry {
     pub training_line: usize,
@@ -331,6 +417,7 @@ pub struct SimpleContaminationEntry {
     // Token indices for position recovery
     contamination_start_idx: Option<usize>, // Start index in token array
     contamination_end_idx: Option<usize>,   // End index in token array
+    training_overlap_text: Option<String>,
 }
 
 #[derive(Clone)]
@@ -349,7 +436,8 @@ pub fn process_simple_training_file(
     eval_documents: &EvalDocuments,
     contamination_results: &ContaminationResults,
     tokenizer: &OmniTokenizer,
-    id_to_ngram_tokens: &IdToNgramTokens
+    id_to_ngram_tokens: &IdToNgramTokens,
+    eval_text_snippets: &EvalTextSnippets
 ) -> Result<usize, Error> {
     let data = read_pathbuf_to_mem(file_path)?;
 
@@ -377,8 +465,9 @@ pub fn process_simple_training_file(
         let json_obj: Value = serde_json::from_str(&line)?;
         let line_text = get_nested_json_val(&json_obj, &config.content_key.to_string())?;
 
-        // Use preprocess_text to get token IDs
-        let Ok(word_tokens) = catch_unwind(|| preprocess_text(&line_text, tokenizer, &config.punctuation_chars)) else {
+        // Clean text once and get token IDs
+        let cleaned_text = clean_text(&line_text, &config.punctuation_chars);
+        let Ok(word_tokens) = catch_unwind(|| tokenizer.encode(&cleaned_text)) else {
             println!("Tokenization failed on {:?} | line {:?}", file_path, line_num);
             continue;
         };
@@ -427,6 +516,15 @@ pub fn process_simple_training_file(
 
                     // Only record results that exceed both thresholds
                     if overlap_ratio >= config.toxic_overlap_threshold && toxic_score >= config.toxic_score_threshold {
+                        // Extract the overlapping text with context
+                        let training_overlap_text = extract_overlap_with_context(
+                            &cleaned_text,
+                            cluster.start_idx,
+                            cluster.end_idx,
+                            &config.tokenizer_str,
+                            10 // context words
+                        );
+                        
                         let entry = SimpleContaminationEntry {
                             training_line: line_num,
                             eval_name: eval_name.clone(),
@@ -436,6 +534,7 @@ pub fn process_simple_training_file(
                             matching_ngrams: cluster.matching_ngrams.clone(),
                             contamination_start_idx: Some(cluster.start_idx),
                             contamination_end_idx: Some(cluster.end_idx),
+                            training_overlap_text,
                         };
 
                         cluster_results.push(entry);
@@ -902,6 +1001,7 @@ fn save_contamination_results(
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn save_contamination_results_toxic_format(
     config: &Config,
     contamination_results: &ContaminationResults
@@ -909,10 +1009,28 @@ pub fn save_contamination_results_toxic_format(
     save_contamination_results_toxic_format_with_filename(config, contamination_results, None)
 }
 
+pub fn save_contamination_results_toxic_format_with_eval_text(
+    config: &Config,
+    contamination_results: &ContaminationResults,
+    eval_text_snippets: &EvalTextSnippets
+) -> Result<PathBuf, Error> {
+    save_contamination_results_toxic_format_with_filename_and_eval_text(config, contamination_results, None, eval_text_snippets)
+}
+
+#[allow(dead_code)]
 pub fn save_contamination_results_toxic_format_with_filename(
     config: &Config,
     contamination_results: &ContaminationResults,
     custom_filename: Option<&str>
+) -> Result<PathBuf, Error> {
+    save_contamination_results_toxic_format_with_filename_and_eval_text(config, contamination_results, custom_filename, &DashMap::new())
+}
+
+pub fn save_contamination_results_toxic_format_with_filename_and_eval_text(
+    config: &Config,
+    contamination_results: &ContaminationResults,
+    custom_filename: Option<&str>,
+    eval_text_snippets: &EvalTextSnippets
 ) -> Result<PathBuf, Error> {
     // Create output directory if it doesn't exist
     create_dir_all(&config.output_dir)?;
@@ -945,6 +1063,18 @@ pub fn save_contamination_results_toxic_format_with_filename(
             if let Some(end_idx) = contamination_entry.contamination_end_idx {
                 result["contamination_end_idx"] = json!(end_idx);
             }
+            
+            // Add overlapping text if available
+            if let Some(ref overlap_text) = contamination_entry.training_overlap_text {
+                result["training_overlap_text"] = json!(overlap_text);
+            }
+            
+            // Look up eval text snippet
+            let eval_key = (contamination_entry.eval_name.clone(), contamination_entry.eval_line);
+            let eval_text = eval_text_snippets.get(&eval_key)
+                .map(|entry| entry.value().clone())
+                .unwrap_or_else(|| String::new());
+            result["eval_overlap_text"] = json!(eval_text);
 
             output_data.push(serde_json::to_vec(&result)?);
             total_contaminations += 1;

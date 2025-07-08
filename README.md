@@ -312,6 +312,22 @@ Each detected contamination is saved as a JSON line:
 }
 ```
 
+**SIMPLE Results (with overlap text):**
+```json
+{
+  "training_file": "train_dataset",
+  "training_line": 42,
+  "eval_dataset": "gsm8k_test",
+  "eval_line": 1,
+  "overlap_ratio": 0.85,
+  "toxic_score": 3.2,
+  "method": "simple",
+  "contamination_start_idx": 15,
+  "contamination_end_idx": 25,
+  "training_overlap_text": "... quick brown 【fox jumps over the lazy dog】 and ran away ..."
+}
+```
+
 ### Review Tool Output
 The review tool shows side-by-side comparison:
 

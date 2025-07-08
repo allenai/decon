@@ -306,7 +306,7 @@ fn process_single_file(
 ) -> Result<(PathBuf, Option<PathBuf>)> {
     match index {
         IndexType::Simple(simple_index) => {
-            let (ngram_to_id, id_to_docs, eval_documents, id_to_ngram_tokens, tokenizer) = simple_index;
+            let (ngram_to_id, id_to_docs, eval_documents, id_to_ngram_tokens, tokenizer, eval_text_snippets) = simple_index;
             
             // Use the existing detection logic from simple.rs
             let contamination_results = dashmap::DashMap::new();
@@ -320,14 +320,16 @@ fn process_single_file(
                 &contamination_results,
                 tokenizer,
                 id_to_ngram_tokens,
+                eval_text_snippets,
             )?;
             
             // Save results with unique filename
             let unique_filename = crate::get_unique_results_filename(file_path, config);
-            let output_path = crate::simple::save_contamination_results_toxic_format_with_filename(
+            let output_path = crate::simple::save_contamination_results_toxic_format_with_filename_and_eval_text(
                 config, 
                 &contamination_results, 
-                Some(&unique_filename)
+                Some(&unique_filename),
+                eval_text_snippets
             )?;
             
             println!("Processed {} lines from {:?}", lines_processed, file_path);
