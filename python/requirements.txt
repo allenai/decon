@@ -7,3 +7,4 @@ smart-open>=6.0.0
 # Optional dependencies for reference scripts
 ray>=2.0.0  # Only needed for reference orchestration scripts
 click>=8.0.0  # Only needed for reference CLI scripts
+datasets==2.14.4

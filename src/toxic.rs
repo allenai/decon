@@ -1945,7 +1945,7 @@ pub fn process_toxic_training_file(
     eval_documents: &EvalDocuments,
     eval_vocabulary: &HashSet<String>,
     contamination_results: &DashMap<String, Vec<ToxicContaminationEntry>>,
-    eval_text_snippets: &EvalTextSnippets
+    _eval_text_snippets: &EvalTextSnippets
 ) -> Result<FileProcessingStats, Error> {
     let data = read_pathbuf_to_mem(file_path)?;
 

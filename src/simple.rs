@@ -437,7 +437,7 @@ pub fn process_simple_training_file(
     contamination_results: &ContaminationResults,
     tokenizer: &OmniTokenizer,
     id_to_ngram_tokens: &IdToNgramTokens,
-    eval_text_snippets: &EvalTextSnippets
+    _eval_text_snippets: &EvalTextSnippets
 ) -> Result<usize, Error> {
     let data = read_pathbuf_to_mem(file_path)?;
 
