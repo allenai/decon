@@ -43,7 +43,7 @@ use std::time::{Duration, Instant};
 
 use mj_io::{expand_dirs, read_pathbuf_to_mem, write_mem_to_pathbuf, build_pbar};
 
-use crate::{Config, get_nested_json_val, clean_text_allowlist, get_results_filename, get_purified_filename, debug_println};
+use crate::{Config, get_nested_json_val, clean_text_allowlist, get_results_filename, write_purified_file, debug_println};
 
 
 
@@ -2648,7 +2648,6 @@ fn create_purified_files(
     
     // Determine output directory for cleaned files
     let cleaned_dir = config.cleaned_file_output.as_ref().unwrap_or(&config.output_dir);
-    create_dir_all(cleaned_dir)?;
     
     // Process each training file that has contamination
     for file_path in training_files {
@@ -2678,25 +2677,8 @@ fn create_purified_files(
                 contaminated_lines.insert(entry.training_line);
             }
             
-            // Create purified file
-            let purified_filename = get_purified_filename(file_path);
-            let purified_path = cleaned_dir.join(&purified_filename);
-            
-            let input_file = BufReader::new(File::open(file_path)?);
-            let mut output_file = BufWriter::new(File::create(&purified_path)?);
-            
-            let mut removed_count = 0;
-            for (line_num, line) in input_file.lines().enumerate() {
-                if !contaminated_lines.contains(&line_num) {
-                    writeln!(output_file, "{}", line?)?;
-                } else {
-                    removed_count += 1;
-                }
-            }
-            
-            output_file.flush()?;
-            println!("Created purified file: {:?} (removed {} contaminated lines)", 
-                     purified_path, removed_count);
+            // Use the shared write_purified_file function
+            write_purified_file(file_path, cleaned_dir, &contaminated_lines)?;
         }
     }
     

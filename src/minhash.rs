@@ -14,13 +14,13 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::panic::catch_unwind;
 use std::path::PathBuf;
 use std::time::Instant;
-use std::fs::{create_dir_all, File};
-use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::fs::create_dir_all;
+use std::io::BufRead;
 use unicode_segmentation::UnicodeSegmentation;
 
 use mj_io::{expand_dirs, read_pathbuf_to_mem, write_mem_to_pathbuf, build_pbar};
 
-use crate::{Config, OmniTokenizer, get_nested_json_val, preprocess_text, hash_object, get_results_filename, get_purified_filename};
+use crate::{Config, OmniTokenizer, get_nested_json_val, preprocess_text, hash_object, get_results_filename, write_purified_file};
 
 const BIG_PRIME: u64 = 18446744073709551557;
 const MAX_HASH: u64 = BIG_PRIME;
@@ -605,7 +605,6 @@ fn create_purified_files(
     
     // Determine output directory for cleaned files
     let cleaned_dir = config.cleaned_file_output.as_ref().unwrap_or(&config.output_dir);
-    create_dir_all(cleaned_dir)?;
     
     // Process each training file that has contamination
     for file_path in training_files {
@@ -635,25 +634,8 @@ fn create_purified_files(
                 contaminated_lines.insert(*line_num);
             }
             
-            // Create purified file
-            let purified_filename = get_purified_filename(file_path);
-            let purified_path = cleaned_dir.join(&purified_filename);
-            
-            let input_file = BufReader::new(File::open(file_path)?);
-            let mut output_file = BufWriter::new(File::create(&purified_path)?);
-            
-            let mut removed_count = 0;
-            for (line_num, line) in input_file.lines().enumerate() {
-                if !contaminated_lines.contains(&line_num) {
-                    writeln!(output_file, "{}", line?)?;
-                } else {
-                    removed_count += 1;
-                }
-            }
-            
-            output_file.flush()?;
-            println!("Created purified file: {:?} (removed {} contaminated lines)", 
-                     purified_path, removed_count);
+            // Use the shared write_purified_file function
+            write_purified_file(file_path, cleaned_dir, &contaminated_lines)?;
         }
     }
     

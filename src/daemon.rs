@@ -12,9 +12,7 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use uuid::Uuid;
 
-use crate::{Config, read_config, get_purified_filename};
-use std::io::{BufRead, BufReader, BufWriter, Write};
-use std::fs::{File, create_dir_all};
+use crate::{Config, read_config, write_purified_file};
 use std::collections::HashSet;
 
 // Job submission request
@@ -486,33 +484,3 @@ fn process_single_file(
     }
 }
 
-// Write a purified version of the input file with contaminated lines removed
-fn write_purified_file(
-    input_path: &PathBuf,
-    output_dir: &PathBuf,
-    contaminated_lines: &HashSet<usize>,
-) -> Result<PathBuf> {
-    // Ensure output directory exists
-    create_dir_all(output_dir)?;
-    
-    let purified_filename = get_purified_filename(input_path);
-    let purified_path = output_dir.join(&purified_filename);
-    
-    let input_file = BufReader::new(File::open(input_path)?);
-    let mut output_file = BufWriter::new(File::create(&purified_path)?);
-    
-    let mut removed_count = 0;
-    for (line_num, line) in input_file.lines().enumerate() {
-        if !contaminated_lines.contains(&line_num) {
-            writeln!(output_file, "{}", line?)?;
-        } else {
-            removed_count += 1;
-        }
-    }
-    
-    output_file.flush()?;
-    println!("Created purified file: {:?} (removed {} contaminated lines)", 
-             purified_path, removed_count);
-    
-    Ok(purified_path)
-}

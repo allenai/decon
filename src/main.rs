@@ -291,6 +291,41 @@ pub fn get_purified_filename(input_file: &PathBuf) -> String {
     format!("{}.clean.jsonl", base_name)
 }
 
+// Common function to write a purified file with contaminated lines removed
+pub fn write_purified_file(
+    input_path: &PathBuf,
+    output_dir: &PathBuf,
+    contaminated_lines: &std::collections::HashSet<usize>,
+) -> Result<PathBuf, anyhow::Error> {
+    use std::fs::create_dir_all;
+    use std::io::{BufWriter, Write, BufRead};
+    
+    // Ensure output directory exists
+    create_dir_all(output_dir)?;
+    
+    let purified_filename = get_purified_filename(input_path);
+    let purified_path = output_dir.join(&purified_filename);
+    
+    // Use read_pathbuf_to_mem to handle compressed files
+    let data = read_pathbuf_to_mem(input_path)?;
+    let mut output_file = BufWriter::new(std::fs::File::create(&purified_path)?);
+    
+    let mut removed_count = 0;
+    for (line_num, line) in data.lines().enumerate() {
+        if !contaminated_lines.contains(&line_num) {
+            writeln!(output_file, "{}", line?)?;
+        } else {
+            removed_count += 1;
+        }
+    }
+    
+    output_file.flush()?;
+    println!("Created purified file: {:?} (removed {} contaminated lines)", 
+             purified_path, removed_count);
+    
+    Ok(purified_path)
+}
+
 
 
 
