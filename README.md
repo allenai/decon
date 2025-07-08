@@ -1,4 +1,4 @@
-# Contamination Detection for ML Datasets
+# Contamination Detection
 
 Contamination detection tools for training datasets. Identifies when training data contains text that appears in evaluation datasets using multiple detection approaches. Supports both exact matching and semantic similarity detection.
 
@@ -12,8 +12,6 @@ Contamination detection tools for training datasets. Identifies when training da
 - [Understanding Results](#understanding-results)
 
 ## Overview
-
-**Contamination detection** is critical for machine learning evaluation. When training data accidentally contains examples from evaluation datasets, it can lead to artificially inflated performance metrics and unreliable model evaluation.
 
 This tool provides three complementary detection approaches to efficiently identify contamination:
 - **Exact matches**: Identical text between training and evaluation data
