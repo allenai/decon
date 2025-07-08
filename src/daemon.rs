@@ -12,7 +12,10 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use uuid::Uuid;
 
-use crate::{Config, read_config};
+use crate::{Config, read_config, get_purified_filename};
+use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::fs::{File, create_dir_all};
+use std::collections::HashSet;
 
 // Job submission request
 #[derive(Debug, Clone, Deserialize)]
@@ -42,6 +45,7 @@ struct Job {
     file_path: PathBuf,
     status: JobStatus,
     output_path: Option<PathBuf>,
+    purified_path: Option<PathBuf>,
 }
 
 // Index types enum to support multiple modes
@@ -164,6 +168,7 @@ async fn submit_job(
         file_path: request.file_path,
         status: JobStatus::Pending,
         output_path: None,
+        purified_path: None,
     };
     
     // Store job in tracking map
@@ -209,9 +214,14 @@ async fn get_job_status(
                     }
                 });
                 
-                // Add output path if job is completed
-                if let (JobStatus::Completed, Some(output_path)) = (&job.status, &job.output_path) {
-                    response["output_path"] = json!(output_path.to_string_lossy());
+                // Add output paths if job is completed
+                if let JobStatus::Completed = &job.status {
+                    if let Some(output_path) = &job.output_path {
+                        response["output_path"] = json!(output_path.to_string_lossy());
+                    }
+                    if let Some(purified_path) = &job.purified_path {
+                        response["purified_path"] = json!(purified_path.to_string_lossy());
+                    }
                 }
                 
                 Json(response)
@@ -266,9 +276,10 @@ async fn worker_loop(
                 let mut jobs = state.jobs.lock().await;
                 if let Some(stored_job) = jobs.get_mut(&job_id) {
                     match result {
-                        Ok(Ok(output_path)) => {
+                        Ok(Ok((output_path, purified_path))) => {
                             stored_job.status = JobStatus::Completed;
                             stored_job.output_path = Some(output_path);
+                            stored_job.purified_path = purified_path;
                             println!("Worker {} completed job {} successfully", worker_id, job_id);
                         }
                         Ok(Err(e)) => {
@@ -295,7 +306,7 @@ fn process_single_file(
     config: &Config,
     file_path: &PathBuf,
     index: &IndexType,
-) -> Result<PathBuf> {
+) -> Result<(PathBuf, Option<PathBuf>)> {
     match index {
         IndexType::Simple(simple_index) => {
             let (ngram_to_id, id_to_docs, eval_documents, id_to_ngram_tokens, tokenizer) = simple_index;
@@ -323,7 +334,28 @@ fn process_single_file(
             )?;
             
             println!("Processed {} lines from {:?}", lines_processed, file_path);
-            Ok(output_path)
+            
+            // Create purified file if requested
+            let purified_path = if config.purify && !contamination_results.is_empty() {
+                // Collect all contaminated line numbers
+                let mut contaminated_lines = HashSet::new();
+                for entry in contamination_results.iter() {
+                    for contamination in entry.value() {
+                        contaminated_lines.insert(contamination.training_line);
+                    }
+                }
+                
+                if !contaminated_lines.is_empty() {
+                    let cleaned_dir = config.cleaned_file_output.as_ref().unwrap_or(&config.output_dir);
+                    Some(write_purified_file(file_path, cleaned_dir, &contaminated_lines)?)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            
+            Ok((output_path, purified_path))
         }
         IndexType::Toxic(toxic_index) => {
             let (toxic_buckets, hot_buckets, eval_documents, eval_vocabulary, _bucket_contents, embeddings, hyperplanes) = toxic_index;
@@ -359,7 +391,28 @@ fn process_single_file(
             )?;
             
             println!("Processed file {:?} using toxic mode", file_path);
-            Ok(output_path)
+            
+            // Create purified file if requested
+            let purified_path = if config.purify && !contamination_results.is_empty() {
+                // Collect all contaminated line numbers
+                let mut contaminated_lines = HashSet::new();
+                for entry in contamination_results.iter() {
+                    for contamination in entry.value() {
+                        contaminated_lines.insert(contamination.training_line);
+                    }
+                }
+                
+                if !contaminated_lines.is_empty() {
+                    let cleaned_dir = config.cleaned_file_output.as_ref().unwrap_or(&config.output_dir);
+                    Some(write_purified_file(file_path, cleaned_dir, &contaminated_lines)?)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            
+            Ok((output_path, purified_path))
         }
         IndexType::MinHash(minhash_index) => {
             let (reference_bands, reference_signatures) = minhash_index;
@@ -407,7 +460,59 @@ fn process_single_file(
             )?;
             
             println!("Processed file {:?} using minhash mode", file_path);
-            Ok(output_path)
+            
+            // Create purified file if requested
+            let purified_path = if config.purify && !contamination_results.is_empty() {
+                // Collect all contaminated line numbers
+                let mut contaminated_lines = HashSet::new();
+                for entry in contamination_results.iter() {
+                    for (line_num, _, _, _, _) in entry.value() {
+                        contaminated_lines.insert(*line_num);
+                    }
+                }
+                
+                if !contaminated_lines.is_empty() {
+                    let cleaned_dir = config.cleaned_file_output.as_ref().unwrap_or(&config.output_dir);
+                    Some(write_purified_file(file_path, cleaned_dir, &contaminated_lines)?)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            
+            Ok((output_path, purified_path))
         }
     }
+}
+
+// Write a purified version of the input file with contaminated lines removed
+fn write_purified_file(
+    input_path: &PathBuf,
+    output_dir: &PathBuf,
+    contaminated_lines: &HashSet<usize>,
+) -> Result<PathBuf> {
+    // Ensure output directory exists
+    create_dir_all(output_dir)?;
+    
+    let purified_filename = get_purified_filename(input_path);
+    let purified_path = output_dir.join(&purified_filename);
+    
+    let input_file = BufReader::new(File::open(input_path)?);
+    let mut output_file = BufWriter::new(File::create(&purified_path)?);
+    
+    let mut removed_count = 0;
+    for (line_num, line) in input_file.lines().enumerate() {
+        if !contaminated_lines.contains(&line_num) {
+            writeln!(output_file, "{}", line?)?;
+        } else {
+            removed_count += 1;
+        }
+    }
+    
+    output_file.flush()?;
+    println!("Created purified file: {:?} (removed {} contaminated lines)", 
+             purified_path, removed_count);
+    
+    Ok(purified_path)
 }

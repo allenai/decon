@@ -115,6 +115,10 @@ pub struct Config {
     pub local_input: PathBuf,
     pub reference_input: PathBuf,
     pub output_dir: PathBuf,
+    
+    // Optional separate directory for cleaned files
+    #[serde(default)]
+    pub cleaned_file_output: Option<PathBuf>,
 
     // Processing options
     #[serde(default)]
@@ -163,6 +167,10 @@ pub struct Config {
     pub num_windows: Option<usize>,
     #[serde(default)]
     pub window_step_size: Option<usize>,
+
+    // Purify option - create cleaned files with contaminated lines removed
+    #[serde(default)]
+    pub purify: bool,
 
 }
 
@@ -270,6 +278,17 @@ pub fn get_unique_results_filename(input_file: &PathBuf, config: &Config) -> Str
     
     // Format: {input file name}-{mode}-{overlap_threshold}.jsonl
     format!("{}-{}-{:.2}.jsonl", base_name, config.mode, threshold)
+}
+
+pub fn get_purified_filename(input_file: &PathBuf) -> String {
+    // Extract the base filename without extension
+    let base_name = input_file
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown");
+    
+    // Format: {input file name}.clean.jsonl
+    format!("{}.clean.jsonl", base_name)
 }
 
 

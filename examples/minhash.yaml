@@ -2,6 +2,7 @@ content_key: text
 local_input: /home/robert/Downloads/input-full
 reference_input: fixtures/reference
 output_dir: fixtures/output
+# cleaned_file_output: fixtures/cleaned  # Optional: separate directory for purified files
 band_size: 8
 ngram_size: 1
 num_bands: 7

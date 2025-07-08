@@ -43,7 +43,7 @@ use std::time::{Duration, Instant};
 
 use mj_io::{expand_dirs, read_pathbuf_to_mem, write_mem_to_pathbuf, build_pbar};
 
-use crate::{Config, get_nested_json_val, clean_text_allowlist, get_results_filename, debug_println};
+use crate::{Config, get_nested_json_val, clean_text_allowlist, get_results_filename, get_purified_filename, debug_println};
 
 
 
@@ -1043,6 +1043,11 @@ fn detect_toxic_contamination(
 
     // Save contamination results
     save_toxic_contamination_results(&contamination_results, &config.output_dir)?;
+    
+    // Create purified files if requested
+    if config.purify {
+        create_purified_files(config, &contamination_results, &training_files)?;
+    }
 
     // Aggregate timing statistics from all files
     let mut aggregated_stats = TimingStats::default();
@@ -1270,7 +1275,7 @@ pub struct FileProcessingStats {
 
 #[derive(Clone)]
 pub struct ToxicContaminationEntry {
-    training_line: usize,
+    pub training_line: usize,
     eval_name: String,
     eval_line: usize,
     overlap_ratio: f32,
@@ -2631,4 +2636,70 @@ mod tests {
         println!("First 3-gram: [{:.0}, {:.0}] (expected: [6, 60])", result[0][0], result[0][1]);
         println!("Last 3-gram:  [{:.0}, {:.0}] (expected: [21, 210])", result[5][0], result[5][1]);
     }
+}
+
+// Create purified versions of training files with contaminated lines removed
+fn create_purified_files(
+    config: &Config,
+    contamination_results: &DashMap<String, Vec<ToxicContaminationEntry>>,
+    training_files: &[PathBuf],
+) -> Result<(), Error> {
+    println!("\nCreating purified files...");
+    
+    // Determine output directory for cleaned files
+    let cleaned_dir = config.cleaned_file_output.as_ref().unwrap_or(&config.output_dir);
+    create_dir_all(cleaned_dir)?;
+    
+    // Process each training file that has contamination
+    for file_path in training_files {
+        let file_name = if file_path.extension().and_then(|s| s.to_str()) == Some("gz") {
+            file_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string()
+        } else {
+            file_path
+                .file_name()
+                .and_then(|f| f.to_str())
+                .unwrap_or("unknown")
+                .to_string()
+        };
+        
+        // Check if this file has any contamination
+        if let Some(contaminations) = contamination_results.get(&file_name) {
+            if contaminations.is_empty() {
+                continue;
+            }
+            
+            // Collect contaminated line numbers
+            let mut contaminated_lines = HashSet::new();
+            for entry in contaminations.iter() {
+                contaminated_lines.insert(entry.training_line);
+            }
+            
+            // Create purified file
+            let purified_filename = get_purified_filename(file_path);
+            let purified_path = cleaned_dir.join(&purified_filename);
+            
+            let input_file = BufReader::new(File::open(file_path)?);
+            let mut output_file = BufWriter::new(File::create(&purified_path)?);
+            
+            let mut removed_count = 0;
+            for (line_num, line) in input_file.lines().enumerate() {
+                if !contaminated_lines.contains(&line_num) {
+                    writeln!(output_file, "{}", line?)?;
+                } else {
+                    removed_count += 1;
+                }
+            }
+            
+            output_file.flush()?;
+            println!("Created purified file: {:?} (removed {} contaminated lines)", 
+                     purified_path, removed_count);
+        }
+    }
+    
+    println!("Purification complete.");
+    Ok(())
 }

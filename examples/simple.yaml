@@ -5,6 +5,8 @@ content_key: text
 local_input: /home/robert/Downloads/input-full
 reference_input: fixtures/reference
 output_dir: fixtures/output
+# cleaned_file_output: fixtures/cleaned  # Optional: separate directory for purified files
+# purify: true
 
 ngram_size: 3
 max_consecutive_misses: 6

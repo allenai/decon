@@ -10,17 +10,17 @@ use rand_chacha::ChaCha20Rng;
 use rayon::prelude::*;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::panic::catch_unwind;
 use std::path::PathBuf;
 use std::time::Instant;
-use std::fs::create_dir_all;
-use std::io::BufRead;
+use std::fs::{create_dir_all, File};
+use std::io::{BufRead, BufReader, BufWriter, Write};
 use unicode_segmentation::UnicodeSegmentation;
 
 use mj_io::{expand_dirs, read_pathbuf_to_mem, write_mem_to_pathbuf, build_pbar};
 
-use crate::{Config, OmniTokenizer, get_nested_json_val, preprocess_text, hash_object, get_results_filename};
+use crate::{Config, OmniTokenizer, get_nested_json_val, preprocess_text, hash_object, get_results_filename, get_purified_filename};
 
 const BIG_PRIME: u64 = 18446744073709551557;
 const MAX_HASH: u64 = BIG_PRIME;
@@ -217,6 +217,11 @@ fn detect_contamination_in_training_data(
 
     // Save contamination results
     save_contamination_results(&contamination_results, &config.output_dir)?;
+    
+    // Create purified files if requested
+    if config.purify {
+        create_purified_files(config, &contamination_results, &training_files)?;
+    }
 
     Ok(())
 }
@@ -588,4 +593,70 @@ pub fn save_contamination_results_with_filename(
     }
 
     Ok(output_file)
+}
+
+// Create purified versions of training files with contaminated lines removed
+fn create_purified_files(
+    config: &Config,
+    contamination_results: &DashMap<String, Vec<(usize, String, usize, f32, Option<String>)>>,
+    training_files: &[PathBuf],
+) -> Result<(), Error> {
+    println!("\nCreating purified files...");
+    
+    // Determine output directory for cleaned files
+    let cleaned_dir = config.cleaned_file_output.as_ref().unwrap_or(&config.output_dir);
+    create_dir_all(cleaned_dir)?;
+    
+    // Process each training file that has contamination
+    for file_path in training_files {
+        let file_name = if file_path.extension().and_then(|s| s.to_str()) == Some("gz") {
+            file_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string()
+        } else {
+            file_path
+                .file_name()
+                .and_then(|f| f.to_str())
+                .unwrap_or("unknown")
+                .to_string()
+        };
+        
+        // Check if this file has any contamination
+        if let Some(contaminations) = contamination_results.get(&file_name) {
+            if contaminations.is_empty() {
+                continue;
+            }
+            
+            // Collect contaminated line numbers
+            let mut contaminated_lines = HashSet::new();
+            for (line_num, _, _, _, _) in contaminations.iter() {
+                contaminated_lines.insert(*line_num);
+            }
+            
+            // Create purified file
+            let purified_filename = get_purified_filename(file_path);
+            let purified_path = cleaned_dir.join(&purified_filename);
+            
+            let input_file = BufReader::new(File::open(file_path)?);
+            let mut output_file = BufWriter::new(File::create(&purified_path)?);
+            
+            let mut removed_count = 0;
+            for (line_num, line) in input_file.lines().enumerate() {
+                if !contaminated_lines.contains(&line_num) {
+                    writeln!(output_file, "{}", line?)?;
+                } else {
+                    removed_count += 1;
+                }
+            }
+            
+            output_file.flush()?;
+            println!("Created purified file: {:?} (removed {} contaminated lines)", 
+                     purified_path, removed_count);
+        }
+    }
+    
+    println!("Purification complete.");
+    Ok(())
 }

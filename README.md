@@ -130,6 +130,8 @@ cargo run --release review --config config.yaml
 | `reference_input` | Evaluation data directory | - | Path to evaluation datasets |
 | `output_dir` | Results output directory | - | Where to save contamination results |
 | `ngram_size` | N-gram window size | 3 | Larger = more precise, smaller = more sensitive |
+| `purify` | Create cleaned files | `false` | Remove contaminated lines from training data |
+| `cleaned_file_output` | Cleaned files directory | `output_dir` | Optional separate directory for purified files |
 
 ### MinHash-Specific Parameters
 
@@ -191,6 +193,65 @@ mode: toxic
 ngram_size: 5                   # Longer n-grams
 toxic_overlap_threshold: 0.4    # Higher threshold
 toxic_hyperplanes: 128          # More hyperplanes
+```
+
+## Data Purification
+
+The tool can automatically create cleaned versions of your training data with contaminated lines removed. This is useful for:
+- Creating decontaminated training datasets
+- Removing evaluation data that leaked into training
+- Ensuring clean model training
+
+### Enabling Purification
+
+Add these parameters to your configuration:
+
+```yaml
+# Enable purification
+purify: true
+
+# Optional: separate directory for cleaned files (defaults to output_dir)
+cleaned_file_output: /path/to/cleaned/data
+```
+
+### Purification Process
+
+When `purify: true` is set:
+1. Detection runs normally and saves contamination results
+2. For each training file with contamination:
+   - Creates a new file with `.clean.jsonl` suffix
+   - Copies all non-contaminated lines
+   - Skips lines flagged as contaminated
+3. Reports how many lines were removed from each file
+
+### Example
+
+```yaml
+# config.yaml
+mode: simple
+local_input: /data/training
+reference_input: /data/evaluation
+output_dir: /results/contamination
+cleaned_file_output: /data/training_cleaned
+purify: true
+```
+
+Running this will:
+- Save contamination results to `/results/contamination/simple_contamination_results.jsonl`
+- Create cleaned files in `/data/training_cleaned/`
+- For example: `train_001.jsonl` → `train_001.clean.jsonl` (with contaminated lines removed)
+
+### Daemon Mode
+
+In daemon mode, purified files are created automatically when enabled, and the API response includes both paths:
+
+```json
+{
+  "job_id": "123e4567-e89b-12d3-a456-426614174000",
+  "status": "completed",
+  "output_path": "fixtures/output/training-simple-0.80.jsonl",
+  "purified_path": "fixtures/cleaned/training.clean.jsonl"
+}
 ```
 
 ## Understanding Results
