@@ -335,9 +335,11 @@ fn process_single_file(
             println!("Processed {} lines from {:?}", lines_processed, file_path);
             
             // Create purified file if requested
-            let purified_path = if config.purify && !contamination_results.is_empty() {
-                // Collect all contaminated line numbers
+            let purified_path = if config.purify {
+                let cleaned_dir = config.cleaned_output_dir.as_ref().unwrap_or(&config.report_output_dir);
                 let mut contaminated_lines = HashSet::new();
+                
+                // Collect all contaminated line numbers
                 for entry in contamination_results.iter() {
                     for contamination in entry.value() {
                         contaminated_lines.insert(contamination.training_line);
@@ -345,11 +347,12 @@ fn process_single_file(
                 }
                 
                 if !contaminated_lines.is_empty() {
-                    let cleaned_dir = config.cleaned_output_dir.as_ref().unwrap_or(&config.report_output_dir);
-                    Some(write_purified_file(file_path, cleaned_dir, &contaminated_lines)?)
+                    println!("Creating purified file (removing {} contaminated lines)", contaminated_lines.len());
                 } else {
-                    None
+                    println!("Creating clean copy (no contamination found)");
                 }
+                
+                Some(write_purified_file(file_path, cleaned_dir, &contaminated_lines)?)
             } else {
                 None
             };
@@ -394,9 +397,11 @@ fn process_single_file(
             println!("Processed file {:?} using toxic mode", file_path);
             
             // Create purified file if requested
-            let purified_path = if config.purify && !contamination_results.is_empty() {
-                // Collect all contaminated line numbers
+            let purified_path = if config.purify {
+                let cleaned_dir = config.cleaned_output_dir.as_ref().unwrap_or(&config.report_output_dir);
                 let mut contaminated_lines = HashSet::new();
+                
+                // Collect all contaminated line numbers
                 for entry in contamination_results.iter() {
                     for contamination in entry.value() {
                         contaminated_lines.insert(contamination.training_line);
@@ -404,11 +409,12 @@ fn process_single_file(
                 }
                 
                 if !contaminated_lines.is_empty() {
-                    let cleaned_dir = config.cleaned_output_dir.as_ref().unwrap_or(&config.report_output_dir);
-                    Some(write_purified_file(file_path, cleaned_dir, &contaminated_lines)?)
+                    println!("Creating purified file (removing {} contaminated lines)", contaminated_lines.len());
                 } else {
-                    None
+                    println!("Creating clean copy (no contamination found)");
                 }
+                
+                Some(write_purified_file(file_path, cleaned_dir, &contaminated_lines)?)
             } else {
                 None
             };
@@ -464,9 +470,11 @@ fn process_single_file(
             println!("Processed file {:?} using minhash mode", file_path);
             
             // Create purified file if requested
-            let purified_path = if config.purify && !contamination_results.is_empty() {
-                // Collect all contaminated line numbers
+            let purified_path = if config.purify {
+                let cleaned_dir = config.cleaned_output_dir.as_ref().unwrap_or(&config.report_output_dir);
                 let mut contaminated_lines = HashSet::new();
+                
+                // Collect all contaminated line numbers
                 for entry in contamination_results.iter() {
                     for (line_num, _, _, _, _) in entry.value() {
                         contaminated_lines.insert(*line_num);
@@ -474,11 +482,12 @@ fn process_single_file(
                 }
                 
                 if !contaminated_lines.is_empty() {
-                    let cleaned_dir = config.cleaned_output_dir.as_ref().unwrap_or(&config.report_output_dir);
-                    Some(write_purified_file(file_path, cleaned_dir, &contaminated_lines)?)
+                    println!("Creating purified file (removing {} contaminated lines)", contaminated_lines.len());
                 } else {
-                    None
+                    println!("Creating clean copy (no contamination found)");
                 }
+                
+                Some(write_purified_file(file_path, cleaned_dir, &contaminated_lines)?)
             } else {
                 None
             };

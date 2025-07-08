@@ -1116,11 +1116,20 @@ fn create_purified_files(
     
     // Process each training file that has contamination
     for file_path in training_files {
-        let file_name = file_path
-            .file_name()
-            .and_then(|f| f.to_str())
-            .unwrap_or("unknown")
-            .to_string();
+        // Match the same logic used in process_training_file
+        let file_name = if file_path.extension().and_then(|s| s.to_str()) == Some("gz") {
+            file_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string()
+        } else {
+            file_path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string()
+        };
         
         // Check if this file has any contamination
         if let Some(contaminations) = contamination_results.get(&file_name) {
@@ -1136,6 +1145,14 @@ fn create_purified_files(
             
             // Use the shared write_purified_file function
             write_purified_file(file_path, cleaned_dir, &contaminated_lines)?;
+            
+            println!("Created purified file for {} (removed {} lines)", 
+                     file_name, contaminated_lines.len());
+        } else {
+            // No contamination found - create a clean copy
+            let empty_set = HashSet::new();
+            write_purified_file(file_path, cleaned_dir, &empty_set)?;
+            println!("Created clean copy for {} (no contamination found)", file_name);
         }
     }
     
