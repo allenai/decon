@@ -58,6 +58,7 @@ enum IndexType {
 struct AppState {
     job_sender: mpsc::Sender<Job>,
     jobs: Arc<Mutex<std::collections::HashMap<String, Job>>>,
+    worker_threads: usize,
 }
 
 pub async fn run_daemon(config_path: PathBuf, port: u16) -> Result<()> {
@@ -110,6 +111,7 @@ pub async fn run_daemon(config_path: PathBuf, port: u16) -> Result<()> {
     let state = AppState {
         job_sender,
         jobs: Arc::new(Mutex::new(std::collections::HashMap::new())),
+        worker_threads: config.worker_threads,
     };
     
     // Spawn worker threads based on config
@@ -145,9 +147,10 @@ pub async fn run_daemon(config_path: PathBuf, port: u16) -> Result<()> {
     Ok(())
 }
 
-async fn health_check() -> Json<serde_json::Value> {
+async fn health_check(State(state): State<AppState>) -> Json<serde_json::Value> {
     Json(json!({
-        "status": "ok"
+        "status": "ok",
+        "worker_threads": state.worker_threads
     }))
 }
 

@@ -243,7 +243,9 @@ fn default_punctuation_chars() -> String {
 }
 
 fn default_worker_threads() -> usize {
-    4  // Default to 4 worker threads
+    std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)  // Default to 4 if unable to detect CPU cores
 }
 
 pub fn read_config(config_path: &PathBuf) -> Result<Config, Error> {

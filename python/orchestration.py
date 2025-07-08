@@ -13,6 +13,7 @@ import signal
 import hashlib
 import logging
 import subprocess
+import multiprocessing
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Tuple
 from dataclasses import dataclass
@@ -35,7 +36,7 @@ class OrchestrationConfig:
     local_work_dir: str  # /tmp/decon-work/
     
     # Optional fields with defaults
-    max_concurrent_jobs: int = 10
+    max_concurrent_jobs: Optional[int] = None  # Will be set based on daemon worker threads
     poll_interval: int = 5
     s5cmd_workers: int = 50
     cleanup_delay: int = 10
@@ -180,6 +181,14 @@ class ContaminationOrchestrator:
             if response.status_code == 200:
                 data = response.json()
                 self.logger.info(f"Daemon is healthy: {data['status']}")
+                
+                # Set max_concurrent_jobs based on daemon worker threads if not explicitly configured
+                if self.config.max_concurrent_jobs is None:
+                    worker_threads = data.get('worker_threads', 4)
+                    self.config.max_concurrent_jobs = worker_threads * 4
+                    self.logger.info(f"Setting max_concurrent_jobs to {self.config.max_concurrent_jobs} "
+                                   f"(4x daemon worker threads: {worker_threads})")
+                
                 return True
         except Exception as e:
             self.logger.error(f"Failed to connect to daemon: {e}")
@@ -582,6 +591,11 @@ class ContaminationOrchestrator:
     
     def _process_files(self, files_to_process: List[str]):
         """Main processing loop for files."""
+        # Ensure max_concurrent_jobs has a value (fallback to 10 if somehow still None)
+        if self.config.max_concurrent_jobs is None:
+            self.logger.warning("max_concurrent_jobs not set, using default of 10")
+            self.config.max_concurrent_jobs = 10
+            
         batch_size = self.config.max_concurrent_jobs
         total_batches = (len(files_to_process) + batch_size - 1) // batch_size
         
