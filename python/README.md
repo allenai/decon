@@ -71,18 +71,18 @@ Set environment variables to distribute work across hosts:
 
 ```bash
 # On host 1 of 3
-export DECON_HOST_INDEX=0
-export DECON_HOST_COUNT=3
+export PMR_HOST_INDEX=0
+export PMR_HOST_COUNT=3
 python python/orchestration.py --config orchestration.yaml
 
 # On host 2 of 3
-export DECON_HOST_INDEX=1
-export DECON_HOST_COUNT=3
+export PMR_HOST_INDEX=1
+export PMR_HOST_COUNT=3
 python python/orchestration.py --config orchestration.yaml
 
 # On host 3 of 3
-export DECON_HOST_INDEX=2
-export DECON_HOST_COUNT=3
+export PMR_HOST_INDEX=2
+export PMR_HOST_COUNT=3
 python python/orchestration.py --config orchestration.yaml
 ```
 

@@ -96,8 +96,8 @@ orchestrate:
 	fi
 
 orchestrate-test:
-	@echo "Testing orchestration with host 0 of 2"
-	DECON_HOST_INDEX=0 DECON_HOST_COUNT=2 python python/orchestration.py --config examples/orchestration.yaml
+	@echo "Testing orchestration with single host"
+	PMR_HOST_INDEX=0 PMR_HOST_COUNT=1 python python/orchestration.py --config examples/orchestration.yaml
 
 orchestrate-debug:
 	@echo "Testing orchestration in debug mode (max 5 files)"

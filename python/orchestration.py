@@ -91,13 +91,13 @@ class ContaminationOrchestrator:
         self._setup_signal_handlers()
         
         # Host identification
-        self.host_index = int(os.environ.get('DECON_HOST_INDEX', '0'))
-        self.host_count = int(os.environ.get('DECON_HOST_COUNT', '1'))
+        self.host_index = int(os.environ.get('PMR_HOST_INDEX', '0'))
+        self.host_count = int(os.environ.get('PMR_HOST_COUNT', '1'))
         
         # Warn if using defaults (single host mode)
-        if 'DECON_HOST_INDEX' not in os.environ and 'DECON_HOST_COUNT' not in os.environ:
-            self.logger.warning("Using default host configuration (single host mode: DECON_HOST_INDEX=0, DECON_HOST_COUNT=1)")
-            self.logger.warning("For distributed processing, set DECON_HOST_INDEX and DECON_HOST_COUNT environment variables")
+        if 'PMR_HOST_INDEX' not in os.environ and 'PMR_HOST_COUNT' not in os.environ:
+            self.logger.warning("Using default host configuration (single host mode: PMR_HOST_INDEX=0, PMR_HOST_COUNT=1)")
+            self.logger.warning("For distributed processing, set PMR_HOST_INDEX and PMR_HOST_COUNT environment variables")
         
         # Debug limit for development
         self.max_files_debug = None

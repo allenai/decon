@@ -265,8 +265,8 @@ cargo run --release daemon --config config.yaml
 
 **2. Run orchestration (example for host 1 of 3):**
 ```bash
-export DECON_HOST_INDEX=0
-export DECON_HOST_COUNT=3
+export PMR_HOST_INDEX=0
+export PMR_HOST_COUNT=3
 python python/orchestration.py --config orchestration.yaml
 ```
 
