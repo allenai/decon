@@ -15,7 +15,8 @@
       "Bash(rustc:*)",
       "Bash(./test_hyphen_normalize)",
       "Bash(rm:*)",
-      "Bash(git restore:*)"
+      "Bash(git restore:*)",
+      "Bash(git add:*)"
     ],
     "deny": []
   }

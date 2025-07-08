@@ -262,8 +262,7 @@ class ContaminationOrchestrator:
         
         self.logger.info("Checking for already processed files...")
         
-        # Check for report files and clean markers in report directory
-        report_files = self._list_s3_files(self.config.remote_report_output_dir, ['.report.jsonl', '.report.jsonl.gz'])
+        # Check for clean markers in report directory
         clean_markers = self._list_s3_files(self.config.remote_report_output_dir, ['.clean'])
         
         # Also check for cleaned files if cleaned directory is configured
@@ -272,7 +271,7 @@ class ContaminationOrchestrator:
             cleaned_files = self._list_s3_files(self.config.remote_cleaned_output_dir, ['.clean.jsonl', '.clean.jsonl.gz', '.clean.jsonl.zst', '.clean.jsonl.bz2', '.clean.jsonl.xz'])
             self.logger.info(f"Found {len(cleaned_files)} cleaned files in cleaned directory")
         
-        self.logger.info(f"Found {len(report_files)} report files and {len(clean_markers)} clean markers")
+        self.logger.info(f"Found {len(clean_markers)} clean markers")
         
         # Process clean markers
         for key in clean_markers:
@@ -285,22 +284,6 @@ class ContaminationOrchestrator:
                 for ext in ['.gz', '.zst', '.bz2', '.xz']:
                     processed.add(f"{basename}.jsonl{ext}")
         
-        # Process report files
-        for key in report_files:
-            filename = os.path.basename(key)
-            # Extract base name from report filename
-            # Expected format: basename.report.jsonl or basename.report.jsonl.gz
-            if filename.endswith('.report.jsonl.gz'):
-                basename = filename[:-17]  # Remove .report.jsonl.gz
-            elif filename.endswith('.report.jsonl'):
-                basename = filename[:-13]  # Remove .report.jsonl
-            else:
-                continue
-            
-            # Add all possible variants of this file
-            processed.add(f"{basename}.jsonl")
-            for ext in ['.gz', '.zst', '.bz2', '.xz']:
-                processed.add(f"{basename}.jsonl{ext}")
         
         # Process cleaned files
         for key in cleaned_files:

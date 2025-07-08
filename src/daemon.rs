@@ -275,7 +275,7 @@ async fn worker_loop(
                     match result {
                         Ok(Ok((output_path, purified_path))) => {
                             stored_job.status = JobStatus::Completed;
-                            stored_job.output_path = Some(output_path);
+                            stored_job.output_path = output_path;
                             stored_job.purified_path = purified_path;
                             println!("Worker {} completed job {} successfully", worker_id, job_id);
                         }
@@ -303,7 +303,7 @@ fn process_single_file(
     config: &Config,
     file_path: &PathBuf,
     index: &IndexType,
-) -> Result<(PathBuf, Option<PathBuf>)> {
+) -> Result<(Option<PathBuf>, Option<PathBuf>)> {
     match index {
         IndexType::Simple(simple_index) => {
             let (ngram_to_id, id_to_docs, eval_documents, id_to_ngram_tokens, tokenizer, eval_text_snippets) = simple_index;
@@ -323,14 +323,19 @@ fn process_single_file(
                 eval_text_snippets,
             )?;
             
-            // Save results with unique filename
-            let unique_filename = crate::get_unique_results_filename(file_path, config);
-            let output_path = crate::simple::save_contamination_results_toxic_format_with_filename_and_eval_text(
-                config, 
-                &contamination_results, 
-                Some(&unique_filename),
-                eval_text_snippets
-            )?;
+            // Only save results if contamination was found
+            let output_path = if !contamination_results.is_empty() {
+                let unique_filename = crate::get_unique_results_filename(file_path, config);
+                Some(crate::simple::save_contamination_results_toxic_format_with_filename_and_eval_text(
+                    config, 
+                    &contamination_results, 
+                    Some(&unique_filename),
+                    eval_text_snippets
+                )?)
+            } else {
+                println!("No contamination found - skipping report file creation");
+                None
+            };
             
             println!("Processed {} lines from {:?}", lines_processed, file_path);
             
@@ -385,14 +390,19 @@ fn process_single_file(
                 eval_text_snippets,
             )?;
             
-            // Save results with unique filename
-            let unique_filename = crate::get_unique_results_filename(file_path, config);
-            let output_path = crate::toxic::save_toxic_contamination_results_with_filename(
-                &contamination_results, 
-                &config.report_output_dir,
-                Some(&unique_filename),
-                eval_text_snippets
-            )?;
+            // Only save results if contamination was found
+            let output_path = if !contamination_results.is_empty() {
+                let unique_filename = crate::get_unique_results_filename(file_path, config);
+                Some(crate::toxic::save_toxic_contamination_results_with_filename(
+                    &contamination_results, 
+                    &config.report_output_dir,
+                    Some(&unique_filename),
+                    eval_text_snippets
+                )?)
+            } else {
+                println!("No contamination found - skipping report file creation");
+                None
+            };
             
             println!("Processed file {:?} using toxic mode", file_path);
             
@@ -458,14 +468,19 @@ fn process_single_file(
                 config,
             )?;
             
-            // Save results with unique filename
-            let unique_filename = crate::get_unique_results_filename(file_path, config);
-            let output_path = crate::minhash::save_contamination_results_with_filename(
-                &contamination_results,
-                &config.report_output_dir,
-                Some(&unique_filename),
-                eval_text_snippets
-            )?;
+            // Only save results if contamination was found
+            let output_path = if !contamination_results.is_empty() {
+                let unique_filename = crate::get_unique_results_filename(file_path, config);
+                Some(crate::minhash::save_contamination_results_with_filename(
+                    &contamination_results,
+                    &config.report_output_dir,
+                    Some(&unique_filename),
+                    eval_text_snippets
+                )?)
+            } else {
+                println!("No contamination found - skipping report file creation");
+                None
+            };
             
             println!("Processed file {:?} using minhash mode", file_path);
             
