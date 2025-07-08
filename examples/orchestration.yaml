@@ -1,0 +1,18 @@
+# Orchestration configuration for distributed contamination detection
+
+# S3 locations
+remote_file_input: s3://your-bucket/ai2-llm/pretraining-data/sources/sponge_alldressed_422
+remote_output_dir: s3://your-bucket/contamination-results/
+remote_cleaned_output: s3://your-bucket/cleaned-data/
+
+# Daemon configuration
+daemon_url: http://localhost:8080
+
+# Local working directory
+local_work_dir: /tmp/decon-work
+
+# Performance settings
+max_concurrent_jobs: 10  # Maximum number of concurrent daemon jobs
+poll_interval: 5  # Seconds between status polls
+s5cmd_workers: 50  # Number of parallel S3 operations
+cleanup_delay: 10  # Seconds to wait before cleaning up completed job files

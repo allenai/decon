@@ -12,10 +12,17 @@ help:
 	@echo "  fn         - Run review mode to show False Negatives"
 	@echo "  evals      - Download evaluation datasets using Python script"
 	@echo "  embeddings - Download and prepare word embeddings using Python script"
+	@echo ""
+	@echo "Daemon targets:"
 	@echo "  daemon     - Start the daemon server on port 8080"
 	@echo "  health     - Check daemon health status"
 	@echo "  submit     - Submit a file for processing (usage: make submit FILE=<path>)"
 	@echo "  status     - Check job status (usage: make status JOB_ID=<id>)"
+	@echo ""
+	@echo "Orchestration targets:"
+	@echo "  orchestrate       - Run distributed orchestration (usage: make orchestrate CONFIG=<config>)"
+	@echo "  orchestrate-test  - Test orchestration with example config"
+	@echo "  orchestrate-debug - Test with MAX_FILES_DEBUG=5 for development"
 
 minhash:
 	cargo run --release detect --config examples/minhash.yaml
@@ -79,3 +86,19 @@ status:
 	else \
 		curl -s http://localhost:8080/status/$(JOB_ID) | jq . || echo "Failed to get status"; \
 	fi
+
+orchestrate:
+	@if [ -z "$(CONFIG)" ]; then \
+		echo "Usage: make orchestrate CONFIG=<path-to-orchestration-config>"; \
+		echo "Example: make orchestrate CONFIG=examples/orchestration.yaml"; \
+	else \
+		python python/orchestration.py --config $(CONFIG); \
+	fi
+
+orchestrate-test:
+	@echo "Testing orchestration with host 0 of 2"
+	DECON_HOST_INDEX=0 DECON_HOST_COUNT=2 python python/orchestration.py --config examples/orchestration.yaml
+
+orchestrate-debug:
+	@echo "Testing orchestration in debug mode (max 5 files)"
+	MAX_FILES_DEBUG=5 python python/orchestration.py --config examples/orchestration.yaml

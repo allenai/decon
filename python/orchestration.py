@@ -1,284 +1,574 @@
-""" Where the ray commands live """
+#!/usr/bin/env python3
+"""
+Orchestration script for distributed contamination detection.
+Manages downloading files from S3, submitting to daemon, and uploading results.
+"""
 
-from smart_open import open 
 import os
-import yaml
-import boto3
-import subprocess
+import sys
 import json
-
-import s5cmd_part_generator as spg
-import file_map_builder as fmb
-import ray
-
-VERBOSE = True
-
-# ===============================================================
-# =                     MISC UTILITIES                          =
-# ===============================================================
-
-
-def get_config_name(config_dict):
-	# Just a way to recover the name of where the LOCAL copy of the config file lives 
-	# (from the actual contents of the config file)
-	return os.path.join(os.path.dirname(config_dict['working_dir']), 'config.yaml')
-
-
-def download_jsonl_parts(config_dict, file_map_json, part_id, num_parts):
-	# Uses fancy s5cmd commands to download 1/num_parts'th of the dataset to disk
-	config_file = get_config_name(config_dict)
-	# Download files if they don't exist 
-	chunk_stems = spg.get_path_chunk_stems(file_map_json, part_id, num_parts)
-	local_inputs = [os.path.join(config_dict['local_input'], stem) for stem in chunk_stems]
-
-
-	print("LOCAL INPUTS", local_inputs)
-	if not all(os.path.exists(_) for _ in local_inputs):
-		s5cmd_command = spg.clickfree_get_s5cmd_generator(config_file, part_id, num_parts)		
-		s5cmd_args = "s5cmd run %s" % s5cmd_command
-		sb_run(s5cmd_args)
-
-
-def sb_run(argstring):
-	if VERBOSE:
-		print("(Running) %s" % argstring)
-	process = subprocess.Popen(argstring.split(' '),
-							   text=True, 
-							   stdout=subprocess.PIPE,
-							   stderr=subprocess.PIPE,
-							   bufsize=1,
-							   universal_newlines=True)
-	for line in process.stdout:
-		print(line, end='')
-	if process.wait() != 0:
-		raise subprocess.CalledProcessError(process.returncode, ['COMMAND'])
-
-
-# ===============================================================
-# =                    SETUP AND TEARDOWN STUFF                 =
-# ===============================================================
-
-def shared_file_setup(config_dict):
-	# Make local directories
-	for k in ['local_input', 'working_dir', 'local_output']:
-		os.makedirs(config_dict[k], exist_ok=True)
-
-	# And download the config file
-	config_file = get_config_name(config_dict)	
-
-	if not os.path.exists(config_file):
-		with open(config_file, 'w') as f:
-			yaml.dump(config_dict, f)
-
-
-
-def download_file_map(config_dict):
-	# Downloads the filemap.json.gz onto disk
-	local_file_map = os.path.join(config_dict["working_dir"], "filemap.json.gz")
-	remote_file_map = os.path.join(config_dict['remote_working_dir'], 'filemap.json.gz')
-
-	if not os.path.exists(local_file_map):
-		file_map_data = open(remote_file_map, 'rb').read()	
-		with open(local_file_map, 'wb') as f:
-			f.write(file_map_data)
-	else:
-		file_map_data = open(local_file_map, 'rb').read()
-
-	return json.loads(file_map_data)
-
-
-def download_intermed_files(config_dict, subname):
-	# Downloads some subcomponent of the working directory from S3
-	s5cmd_args = "s5cmd cp -sp %s %s" % (os.path.join(config_dict['remote_working_dir'], subname, '*'),
-										 os.path.join(config_dict['working_dir'], subname))
-	sb_run(s5cmd_args)
-
-
-
-
-def upload_and_clean(config_dict, subname):
-	# Uploads some subcomponent of the local directory to s3
-
-	# Upload first
-	upload_args = "s5cmd cp -sp %s %s" % (os.path.join(config_dict['working_dir'], subname, '*'),
-									  os.path.join(config_dict['remote_working_dir'], subname, ''))
-	sb_run(upload_args)
-
-
-	# And then clean up
-	rm_call = "rm -rf %s" % (os.path.join(config_dict['working_dir'], subname))
-	sb_run(rm_call)
-
-
-
-
-
-# ===============================================================
-# =                     RUST ORCHESTRATORS                      =
-# ===============================================================
-
-
-def call_build_file_map(config_dict, local_sys=True):
-	""" Makes the rust call to build the filemap. 
-		This can be done on the head node.
-
-		Will write the local filemap and the REMOTE filemap
-	"""
-
-	if not local_sys:
-		shared_file_setup(config_dict)
-
-	config_file = get_config_name(config_dict)
-	fmb.clickfree_build_file_map(config_file)
-	local_file_map_data = open(os.path.join(config_dict['working_dir'], 'filemap.json.gz'), 'rb').read()
-	remote_file_map = os.path.join(config_dict['remote_working_dir'], 'filemap.json.gz')
-	with open(remote_file_map, 'wb') as f:
-		f.write(local_file_map_data)
-
-
-def call_hash_only(config_dict, part_id=0, num_parts=1):
-	""" Makes the rust call to do the hashing. 
-		Uploads these to S3 and then cleans up the local dir when done 
-	"""
-
-	# Setup stuff
-	shared_file_setup(config_dict)
-	config_file = get_config_name(config_dict)
-	file_map_json = download_file_map(config_dict)
-
-	# Download the jsonl data
-	download_jsonl_parts(config_dict, file_map_json, part_id, num_parts)
-
-	# And then run the rust thing 
-	hash_args = ("cargo run --release -- hash-only --config %s --path-chunk %s --num-path-chunks %s" % (config_file, part_id, num_parts))
-	sb_run(hash_args)
-
-	# Finally, upload results and clean up 
-	upload_and_clean(config_dict, "sig_storage")
-
-
-@ray.remote
-def ray_hash_only(config_dict, part_id=0, num_parts=1):
-	call_hash_only(config_dict, part_id=part_id, num_parts=num_parts)
-
-
-def call_gather_edges(config_dict):
-	""" Makes the rust call to go from hashes to edges.
-		Uploads the edge data to s3 and cleans up local dir when done 
-	"""
-
-	# setup
-	shared_file_setup(config_dict)
-	config_file = get_config_name(config_dict)
-	file_map_json = download_file_map(config_dict)
-
-	# Download all signatures 
-	download_intermed_files(config_dict, "sig_storage")
-
-
-	# And then do the edge gathering 
-	edge_gather_args = "cargo run --release -- gather-edges --config %s" % config_file
-	sb_run(edge_gather_args)
-		
-
-	# Finally upload and clean up 
-	upload_and_clean(config_dict, "edges")
-
-
-@ray.remote
-def ray_gather_edges(config_dict):
-	call_gather_edges(config_dict)
-
-
-def call_build_uf(config_dict, num_parts=1):
-	""" Makes the rust call to build the UF structure 
-		Uploads and cleans the cc and lines-to-kill-data when done
-	"""
-
-	# Setup
-	shared_file_setup(config_dict)
-	config_file = get_config_name(config_dict)
-	file_map_json = download_file_map(config_dict)
-
-	# Download all edges 
-	download_intermed_files(config_dict, "edges")
-
-	# And then do UF stuff
-	uf_args = "cargo run --release -- build-uf --config %s --num-path-chunks %s" % (config_file, num_parts)
-	sb_run(uf_args)
-
-
-	# Finally upload and clean up 
-	upload_and_clean(config_dict, "ccs")
-	upload_and_clean(config_dict, "kill")
-
-
-@ray.remote
-def ray_build_uf(config_dict, num_parts=1):
-	call_build_uf(config_dict, num_parts=num_parts)
-
-
-def call_uf_size_prune(config_dict, path_chunk_id=0, num_path_chunks=1):
-	""" Makes the rust call to actually scrub the duplicates from the data pool
-		Uploads and cleans everything when done
-	"""
-
-	shared_file_setup(config_dict)
-	config_file = get_config_name(config_dict)
-	file_map_json = download_file_map(config_dict)
-
-
-	download_jsonl_parts(config_dict, file_map_json, path_chunk_id, num_path_chunks)
-	remote_kill_file = os.path.join(config_dict['remote_working_dir'], 'kill', 'chunk_%08d.kill.bin' % path_chunk_id)
-	local_kill_file = os.path.join(config_dict['working_dir'], 'kill', 'chunk_%08d.kill.bin' % path_chunk_id)
-	sb_run("s5cmd cp -sp %s %s" % (remote_kill_file, local_kill_file))
-
-
-	prune_args = "cargo run --release -- uf-size-prune --config %s --path-chunk %s --num-path-chunks %s" % (config_file, path_chunk_id, num_path_chunks)
-	sb_run(prune_args)
-
-	# And then upload and clean
-	upload_args = "s5cmd cp -sp %s %s" % (os.path.join(config_dict['local_output'], ''),
-									      os.path.join(config_dict['remote_output'], ''))
-	sb_run(upload_args)
-
-
-	for clean_dir in [config_dict['local_output'], config_dict['local_input']]:
-		rm_call = "rm -rf %s" % clean_dir
-		sb_run(rm_call)
-
-
-@ray.remote
-ray_uf_size_prune(config_dict, path_chunk_id=path_chunk_id, num_path_chunks=num_path_chunks):
-	call_uf_size_prune(config_dict, path_chunk_id=path_chunk_id, num_path_chunks=num_path_chunks)
-
-
-
-# ================================================
-# =                MAIN BLOCK                    =
-# ================================================
-
-
-
-def main(remote_config):
-
-	# Init ray and do setup 	
-	ray.init(address="auto")
-	config_dict = yaml.safe_load(open(remote_config, 'rb').read())
-	shared_file_setup(config_dict)
-	call_build_file_map(config_dict)
-
-	# Do all steps
-	num_path_chunks = config_dict['num_path_chunks']
-	hash_futures = [ray_hash_only.remote(config_dict, path_chunk=i, num_path_chunks=num_path_chunks)
-					for i in range(num_path_chunks)]
-	ray.get(hash_futures)
-
-	ray.get(ray_gather_edges.remote(config_dict))
-
-	ray.get(ray_build_uf.remote(ray_build_uf, num_path_chunks))
-
-	prune_futures = [ray_uf_size_prune.remote(config_dict, path_chunk=i, num_path_chunks=num_path_chunks)
-					 for i in range(num_path_chunks)]
-	ray.get(prune_futures)
-
+import yaml
+import time
+import signal
+import hashlib
+import logging
+import subprocess
+from pathlib import Path
+from typing import Dict, List, Set, Optional, Tuple
+from dataclasses import dataclass
+from collections import defaultdict
+from urllib.parse import urlparse
+
+import boto3
+import requests
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib3.util.retry import Retry
+
+
+# Configuration
+@dataclass
+class OrchestrationConfig:
+    # Required fields
+    remote_file_input: str  # s3://bucket/training-data/
+    remote_output_dir: str  # s3://bucket/contamination-results/
+    remote_cleaned_output: str  # s3://bucket/cleaned-data/
+    daemon_url: str  # http://localhost:8080
+    local_work_dir: str  # /tmp/decon-work/
+    
+    # Optional fields with defaults
+    max_concurrent_jobs: int = 10
+    poll_interval: int = 5
+    s5cmd_workers: int = 50
+    cleanup_delay: int = 10
+    
+    @classmethod
+    def from_yaml(cls, path: str) -> 'OrchestrationConfig':
+        with open(path) as f:
+            data = yaml.safe_load(f)
+        
+        # Extract required fields
+        config = cls(
+            remote_file_input=data['remote_file_input'],
+            remote_output_dir=data['remote_output_dir'],
+            remote_cleaned_output=data['remote_cleaned_output'],
+            daemon_url=data.get('daemon_url', 'http://localhost:8080'),
+            local_work_dir=data.get('local_work_dir', '/tmp/decon-work')
+        )
+        
+        # Apply optional fields
+        for field in ['max_concurrent_jobs', 'poll_interval', 's5cmd_workers', 'cleanup_delay']:
+            if field in data:
+                setattr(config, field, data[field])
+        
+        return config
+
+
+@dataclass
+class Job:
+    job_id: str
+    file_path: str
+    s3_key: str
+    status: str = 'submitted'
+    output_path: Optional[str] = None
+    purified_path: Optional[str] = None
+    error: Optional[str] = None
+
+
+class ContaminationOrchestrator:
+    def __init__(self, config: OrchestrationConfig):
+        self.config = config
+        self.logger = self._setup_logging()
+        self.session = self._setup_session()
+        self.s3_client = boto3.client('s3')
+        
+        # Job tracking
+        self.active_jobs: Dict[str, Job] = {}
+        self.completed_files: Set[str] = set()
+        self.failed_files: Set[str] = set()
+        
+        # Signal handling
+        self.shutdown_requested = False
+        self.force_shutdown = False
+        self._setup_signal_handlers()
+        
+        # Host identification
+        self.host_index = int(os.environ.get('DECON_HOST_INDEX', '0'))
+        self.host_count = int(os.environ.get('DECON_HOST_COUNT', '1'))
+        
+        # Warn if using defaults (single host mode)
+        if 'DECON_HOST_INDEX' not in os.environ and 'DECON_HOST_COUNT' not in os.environ:
+            self.logger.warning("Using default host configuration (single host mode: DECON_HOST_INDEX=0, DECON_HOST_COUNT=1)")
+            self.logger.warning("For distributed processing, set DECON_HOST_INDEX and DECON_HOST_COUNT environment variables")
+        
+        # Debug limit for development
+        self.max_files_debug = None
+        if 'MAX_FILES_DEBUG' in os.environ:
+            self.max_files_debug = int(os.environ['MAX_FILES_DEBUG'])
+            self.logger.warning(f"DEBUG MODE: Limited to processing {self.max_files_debug} files")
+            self.logger.warning(f"DEBUG MODE: Uploads and cleanup are DISABLED")
+        
+        self.logger.info(f"Orchestrator initialized: host {self.host_index} of {self.host_count}")
+    
+    def _setup_logging(self) -> logging.Logger:
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+        return logging.getLogger('decon-orchestrator')
+    
+    def _setup_session(self) -> requests.Session:
+        session = requests.Session()
+        retry = Retry(
+            total=3,
+            backoff_factor=0.3,
+            status_forcelist=[500, 502, 503, 504]
+        )
+        adapter = HTTPAdapter(max_retries=retry)
+        session.mount('http://', adapter)
+        session.mount('https://', adapter)
+        return session
+    
+    def _setup_signal_handlers(self):
+        def signal_handler(signum, frame):
+            if self.shutdown_requested:
+                self.logger.warning("Force shutdown requested")
+                self.force_shutdown = True
+            else:
+                self.logger.info("Graceful shutdown requested")
+                self.shutdown_requested = True
+        
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+    
+    def run(self):
+        """Main orchestration loop."""
+        # Validate daemon is running
+        if not self._check_daemon_health():
+            self.logger.error("Daemon is not running. Please start the daemon with: make daemon")
+            sys.exit(1)
+        
+        # Setup working directories
+        self._setup_directories()
+        
+        # Get list of files to process
+        files_to_process = self._get_files_to_process()
+        if not files_to_process:
+            self.logger.info("No files to process")
+            return
+        
+        self.logger.info(f"Found {len(files_to_process)} files to process")
+        
+        # Download and process files
+        self._process_files(files_to_process)
+        
+        # Wait for remaining jobs to complete
+        self._wait_for_completion()
+        
+        self.logger.info("Orchestration complete")
+    
+    def _check_daemon_health(self) -> bool:
+        """Check if the daemon is running and healthy."""
+        try:
+            response = self.session.get(f"{self.config.daemon_url}/health", timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                self.logger.info(f"Daemon is healthy: {data['status']}")
+                return True
+        except Exception as e:
+            self.logger.error(f"Failed to connect to daemon: {e}")
+        return False
+    
+    def _setup_directories(self):
+        """Create local working directories."""
+        for subdir in ['download', 'results', 'cleaned']:
+            path = Path(self.config.local_work_dir) / subdir
+            path.mkdir(parents=True, exist_ok=True)
+    
+    def _parse_s3_uri(self, uri: str) -> Tuple[str, str]:
+        """Parse S3 URI into bucket and prefix."""
+        parsed = urlparse(uri)
+        if parsed.scheme != 's3':
+            raise ValueError(f"Invalid S3 URI: {uri}")
+        bucket = parsed.netloc
+        prefix = parsed.path.lstrip('/')
+        return bucket, prefix
+    
+    def _list_s3_files(self, s3_uri: str, suffix: str = '.jsonl') -> List[str]:
+        """List all files in S3 location with given suffix."""
+        bucket, prefix = self._parse_s3_uri(s3_uri)
+        
+        files = []
+        paginator = self.s3_client.get_paginator('list_objects_v2')
+        pages = paginator.paginate(Bucket=bucket, Prefix=prefix)
+        
+        for page in pages:
+            if 'Contents' not in page:
+                continue
+            for obj in page['Contents']:
+                key = obj['Key']
+                if key.endswith(suffix):
+                    files.append(key)
+        
+        return files
+    
+    def _get_processed_files(self) -> Set[str]:
+        """Get set of already processed files from output directories."""
+        processed = set()
+        
+        # Check contamination results
+        bucket, prefix = self._parse_s3_uri(self.config.remote_output_dir)
+        for key in self._list_s3_files(self.config.remote_output_dir, '.jsonl'):
+            # Extract original filename from result filename
+            # Expected format: training-file-simple-0.80.jsonl
+            filename = os.path.basename(key)
+            if filename.endswith('.clean'):
+                # Clean file marker
+                original = filename[:-6]  # Remove .clean
+                processed.add(original)
+            else:
+                # Parse contamination result filename
+                parts = filename.rsplit('-', 2)
+                if len(parts) >= 3:
+                    original = parts[0]
+                    processed.add(original)
+        
+        self.logger.info(f"Found {len(processed)} already processed files")
+        return processed
+    
+    def _should_process_file(self, s3_key: str) -> bool:
+        """Check if this host should process the given file."""
+        # Hash the S3 key to get a consistent number
+        hash_value = int(hashlib.md5(s3_key.encode()).hexdigest(), 16)
+        return (hash_value % self.host_count) == self.host_index
+    
+    def _get_files_to_process(self) -> List[str]:
+        """Get list of files this host should process."""
+        # Get all training files
+        all_files = self._list_s3_files(self.config.remote_file_input)
+        self.logger.info(f"Found {len(all_files)} total training files")
+        
+        # Get already processed files
+        processed = self._get_processed_files()
+        
+        # Filter for this host
+        files_to_process = []
+        for s3_key in all_files:
+            filename = os.path.basename(s3_key)
+            
+            # Skip if already processed
+            if filename in processed:
+                continue
+            
+            # Skip if not assigned to this host
+            if not self._should_process_file(s3_key):
+                continue
+            
+            files_to_process.append(s3_key)
+            
+            # Check debug limit
+            if self.max_files_debug and len(files_to_process) >= self.max_files_debug:
+                self.logger.warning(f"DEBUG MODE: Limiting to {self.max_files_debug} files")
+                break
+        
+        return files_to_process
+    
+    def _create_s5cmd_file(self, s3_keys: List[str], command_file: Path) -> Path:
+        """Create s5cmd command file for downloading files."""
+        bucket, _ = self._parse_s3_uri(self.config.remote_file_input)
+        download_dir = Path(self.config.local_work_dir) / 'download'
+        
+        with open(command_file, 'w') as f:
+            for s3_key in s3_keys:
+                local_path = download_dir / os.path.basename(s3_key)
+                f.write(f"cp s3://{bucket}/{s3_key} {local_path}\n")
+        
+        return command_file
+    
+    def _download_batch(self, s3_keys: List[str]) -> List[str]:
+        """Download a batch of files using s5cmd."""
+        command_file = Path(self.config.local_work_dir) / f"download_batch_{time.time()}.txt"
+        self._create_s5cmd_file(s3_keys, command_file)
+        
+        # Run s5cmd
+        cmd = ['s5cmd', '--numworkers', str(self.config.s5cmd_workers), 'run', str(command_file)]
+        self.logger.info(f"Downloading {len(s3_keys)} files with s5cmd")
+        
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            self.logger.debug(f"s5cmd output: {result.stdout}")
+            
+            # Return list of downloaded files
+            download_dir = Path(self.config.local_work_dir) / 'download'
+            downloaded = []
+            for s3_key in s3_keys:
+                local_file = download_dir / os.path.basename(s3_key)
+                if local_file.exists():
+                    downloaded.append((str(local_file), s3_key))
+                else:
+                    self.logger.error(f"Expected file not found after download: {local_file}")
+            
+            return downloaded
+        
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"s5cmd failed: {e.stderr}")
+            raise
+        
+        finally:
+            # Cleanup command file
+            if command_file.exists():
+                command_file.unlink()
+    
+    def _submit_to_daemon(self, file_path: str, s3_key: str) -> Optional[Job]:
+        """Submit a file to the daemon for processing."""
+        try:
+            response = self.session.post(
+                f"{self.config.daemon_url}/submit",
+                json={"file_path": file_path}
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                job = Job(
+                    job_id=data['job_id'],
+                    file_path=file_path,
+                    s3_key=s3_key,
+                    status='submitted'
+                )
+                self.logger.info(f"Submitted job {job.job_id} for {os.path.basename(s3_key)}")
+                return job
+            else:
+                self.logger.error(f"Failed to submit {file_path}: {response.text}")
+                return None
+        
+        except Exception as e:
+            self.logger.error(f"Error submitting {file_path}: {e}")
+            return None
+    
+    def _poll_job_status(self, job: Job) -> bool:
+        """Poll job status and update job object. Returns True if complete."""
+        try:
+            response = self.session.get(f"{self.config.daemon_url}/status/{job.job_id}")
+            
+            if response.status_code == 200:
+                data = response.json()
+                job.status = data['status']
+                
+                if job.status == 'completed':
+                    job.output_path = data.get('output_path')
+                    job.purified_path = data.get('purified_path')
+                    self.logger.info(f"Job {job.job_id} completed")
+                    return True
+                
+                elif job.status == 'failed':
+                    job.error = data.get('error', 'Unknown error')
+                    self.logger.error(f"Job {job.job_id} failed: {job.error}")
+                    return True
+            
+            else:
+                self.logger.error(f"Failed to get status for job {job.job_id}: {response.text}")
+        
+        except Exception as e:
+            self.logger.error(f"Error polling job {job.job_id}: {e}")
+        
+        return False
+    
+    def _upload_results(self, job: Job):
+        """Upload job results to S3."""
+        basename = os.path.basename(job.s3_key)
+        
+        # Skip uploads in debug mode
+        if self.max_files_debug:
+            self.logger.info(f"DEBUG MODE: Skipping upload for {basename}")
+            if job.status == 'completed':
+                self.logger.info(f"  Output would be at: {job.output_path}")
+                if job.purified_path:
+                    self.logger.info(f"  Purified would be at: {job.purified_path}")
+            return
+        
+        # Handle successful completion
+        if job.status == 'completed':
+            # Check if contamination was found
+            if job.output_path and os.path.exists(job.output_path):
+                # Check if file has content
+                if os.path.getsize(job.output_path) > 0:
+                    # Upload contamination results
+                    self._upload_file(
+                        job.output_path,
+                        self.config.remote_output_dir,
+                        os.path.basename(job.output_path)
+                    )
+                    
+                    # Upload purified file if it exists
+                    if job.purified_path and os.path.exists(job.purified_path):
+                        self._upload_file(
+                            job.purified_path,
+                            self.config.remote_cleaned_output,
+                            os.path.basename(job.purified_path)
+                        )
+                else:
+                    # No contamination found - create clean marker
+                    self._create_clean_marker(basename)
+            else:
+                # No output file means no contamination
+                self._create_clean_marker(basename)
+        
+        # Handle failure
+        elif job.status == 'failed':
+            self.failed_files.add(basename)
+            self.logger.error(f"Job failed for {basename}: {job.error}")
+    
+    def _create_clean_marker(self, filename: str):
+        """Create a marker file indicating no contamination."""
+        marker_path = Path(self.config.local_work_dir) / 'results' / f"{filename}.clean"
+        with open(marker_path, 'w') as f:
+            f.write("clean!\n")
+        
+        self._upload_file(
+            str(marker_path),
+            self.config.remote_output_dir,
+            f"{filename}.clean"
+        )
+        
+        # Cleanup local marker
+        marker_path.unlink()
+    
+    def _upload_file(self, local_path: str, s3_base: str, key_suffix: str):
+        """Upload a single file to S3 using s5cmd."""
+        bucket, prefix = self._parse_s3_uri(s3_base)
+        s3_key = f"{prefix}/{key_suffix}" if prefix else key_suffix
+        s3_uri = f"s3://{bucket}/{s3_key}"
+        
+        cmd = ['s5cmd', 'cp', local_path, s3_uri]
+        
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+            self.logger.info(f"Uploaded {os.path.basename(local_path)} to {s3_uri}")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Failed to upload {local_path}: {e.stderr}")
+            raise
+    
+    def _cleanup_job_files(self, job: Job):
+        """Clean up local files for a completed job."""
+        # Skip cleanup in debug mode
+        if self.max_files_debug:
+            self.logger.info(f"DEBUG MODE: Skipping cleanup for job {job.job_id}")
+            return
+        
+        files_to_remove = [job.file_path]
+        
+        if job.output_path and os.path.exists(job.output_path):
+            files_to_remove.append(job.output_path)
+        
+        if job.purified_path and os.path.exists(job.purified_path):
+            files_to_remove.append(job.purified_path)
+        
+        for file_path in files_to_remove:
+            try:
+                os.unlink(file_path)
+                self.logger.debug(f"Cleaned up {file_path}")
+            except Exception as e:
+                self.logger.warning(f"Failed to cleanup {file_path}: {e}")
+    
+    def _process_files(self, files_to_process: List[str]):
+        """Main processing loop for files."""
+        batch_size = self.config.max_concurrent_jobs
+        
+        for i in range(0, len(files_to_process), batch_size):
+            if self.shutdown_requested:
+                self.logger.info("Shutdown requested, stopping file processing")
+                break
+            
+            # Download batch
+            batch = files_to_process[i:i+batch_size]
+            downloaded_files = self._download_batch(batch)
+            
+            # Submit downloaded files
+            for local_path, s3_key in downloaded_files:
+                if self.shutdown_requested:
+                    break
+                
+                job = self._submit_to_daemon(local_path, s3_key)
+                if job:
+                    self.active_jobs[job.job_id] = job
+            
+            # Poll and process active jobs
+            while len(self.active_jobs) >= self.config.max_concurrent_jobs:
+                if self.force_shutdown:
+                    self.logger.warning("Force shutdown, abandoning active jobs")
+                    return
+                
+                self._poll_and_process_jobs()
+                time.sleep(self.config.poll_interval)
+    
+    def _poll_and_process_jobs(self):
+        """Poll active jobs and process completed ones."""
+        completed_jobs = []
+        
+        for job_id, job in self.active_jobs.items():
+            if self._poll_job_status(job):
+                completed_jobs.append(job_id)
+        
+        # Process completed jobs
+        for job_id in completed_jobs:
+            job = self.active_jobs.pop(job_id)
+            
+            # Upload results
+            try:
+                self._upload_results(job)
+                self.completed_files.add(os.path.basename(job.s3_key))
+            except Exception as e:
+                self.logger.error(f"Failed to upload results for job {job_id}: {e}")
+                self.failed_files.add(os.path.basename(job.s3_key))
+            
+            # Cleanup with delay
+            time.sleep(self.config.cleanup_delay)
+            self._cleanup_job_files(job)
+    
+    def _wait_for_completion(self):
+        """Wait for all remaining jobs to complete."""
+        self.logger.info(f"Waiting for {len(self.active_jobs)} jobs to complete")
+        
+        while self.active_jobs and not self.force_shutdown:
+            self._poll_and_process_jobs()
+            
+            if self.active_jobs:
+                time.sleep(self.config.poll_interval)
+        
+        if self.force_shutdown and self.active_jobs:
+            self.logger.warning(f"Force shutdown with {len(self.active_jobs)} active jobs")
+        
+        # Final summary
+        self.logger.info(f"Completed: {len(self.completed_files)} files")
+        if self.failed_files:
+            self.logger.warning(f"Failed: {len(self.failed_files)} files")
+            for filename in self.failed_files:
+                self.logger.warning(f"  - {filename}")
+        
+        # Debug mode summary
+        if self.max_files_debug:
+            self.logger.warning(f"DEBUG MODE: Results are in {self.config.local_work_dir}")
+            self.logger.warning(f"DEBUG MODE: No files were uploaded or cleaned up")
+
+
+def main():
+    """Main entry point."""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Contamination detection orchestrator')
+    parser.add_argument('--config', required=True, help='Path to configuration YAML file')
+    args = parser.parse_args()
+    
+    # Load configuration
+    try:
+        config = OrchestrationConfig.from_yaml(args.config)
+    except Exception as e:
+        print(f"Failed to load configuration: {e}", file=sys.stderr)
+        sys.exit(1)
+    
+    # Run orchestrator
+    orchestrator = ContaminationOrchestrator(config)
+    orchestrator.run()
+
+
+if __name__ == '__main__':
+    main()
