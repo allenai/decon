@@ -30,8 +30,7 @@ from requests.packages.urllib3.util.retry import Retry
 class OrchestrationConfig:
     # Required fields
     remote_file_input: str  # s3://bucket/training-data/
-    remote_output_dir: str  # s3://bucket/contamination-results/
-    remote_cleaned_output: str  # s3://bucket/cleaned-data/
+    remote_output_dir: str  # s3://bucket/output/
     daemon_url: str  # http://localhost:8080
     local_work_dir: str  # /tmp/decon-work/
     
@@ -50,7 +49,6 @@ class OrchestrationConfig:
         config = cls(
             remote_file_input=data['remote_file_input'],
             remote_output_dir=data['remote_output_dir'],
-            remote_cleaned_output=data['remote_cleaned_output'],
             daemon_url=data.get('daemon_url', 'http://localhost:8080'),
             local_work_dir=data.get('local_work_dir', '/tmp/decon-work')
         )
@@ -142,6 +140,12 @@ class ContaminationOrchestrator:
     
     def run(self):
         """Main orchestration loop."""
+        start_time = time.time()
+        
+        self.logger.info("="*60)
+        self.logger.info("Starting contamination detection orchestration")
+        self.logger.info("="*60)
+        
         # Validate daemon is running
         if not self._check_daemon_health():
             self.logger.error("Daemon is not running. Please start the daemon with: make daemon")
@@ -156,7 +160,7 @@ class ContaminationOrchestrator:
             self.logger.info("No files to process")
             return
         
-        self.logger.info(f"Found {len(files_to_process)} files to process")
+        self.logger.info(f"Starting processing of {len(files_to_process)} files")
         
         # Download and process files
         self._process_files(files_to_process)
@@ -164,7 +168,10 @@ class ContaminationOrchestrator:
         # Wait for remaining jobs to complete
         self._wait_for_completion()
         
-        self.logger.info("Orchestration complete")
+        elapsed = time.time() - start_time
+        self.logger.info("="*60)
+        self.logger.info(f"Orchestration complete in {elapsed:.2f} seconds")
+        self.logger.info("="*60)
     
     def _check_daemon_health(self) -> bool:
         """Check if the daemon is running and healthy."""
@@ -180,9 +187,12 @@ class ContaminationOrchestrator:
     
     def _setup_directories(self):
         """Create local working directories."""
+        self.logger.info(f"Setting up working directories in {self.config.local_work_dir}")
+        
         for subdir in ['download', 'results', 'cleaned']:
             path = Path(self.config.local_work_dir) / subdir
             path.mkdir(parents=True, exist_ok=True)
+            self.logger.debug(f"Created directory: {path}")
     
     def _parse_s3_uri(self, uri: str) -> Tuple[str, str]:
         """Parse S3 URI into bucket and prefix."""
@@ -193,21 +203,45 @@ class ContaminationOrchestrator:
         prefix = parsed.path.lstrip('/')
         return bucket, prefix
     
-    def _list_s3_files(self, s3_uri: str, suffix: str = '.jsonl') -> List[str]:
-        """List all files in S3 location with given suffix."""
+    def _list_s3_files(self, s3_uri: str, suffixes: List[str] = None) -> List[str]:
+        """List all files in S3 location with given suffixes."""
+        if suffixes is None:
+            suffixes = ['.jsonl', '.jsonl.gz', '.jsonl.zst', '.jsonl.bz2', '.jsonl.xz']
+        
         bucket, prefix = self._parse_s3_uri(s3_uri)
+        
+        self.logger.info(f"Starting S3 file list for bucket={bucket}, prefix={prefix}")
+        self.logger.info(f"Looking for files with suffixes: {suffixes}")
         
         files = []
         paginator = self.s3_client.get_paginator('list_objects_v2')
         pages = paginator.paginate(Bucket=bucket, Prefix=prefix)
         
+        page_num = 0
+        suffix_counts = {suffix: 0 for suffix in suffixes}
+        
         for page in pages:
+            page_num += 1
             if 'Contents' not in page:
+                self.logger.debug(f"Page {page_num}: No contents")
                 continue
+            
+            page_files = 0
             for obj in page['Contents']:
                 key = obj['Key']
-                if key.endswith(suffix):
-                    files.append(key)
+                for suffix in suffixes:
+                    if key.endswith(suffix):
+                        files.append(key)
+                        page_files += 1
+                        suffix_counts[suffix] += 1
+                        break
+            
+            self.logger.info(f"Page {page_num}: Found {page_files} files (total so far: {len(files)})")
+        
+        self.logger.info(f"S3 listing complete: {len(files)} total files found")
+        for suffix, count in suffix_counts.items():
+            if count > 0:
+                self.logger.info(f"  {suffix}: {count} files")
         
         return files
     
@@ -215,24 +249,43 @@ class ContaminationOrchestrator:
         """Get set of already processed files from output directories."""
         processed = set()
         
-        # Check contamination results
-        bucket, prefix = self._parse_s3_uri(self.config.remote_output_dir)
-        for key in self._list_s3_files(self.config.remote_output_dir, '.jsonl'):
-            # Extract original filename from result filename
-            # Expected format: training-file-simple-0.80.jsonl
+        self.logger.info("Checking for already processed files...")
+        
+        # Check for report files and clean markers
+        report_files = self._list_s3_files(self.config.remote_output_dir, ['.report.jsonl', '.report.jsonl.gz'])
+        clean_markers = self._list_s3_files(self.config.remote_output_dir, ['.clean'])
+        
+        self.logger.info(f"Found {len(report_files)} report files and {len(clean_markers)} clean markers")
+        
+        # Process clean markers
+        for key in clean_markers:
             filename = os.path.basename(key)
             if filename.endswith('.clean'):
-                # Clean file marker
-                original = filename[:-6]  # Remove .clean
-                processed.add(original)
-            else:
-                # Parse contamination result filename
-                parts = filename.rsplit('-', 2)
-                if len(parts) >= 3:
-                    original = parts[0]
-                    processed.add(original)
+                # Clean file marker format: basename.clean
+                basename = filename[:-6]  # Remove .clean
+                # Add all possible variants of this file
+                processed.add(f"{basename}.jsonl")
+                for ext in ['.gz', '.zst', '.bz2', '.xz']:
+                    processed.add(f"{basename}.jsonl{ext}")
         
-        self.logger.info(f"Found {len(processed)} already processed files")
+        # Process report files
+        for key in report_files:
+            filename = os.path.basename(key)
+            # Extract base name from report filename
+            # Expected format: basename.report.jsonl or basename.report.jsonl.gz
+            if filename.endswith('.report.jsonl.gz'):
+                basename = filename[:-17]  # Remove .report.jsonl.gz
+            elif filename.endswith('.report.jsonl'):
+                basename = filename[:-13]  # Remove .report.jsonl
+            else:
+                continue
+            
+            # Add all possible variants of this file
+            processed.add(f"{basename}.jsonl")
+            for ext in ['.gz', '.zst', '.bz2', '.xz']:
+                processed.add(f"{basename}.jsonl{ext}")
+        
+        self.logger.info(f"Total already processed files: {len(processed)}")
         return processed
     
     def _should_process_file(self, s3_key: str) -> bool:
@@ -243,6 +296,8 @@ class ContaminationOrchestrator:
     
     def _get_files_to_process(self) -> List[str]:
         """Get list of files this host should process."""
+        self.logger.info("Determining files to process...")
+        
         # Get all training files
         all_files = self._list_s3_files(self.config.remote_file_input)
         self.logger.info(f"Found {len(all_files)} total training files")
@@ -252,15 +307,25 @@ class ContaminationOrchestrator:
         
         # Filter for this host
         files_to_process = []
-        for s3_key in all_files:
+        skipped_processed = 0
+        skipped_other_host = 0
+        
+        self.logger.info(f"Filtering files for host {self.host_index} of {self.host_count}...")
+        
+        for i, s3_key in enumerate(all_files):
+            if i > 0 and i % 1000 == 0:
+                self.logger.info(f"  Processed {i}/{len(all_files)} files...")
+            
             filename = os.path.basename(s3_key)
             
             # Skip if already processed
             if filename in processed:
+                skipped_processed += 1
                 continue
             
             # Skip if not assigned to this host
             if not self._should_process_file(s3_key):
+                skipped_other_host += 1
                 continue
             
             files_to_process.append(s3_key)
@@ -269,6 +334,11 @@ class ContaminationOrchestrator:
             if self.max_files_debug and len(files_to_process) >= self.max_files_debug:
                 self.logger.warning(f"DEBUG MODE: Limiting to {self.max_files_debug} files")
                 break
+        
+        self.logger.info(f"File filtering complete:")
+        self.logger.info(f"  - Files for this host: {len(files_to_process)}")
+        self.logger.info(f"  - Already processed: {skipped_processed}")
+        self.logger.info(f"  - Assigned to other hosts: {skipped_other_host}")
         
         return files_to_process
     
@@ -291,26 +361,47 @@ class ContaminationOrchestrator:
         
         # Run s5cmd
         cmd = ['s5cmd', '--numworkers', str(self.config.s5cmd_workers), 'run', str(command_file)]
-        self.logger.info(f"Downloading {len(s3_keys)} files with s5cmd")
+        self.logger.info(f"Starting batch download of {len(s3_keys)} files with {self.config.s5cmd_workers} workers")
         
         try:
+            start_time = time.time()
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            self.logger.debug(f"s5cmd output: {result.stdout}")
+            elapsed = time.time() - start_time
+            
+            self.logger.info(f"s5cmd batch download completed in {elapsed:.2f} seconds")
+            if result.stdout:
+                lines = result.stdout.strip().split('\n')
+                if len(lines) > 10:
+                    self.logger.debug(f"s5cmd output (first 10 lines):\n{chr(10).join(lines[:10])}")
+                else:
+                    self.logger.debug(f"s5cmd output:\n{result.stdout}")
             
             # Return list of downloaded files
             download_dir = Path(self.config.local_work_dir) / 'download'
             downloaded = []
+            missing = []
+            
             for s3_key in s3_keys:
                 local_file = download_dir / os.path.basename(s3_key)
                 if local_file.exists():
                     downloaded.append((str(local_file), s3_key))
                 else:
-                    self.logger.error(f"Expected file not found after download: {local_file}")
+                    missing.append(s3_key)
+            
+            self.logger.info(f"Download verification: {len(downloaded)} successful, {len(missing)} missing")
+            if missing:
+                self.logger.error(f"Failed to download {len(missing)} files:")
+                for m in missing[:5]:  # Show first 5
+                    self.logger.error(f"  - {m}")
+                if len(missing) > 5:
+                    self.logger.error(f"  ... and {len(missing) - 5} more")
             
             return downloaded
         
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"s5cmd failed: {e.stderr}")
+            self.logger.error(f"s5cmd failed with exit code {e.returncode}")
+            if e.stderr:
+                self.logger.error(f"s5cmd stderr: {e.stderr}")
             raise
         
         finally:
@@ -375,6 +466,17 @@ class ContaminationOrchestrator:
     def _upload_results(self, job: Job):
         """Upload job results to S3."""
         basename = os.path.basename(job.s3_key)
+        basename_no_ext = basename
+        
+        # Remove compression extensions to get base name
+        for ext in ['.gz', '.zst', '.bz2', '.xz']:
+            if basename_no_ext.endswith('.jsonl' + ext):
+                basename_no_ext = basename_no_ext[:-len(ext)]
+                break
+        
+        # Remove .jsonl to get pure base name
+        if basename_no_ext.endswith('.jsonl'):
+            basename_no_ext = basename_no_ext[:-6]
         
         # Skip uploads in debug mode
         if self.max_files_debug:
@@ -391,26 +493,35 @@ class ContaminationOrchestrator:
             if job.output_path and os.path.exists(job.output_path):
                 # Check if file has content
                 if os.path.getsize(job.output_path) > 0:
-                    # Upload contamination results
+                    # Upload contamination report with new naming
+                    report_filename = f"{basename_no_ext}.report.jsonl"
                     self._upload_file(
                         job.output_path,
                         self.config.remote_output_dir,
-                        os.path.basename(job.output_path)
+                        report_filename
                     )
                     
                     # Upload purified file if it exists
                     if job.purified_path and os.path.exists(job.purified_path):
+                        # Determine compression based on original file
+                        compression_ext = ""
+                        for ext in ['.gz', '.zst', '.bz2', '.xz']:
+                            if basename.endswith('.jsonl' + ext):
+                                compression_ext = ext
+                                break
+                        
+                        cleaned_filename = f"{basename_no_ext}.clean.jsonl{compression_ext}"
                         self._upload_file(
                             job.purified_path,
-                            self.config.remote_cleaned_output,
-                            os.path.basename(job.purified_path)
+                            self.config.remote_output_dir,
+                            cleaned_filename
                         )
                 else:
                     # No contamination found - create clean marker
-                    self._create_clean_marker(basename)
+                    self._create_clean_marker(basename_no_ext)
             else:
                 # No output file means no contamination
-                self._create_clean_marker(basename)
+                self._create_clean_marker(basename_no_ext)
         
         # Handle failure
         elif job.status == 'failed':
@@ -472,17 +583,23 @@ class ContaminationOrchestrator:
     def _process_files(self, files_to_process: List[str]):
         """Main processing loop for files."""
         batch_size = self.config.max_concurrent_jobs
+        total_batches = (len(files_to_process) + batch_size - 1) // batch_size
         
-        for i in range(0, len(files_to_process), batch_size):
+        self.logger.info(f"Starting file processing: {len(files_to_process)} files in {total_batches} batches")
+        
+        for batch_num, i in enumerate(range(0, len(files_to_process), batch_size), 1):
             if self.shutdown_requested:
                 self.logger.info("Shutdown requested, stopping file processing")
                 break
             
             # Download batch
             batch = files_to_process[i:i+batch_size]
+            self.logger.info(f"Processing batch {batch_num}/{total_batches} ({len(batch)} files)")
+            
             downloaded_files = self._download_batch(batch)
             
             # Submit downloaded files
+            submitted_count = 0
             for local_path, s3_key in downloaded_files:
                 if self.shutdown_requested:
                     break
@@ -490,6 +607,9 @@ class ContaminationOrchestrator:
                 job = self._submit_to_daemon(local_path, s3_key)
                 if job:
                     self.active_jobs[job.job_id] = job
+                    submitted_count += 1
+            
+            self.logger.info(f"Submitted {submitted_count} jobs from batch {batch_num}")
             
             # Poll and process active jobs
             while len(self.active_jobs) >= self.config.max_concurrent_jobs:
@@ -497,6 +617,7 @@ class ContaminationOrchestrator:
                     self.logger.warning("Force shutdown, abandoning active jobs")
                     return
                 
+                self.logger.debug(f"Active jobs at capacity ({len(self.active_jobs)}), polling...")
                 self._poll_and_process_jobs()
                 time.sleep(self.config.poll_interval)
     
@@ -504,31 +625,53 @@ class ContaminationOrchestrator:
         """Poll active jobs and process completed ones."""
         completed_jobs = []
         
+        self.logger.debug(f"Polling {len(self.active_jobs)} active jobs...")
+        
         for job_id, job in self.active_jobs.items():
             if self._poll_job_status(job):
                 completed_jobs.append(job_id)
         
+        if completed_jobs:
+            self.logger.info(f"Found {len(completed_jobs)} completed jobs")
+        
         # Process completed jobs
         for job_id in completed_jobs:
             job = self.active_jobs.pop(job_id)
+            filename = os.path.basename(job.s3_key)
             
             # Upload results
             try:
                 self._upload_results(job)
-                self.completed_files.add(os.path.basename(job.s3_key))
+                self.completed_files.add(filename)
+                self.logger.info(f"Successfully processed: {filename}")
             except Exception as e:
                 self.logger.error(f"Failed to upload results for job {job_id}: {e}")
-                self.failed_files.add(os.path.basename(job.s3_key))
+                self.failed_files.add(filename)
             
             # Cleanup with delay
-            time.sleep(self.config.cleanup_delay)
+            if not self.max_files_debug:
+                time.sleep(self.config.cleanup_delay)
             self._cleanup_job_files(job)
+        
+        # Log progress
+        if completed_jobs:
+            self.logger.info(f"Progress: {len(self.completed_files)} completed, "
+                           f"{len(self.active_jobs)} active, {len(self.failed_files)} failed")
     
     def _wait_for_completion(self):
         """Wait for all remaining jobs to complete."""
-        self.logger.info(f"Waiting for {len(self.active_jobs)} jobs to complete")
+        if not self.active_jobs:
+            self.logger.info("No remaining jobs to wait for")
+            return
         
+        self.logger.info(f"Waiting for {len(self.active_jobs)} remaining jobs to complete")
+        
+        wait_cycles = 0
         while self.active_jobs and not self.force_shutdown:
+            wait_cycles += 1
+            if wait_cycles % 12 == 0:  # Log every minute (assuming 5 second poll interval)
+                self.logger.info(f"Still waiting for {len(self.active_jobs)} jobs...")
+            
             self._poll_and_process_jobs()
             
             if self.active_jobs:

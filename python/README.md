@@ -6,7 +6,7 @@ This directory contains the Python orchestration scripts for running distributed
 
 The orchestration system allows you to:
 - Distribute contamination detection across multiple hosts
-- Download training files from S3
+- Download training files from S3 (supports .jsonl, .jsonl.gz, .jsonl.zst, .jsonl.bz2, .jsonl.xz)
 - Submit files to the local daemon for processing
 - Upload results and cleaned files back to S3
 - Handle failures gracefully
@@ -38,8 +38,7 @@ Create an orchestration configuration file (see `examples/orchestration.yaml`):
 ```yaml
 # S3 locations
 remote_file_input: s3://your-bucket/training-data/
-remote_output_dir: s3://your-bucket/contamination-results/
-remote_cleaned_output: s3://your-bucket/cleaned-data/
+remote_output_dir: s3://your-bucket/output/  # All outputs go here
 
 # Daemon configuration
 daemon_url: http://localhost:8080
@@ -115,9 +114,16 @@ When `MAX_FILES_DEBUG` is set:
 
 ## Output Structure
 
-- Contamination results: `s3://bucket/contamination-results/{filename}-{mode}-{threshold}.jsonl`
-- Cleaned files: `s3://bucket/cleaned-data/{filename}.clean.jsonl`
-- Clean markers: `s3://bucket/contamination-results/{filename}.clean` (for uncontaminated files)
+All outputs go to the same S3 directory (`remote_output_dir`):
+
+- **Contamination reports**: `{basename}.report.jsonl`
+- **Cleaned files**: `{basename}.clean.jsonl{compression}`
+- **Clean markers**: `{basename}.clean` (for uncontaminated files)
+
+Example for input file `sponge-text-2024-08-00001.jsonl.gz`:
+- Report: `s3://bucket/output/sponge-text-2024-08-00001.report.jsonl`
+- Cleaned: `s3://bucket/output/sponge-text-2024-08-00001.clean.jsonl.gz`
+- Or if no contamination: `s3://bucket/output/sponge-text-2024-08-00001.clean`
 
 ## Error Handling
 
