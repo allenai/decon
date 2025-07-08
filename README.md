@@ -206,9 +206,6 @@ Add these parameters to your configuration:
 ```yaml
 # Enable purification
 purify: true
-
-# Optional: separate directory for cleaned files (defaults to output_dir)
-cleaned_file_output: /path/to/cleaned/data
 ```
 
 ### Purification Process
@@ -229,19 +226,56 @@ mode: simple
 local_input: /data/training
 reference_input: /data/evaluation
 output_dir: /results/contamination
-cleaned_file_output: /data/training_cleaned
 purify: true
 ```
 
 Running this will:
 - Save contamination results to `/results/contamination/simple_contamination_results.jsonl`
-- Create cleaned files in `/data/training_cleaned/`
 - For example: `train_001.jsonl` → `train_001.clean.jsonl` (with contaminated lines removed)
 
-### Daemon Mode
+### Orchestration
 
-In daemon mode, purified files are created automatically when enabled, and the API response includes both paths:
+The decontamination tool supports distributed processing through orchestration and daemon mode, enabling efficient contamination detection at scale.
 
+#### Daemon Mode
+The daemon runs as an HTTP server that processes contamination detection jobs asynchronously:
+- Pre-builds the reference index once at startup for faster processing
+- Provides REST API endpoints for job submission and status monitoring
+- Uses a configurable worker thread pool for parallel processing
+- Supports all detection modes (Simple, MinHash, TOXIC)
+
+#### Orchestration Layer
+A Python orchestration script manages distributed processing across multiple hosts:
+- Downloads training files from S3 in batches
+- Distributes work across hosts using consistent hashing
+- Submits files to local daemon for processing
+- Uploads results (contamination reports and purified files) back to S3
+- Tracks progress and handles retries automatically
+
+#### Running Orchestration
+
+**1. Start the daemon on each host:**
+```bash
+# Using make
+make daemon
+
+# Or directly with cargo
+cargo run --release daemon --config config.yaml
+```
+
+**2. Run orchestration (example for host 1 of 3):**
+```bash
+export DECON_HOST_INDEX=0
+export DECON_HOST_COUNT=3
+python python/orchestration.py --config orchestration.yaml
+```
+
+**3. Monitor progress:**
+The orchestrator will show progress and the daemon provides health/status endpoints:
+- `GET /health` - Check daemon health
+- `GET /status/:job_id` - Get job results
+
+#### API Response Example
 ```json
 {
   "job_id": "123e4567-e89b-12d3-a456-426614174000",
