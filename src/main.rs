@@ -253,6 +253,25 @@ pub fn get_results_filename(mode: &str) -> String {
     }
 }
 
+pub fn get_unique_results_filename(input_file: &PathBuf, config: &Config) -> String {
+    // Extract the base filename without extension
+    let base_name = input_file
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown");
+    
+    // Get the appropriate threshold value based on mode
+    let threshold = match config.mode.as_str() {
+        "minhash" => config.jaccard_similarity_threshold,
+        "toxic" => config.toxic_overlap_threshold,
+        "simple" => config.toxic_overlap_threshold,
+        _ => 0.0,
+    };
+    
+    // Format: {input file name}-{mode}-{overlap_threshold}.jsonl
+    format!("{}-{}-{:.2}.jsonl", base_name, config.mode, threshold)
+}
+
 
 
 

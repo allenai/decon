@@ -900,12 +900,22 @@ fn save_contamination_results(
 pub fn save_contamination_results_toxic_format(
     config: &Config,
     contamination_results: &ContaminationResults
-) -> Result<(), Error> {
+) -> Result<PathBuf, Error> {
+    save_contamination_results_toxic_format_with_filename(config, contamination_results, None)
+}
+
+pub fn save_contamination_results_toxic_format_with_filename(
+    config: &Config,
+    contamination_results: &ContaminationResults,
+    custom_filename: Option<&str>
+) -> Result<PathBuf, Error> {
     // Create output directory if it doesn't exist
     create_dir_all(&config.output_dir)?;
 
-    // Use the same filename format as toxic for consistency with review facility
-    let output_file = config.output_dir.join(get_results_filename("simple"));
+    // Use custom filename if provided, otherwise use default
+    let default_filename = get_results_filename("simple");
+    let filename = custom_filename.unwrap_or(&default_filename);
+    let output_file = config.output_dir.join(filename);
 
     let mut output_data = Vec::new();
     let mut total_contaminations = 0;
@@ -955,5 +965,5 @@ pub fn save_contamination_results_toxic_format(
         println!("Empty results file saved to: {:?}", output_file);
     }
 
-    Ok(())
+    Ok(output_file)
 }

@@ -2290,9 +2290,19 @@ fn save_bucket_contents(
 pub fn save_toxic_contamination_results(
     results: &DashMap<String, Vec<ToxicContaminationEntry>>,
     output_dir: &PathBuf
-) -> Result<(), Error> {
+) -> Result<PathBuf, Error> {
+    save_toxic_contamination_results_with_filename(results, output_dir, None)
+}
+
+pub fn save_toxic_contamination_results_with_filename(
+    results: &DashMap<String, Vec<ToxicContaminationEntry>>,
+    output_dir: &PathBuf,
+    custom_filename: Option<&str>
+) -> Result<PathBuf, Error> {
     create_dir_all(output_dir)?;
-    let output_file = output_dir.join(get_results_filename("toxic"));
+    let default_filename = get_results_filename("toxic");
+    let filename = custom_filename.unwrap_or(&default_filename);
+    let output_file = output_dir.join(filename);
 
     let mut output_data = Vec::new();
     let mut total_contaminations = 0;
@@ -2345,7 +2355,7 @@ pub fn save_toxic_contamination_results(
         println!("Empty results file saved to: {:?}", output_file);
     }
 
-    Ok(())
+    Ok(output_file)
 }
 
 fn print_bucket_statistics(config: &Config, toxic_buckets: &ToxicBuckets, bucket_contents: &Option<BucketContents>) {

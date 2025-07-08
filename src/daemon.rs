@@ -41,6 +41,7 @@ struct Job {
     id: String,
     file_path: PathBuf,
     status: JobStatus,
+    output_path: Option<PathBuf>,
 }
 
 // Index types enum to support multiple modes
@@ -162,6 +163,7 @@ async fn submit_job(
         id: job_id.clone(),
         file_path: request.file_path,
         status: JobStatus::Pending,
+        output_path: None,
     };
     
     // Store job in tracking map
@@ -196,15 +198,24 @@ async fn get_job_status(
                 "status": "failed",
                 "error": msg
             })),
-            _ => Json(json!({
-                "job_id": job_id,
-                "status": match &job.status {
-                    JobStatus::Pending => "pending",
-                    JobStatus::Processing => "processing",
-                    JobStatus::Completed => "completed",
-                    JobStatus::Failed(_) => unreachable!(),
+            _ => {
+                let mut response = json!({
+                    "job_id": job_id,
+                    "status": match &job.status {
+                        JobStatus::Pending => "pending",
+                        JobStatus::Processing => "processing",
+                        JobStatus::Completed => "completed",
+                        JobStatus::Failed(_) => unreachable!(),
+                    }
+                });
+                
+                // Add output path if job is completed
+                if let (JobStatus::Completed, Some(output_path)) = (&job.status, &job.output_path) {
+                    response["output_path"] = json!(output_path.to_string_lossy());
                 }
-            }))
+                
+                Json(response)
+            }
         }
     } else {
         Json(json!({
@@ -255,8 +266,9 @@ async fn worker_loop(
                 let mut jobs = state.jobs.lock().await;
                 if let Some(stored_job) = jobs.get_mut(&job_id) {
                     match result {
-                        Ok(Ok(_)) => {
+                        Ok(Ok(output_path)) => {
                             stored_job.status = JobStatus::Completed;
+                            stored_job.output_path = Some(output_path);
                             println!("Worker {} completed job {} successfully", worker_id, job_id);
                         }
                         Ok(Err(e)) => {
@@ -283,7 +295,7 @@ fn process_single_file(
     config: &Config,
     file_path: &PathBuf,
     index: &IndexType,
-) -> Result<()> {
+) -> Result<PathBuf> {
     match index {
         IndexType::Simple(simple_index) => {
             let (ngram_to_id, id_to_docs, eval_documents, id_to_ngram_tokens, tokenizer) = simple_index;
@@ -302,10 +314,16 @@ fn process_single_file(
                 id_to_ngram_tokens,
             )?;
             
-            // Save results
-            crate::simple::save_contamination_results_toxic_format(config, &contamination_results)?;
+            // Save results with unique filename
+            let unique_filename = crate::get_unique_results_filename(file_path, config);
+            let output_path = crate::simple::save_contamination_results_toxic_format_with_filename(
+                config, 
+                &contamination_results, 
+                Some(&unique_filename)
+            )?;
             
             println!("Processed {} lines from {:?}", lines_processed, file_path);
+            Ok(output_path)
         }
         IndexType::Toxic(toxic_index) => {
             let (toxic_buckets, hot_buckets, eval_documents, eval_vocabulary, _bucket_contents, embeddings, hyperplanes) = toxic_index;
@@ -332,10 +350,16 @@ fn process_single_file(
                 &contamination_results,
             )?;
             
-            // Save results
-            crate::toxic::save_toxic_contamination_results(&contamination_results, &config.output_dir)?;
+            // Save results with unique filename
+            let unique_filename = crate::get_unique_results_filename(file_path, config);
+            let output_path = crate::toxic::save_toxic_contamination_results_with_filename(
+                &contamination_results, 
+                &config.output_dir,
+                Some(&unique_filename)
+            )?;
             
             println!("Processed file {:?} using toxic mode", file_path);
+            Ok(output_path)
         }
         IndexType::MinHash(minhash_index) => {
             let (reference_bands, reference_signatures) = minhash_index;
@@ -374,12 +398,16 @@ fn process_single_file(
                 config,
             )?;
             
-            // Save results
-            crate::minhash::save_contamination_results(&contamination_results, &config.output_dir)?;
+            // Save results with unique filename
+            let unique_filename = crate::get_unique_results_filename(file_path, config);
+            let output_path = crate::minhash::save_contamination_results_with_filename(
+                &contamination_results,
+                &config.output_dir,
+                Some(&unique_filename)
+            )?;
             
             println!("Processed file {:?} using minhash mode", file_path);
+            Ok(output_path)
         }
     }
-    
-    Ok(())
 }
