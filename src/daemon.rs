@@ -85,12 +85,12 @@ pub async fn run_daemon(config_path: PathBuf, port: u16) -> Result<()> {
             let hyperplanes = crate::toxic::generate_hyperplanes(config.toxic_hyperplanes, config.hash_seed)?;
             
             // Build index
-            let (toxic_buckets, hot_buckets, eval_documents, eval_vocabulary, bucket_contents) = 
+            let (toxic_buckets, hot_buckets, eval_documents, eval_vocabulary, bucket_contents, eval_text_snippets) = 
                 crate::toxic::build_toxic_index(&config, &embeddings, &hyperplanes)?;
             println!("Built toxic index with {} buckets", toxic_buckets.len());
             
             // Create full index tuple
-            let index = (toxic_buckets, hot_buckets, eval_documents, eval_vocabulary, bucket_contents, embeddings, hyperplanes);
+            let index = (toxic_buckets, hot_buckets, eval_documents, eval_vocabulary, bucket_contents, embeddings, hyperplanes, eval_text_snippets);
             Arc::new(IndexType::Toxic(index))
         }
         "minhash" => {
@@ -357,7 +357,7 @@ fn process_single_file(
             Ok((output_path, purified_path))
         }
         IndexType::Toxic(toxic_index) => {
-            let (toxic_buckets, hot_buckets, eval_documents, eval_vocabulary, _bucket_contents, embeddings, hyperplanes) = toxic_index;
+            let (toxic_buckets, hot_buckets, eval_documents, eval_vocabulary, _bucket_contents, embeddings, hyperplanes, eval_text_snippets) = toxic_index;
             
             // Use the existing detection logic from toxic.rs
             let contamination_results = dashmap::DashMap::new();
@@ -379,6 +379,7 @@ fn process_single_file(
                 eval_documents,
                 eval_vocabulary,
                 &contamination_results,
+                eval_text_snippets,
             )?;
             
             // Save results with unique filename
@@ -386,7 +387,8 @@ fn process_single_file(
             let output_path = crate::toxic::save_toxic_contamination_results_with_filename(
                 &contamination_results, 
                 &config.output_dir,
-                Some(&unique_filename)
+                Some(&unique_filename),
+                eval_text_snippets
             )?;
             
             println!("Processed file {:?} using toxic mode", file_path);
@@ -414,7 +416,7 @@ fn process_single_file(
             Ok((output_path, purified_path))
         }
         IndexType::MinHash(minhash_index) => {
-            let (reference_bands, reference_signatures) = minhash_index;
+            let (reference_bands, reference_signatures, eval_text_snippets) = minhash_index;
             
             // Use the existing detection logic from minhash.rs
             let contamination_results = dashmap::DashMap::new();
@@ -455,7 +457,8 @@ fn process_single_file(
             let output_path = crate::minhash::save_contamination_results_with_filename(
                 &contamination_results,
                 &config.output_dir,
-                Some(&unique_filename)
+                Some(&unique_filename),
+                eval_text_snippets
             )?;
             
             println!("Processed file {:?} using minhash mode", file_path);

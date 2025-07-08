@@ -20,7 +20,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use mj_io::{expand_dirs, read_pathbuf_to_mem, write_mem_to_pathbuf, build_pbar};
 
-use crate::{Config, OmniTokenizer, get_nested_json_val, preprocess_text, hash_object, get_results_filename, write_purified_file};
+use crate::{Config, OmniTokenizer, get_nested_json_val, preprocess_text, hash_object, get_results_filename, write_purified_file, clean_text_allowlist};
 
 const BIG_PRIME: u64 = 18446744073709551557;
 const MAX_HASH: u64 = BIG_PRIME;
@@ -31,8 +31,11 @@ type ReferenceBands = DashMap<Vec<u8>, Vec<(String, usize)>>;
 // Reference signatures storage: maps (eval_name, line_num) to full signature
 type ReferenceSignatures = DashMap<(String, usize), Array1<u64>>;
 
+// Eval text snippets storage: maps (eval_name, line_num) to text snippet (first 1000 words)
+type EvalTextSnippets = DashMap<(String, usize), String>;
+
 // Public type alias for MinHash index
-pub type MinHashIndex = (ReferenceBands, ReferenceSignatures);
+pub type MinHashIndex = (ReferenceBands, ReferenceSignatures, EvalTextSnippets);
 
 pub fn contamination_detect(config: &Config) -> Result<(), Error> {
     println!("Starting MinHash contamination detection...");
@@ -40,13 +43,13 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
 
     // Step 1: Process reference datasets and build in-memory band index
     println!("Processing reference datasets...");
-    let (reference_bands, reference_signatures) = build_reference_index(config)?;
+    let (reference_bands, reference_signatures, eval_text_snippets) = build_reference_index(config)?;
     println!("Built reference index with {} bands and {} signatures",
              reference_bands.len(), reference_signatures.len());
 
     // Step 2: Process training data and detect contamination
     println!("Processing training data for contamination detection...");
-    detect_contamination_in_training_data(config, &reference_bands, &reference_signatures)?;
+    detect_contamination_in_training_data(config, &reference_bands, &reference_signatures, &eval_text_snippets)?;
 
     println!("MinHash contamination detection completed in {:?} seconds", start_main.elapsed().as_secs());
     Ok(())
@@ -55,6 +58,7 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
 pub fn build_reference_index(config: &Config) -> Result<MinHashIndex, Error> {
     let reference_bands: ReferenceBands = DashMap::new();
     let reference_signatures: ReferenceSignatures = DashMap::new();
+    let eval_text_snippets: EvalTextSnippets = DashMap::new();
 
     // Set up hashing parameters
     let band_seeds: Vec<u32> = _expand_band_seeds(&vec![config.hash_seed as u32], config.num_bands)
@@ -79,14 +83,15 @@ pub fn build_reference_index(config: &Config) -> Result<MinHashIndex, Error> {
             &reference_bands,
             &reference_signatures,
             config.exact_override,
-            &config.punctuation_chars
+            &config.punctuation_chars,
+            &eval_text_snippets
         ) {
             println!("Error processing reference file {:?}: {:?}", file_path, e);
         }
         pbar.inc(1);
     });
 
-    Ok((reference_bands, reference_signatures))
+    Ok((reference_bands, reference_signatures, eval_text_snippets))
 }
 
 fn process_reference_file(
@@ -100,7 +105,8 @@ fn process_reference_file(
     reference_bands: &ReferenceBands,
     reference_signatures: &ReferenceSignatures,
     exact_override: bool,
-    punctuation_chars: &str
+    punctuation_chars: &str,
+    eval_text_snippets: &EvalTextSnippets
 ) -> Result<(), Error> {
     let data = read_pathbuf_to_mem(file_path)?;
     let tokenizer = OmniTokenizer::new(tokenizer_str)?;
@@ -121,6 +127,16 @@ fn process_reference_file(
         let json_obj: Value = serde_json::from_str(&line)?;
         let line_text = get_nested_json_val(&json_obj, &content_key.to_string())?;
         lines_processed += 1;
+
+        // Store eval text snippet (first 1000 words)
+        let cleaned_text = clean_text_allowlist(&line_text, punctuation_chars);
+        let words: Vec<&str> = cleaned_text.split_whitespace().collect();
+        let text_snippet = words.iter()
+            .take(1000)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(" ");
+        eval_text_snippets.insert((eval_name.clone(), line_num), text_snippet);
 
         let hash_vals = if exact_override {
             let Ok(tokens) = catch_unwind(|| preprocess_text(&line_text, &tokenizer, punctuation_chars)) else {
@@ -160,7 +176,8 @@ fn process_reference_file(
 fn detect_contamination_in_training_data(
     config: &Config,
     reference_bands: &ReferenceBands,
-    reference_signatures: &ReferenceSignatures
+    reference_signatures: &ReferenceSignatures,
+    eval_text_snippets: &EvalTextSnippets
 ) -> Result<(), Error> {
     // Set up hashing parameters
     let band_seeds: Vec<u32> = _expand_band_seeds(&vec![config.hash_seed as u32], config.num_bands)
@@ -216,7 +233,7 @@ fn detect_contamination_in_training_data(
     });
 
     // Save contamination results
-    save_contamination_results(&contamination_results, &config.output_dir)?;
+    save_contamination_results(&contamination_results, &config.output_dir, eval_text_snippets)?;
     
     // Create purified files if requested
     if config.purify {
@@ -429,10 +446,16 @@ pub fn process_training_file(
             if !line_matches.is_empty() {
                 contaminated_lines += 1;
                 for ((eval_name, eval_line_num), jaccard_sim) in line_matches {
+                    // Include full line text when not using windowing
+                    let text_content = if config.debug {
+                        Some(line_text.clone())
+                    } else {
+                        None
+                    };
                     contamination_results
                         .entry(file_name.to_string())
                         .or_default()
-                        .push((line_num, eval_name, eval_line_num, jaccard_sim, None));
+                        .push((line_num, eval_name, eval_line_num, jaccard_sim, text_content));
                 }
             }
         }
@@ -534,15 +557,17 @@ fn calculate_jaccard_similarity(sig1: &Array1<u64>, sig2: &Array1<u64>) -> f32 {
 
 pub fn save_contamination_results(
     results: &DashMap<String, Vec<(usize, String, usize, f32, Option<String>)>>,
-    output_dir: &PathBuf
+    output_dir: &PathBuf,
+    eval_text_snippets: &EvalTextSnippets
 ) -> Result<PathBuf, Error> {
-    save_contamination_results_with_filename(results, output_dir, None)
+    save_contamination_results_with_filename(results, output_dir, None, eval_text_snippets)
 }
 
 pub fn save_contamination_results_with_filename(
     results: &DashMap<String, Vec<(usize, String, usize, f32, Option<String>)>>,
     output_dir: &PathBuf,
-    custom_filename: Option<&str>
+    custom_filename: Option<&str>,
+    eval_text_snippets: &EvalTextSnippets
 ) -> Result<PathBuf, Error> {
     create_dir_all(output_dir)?;
     let default_filename = get_results_filename("minhash");
@@ -566,6 +591,17 @@ pub fn save_contamination_results_with_filename(
             // Add window content if available
             if let Some(content) = window_content {
                 result["window_content"] = json!(content);
+                // Also add as training_overlap_text for consistency
+                result["training_overlap_text"] = json!(content);
+            } else {
+                result["training_overlap_text"] = json!("");
+            }
+            
+            // Look up eval text snippet
+            if let Some(eval_text) = eval_text_snippets.get(&(eval_name.clone(), *eval_line)) {
+                result["eval_overlap_text"] = json!(eval_text.value());
+            } else {
+                result["eval_overlap_text"] = json!("");
             }
             
             output_data.push(serde_json::to_vec(&result)?);

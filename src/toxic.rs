@@ -64,6 +64,7 @@ type HotBuckets = HashSet<u64>;
 
 // Eval document metadata: maps document_id to (eval_name, line_num, total_ngrams, live_ngrams, unique_buckets)
 type EvalDocuments = DashMap<u32, (String, usize, usize, usize, usize)>;
+type EvalTextSnippets = DashMap<(String, usize), String>;
 
 // Embedding storage: word -> 300d vector (thread-safe)
 pub type EmbeddingMap = DashMap<String, Vec<f32>>;
@@ -203,12 +204,12 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
 
     // Step 3: Process reference datasets and build LSH buckets
     println!("Processing reference datasets...");
-    let (toxic_buckets, hot_buckets, eval_documents, eval_vocabulary, _bucket_contents) = build_toxic_index(config, &embeddings, &hyperplanes)?;
+    let (toxic_buckets, hot_buckets, eval_documents, eval_vocabulary, _bucket_contents, eval_text_snippets) = build_toxic_index(config, &embeddings, &hyperplanes)?;
     println!("Built TOXIC index with {} buckets", toxic_buckets.len());
 
     // Step 4: Process training data and detect contamination
     println!("Processing training data for contamination detection...");
-    detect_toxic_contamination(config, &embeddings, &hyperplanes, &toxic_buckets, &hot_buckets, &eval_documents, &eval_vocabulary)?;
+    detect_toxic_contamination(config, &embeddings, &hyperplanes, &toxic_buckets, &hot_buckets, &eval_documents, &eval_vocabulary, &eval_text_snippets)?;
 
     println!("TOXIC contamination detection completed in {:?} seconds", start_main.elapsed().as_secs());
     Ok(())
@@ -653,6 +654,47 @@ fn extract_words(text: &str, punctuation_chars: &str) -> Vec<String> {
         .collect()
 }
 
+/// Extract overlapping text with context from word tokens
+fn extract_overlap_with_context_toxic(
+    word_tokens: &[String],
+    start_idx: usize,
+    end_idx: usize,
+    context_words: usize,
+) -> Option<String> {
+    // Check if indices are valid
+    if start_idx >= word_tokens.len() || end_idx > word_tokens.len() || start_idx >= end_idx {
+        return None;
+    }
+    
+    // Calculate context boundaries
+    let context_start = start_idx.saturating_sub(context_words);
+    let context_end = (end_idx + context_words).min(word_tokens.len());
+    
+    // Build the output with highlighted contamination
+    let mut result = String::new();
+    
+    // Add leading context
+    if context_start < start_idx {
+        result.push_str("... ");
+        result.push_str(&word_tokens[context_start..start_idx].join(" "));
+        result.push(' ');
+    }
+    
+    // Add contaminated section with highlighting
+    result.push_str("【");
+    result.push_str(&word_tokens[start_idx..end_idx].join(" "));
+    result.push_str("】");
+    
+    // Add trailing context
+    if end_idx < context_end {
+        result.push(' ');
+        result.push_str(&word_tokens[end_idx..context_end].join(" "));
+        result.push_str(" ...");
+    }
+    
+    Some(result)
+}
+
 
 
 // Optimized training n-gram computation using sliding window to reduce vector arithmetic
@@ -774,16 +816,17 @@ fn compute_lsh_bucket(normalized_vector: &[f32], hyperplanes: &Hyperplanes) -> u
 }
 
 // Public type for the toxic index
-pub type ToxicIndex = (ToxicBuckets, HotBuckets, EvalDocuments, HashSet<String>, Option<BucketContents>, EmbeddingMap, Hyperplanes);
+pub type ToxicIndex = (ToxicBuckets, HotBuckets, EvalDocuments, HashSet<String>, Option<BucketContents>, EmbeddingMap, Hyperplanes, EvalTextSnippets);
 
 pub fn build_toxic_index(
     config: &Config,
     embeddings: &EmbeddingMap,
     hyperplanes: &Hyperplanes
-) -> Result<(ToxicBuckets, HotBuckets, EvalDocuments, HashSet<String>, Option<BucketContents>), Error> {
+) -> Result<(ToxicBuckets, HotBuckets, EvalDocuments, HashSet<String>, Option<BucketContents>, EvalTextSnippets), Error> {
     let toxic_buckets: ToxicBuckets = DashMap::new();
     let eval_documents: EvalDocuments = DashMap::new();
-    let eval_vocabulary: DashMap<String, ()> = DashMap::new(); // Thread-safe set for vocabulary
+    let eval_vocabulary: DashMap<String, ()> = DashMap::new();
+    let eval_text_snippets: EvalTextSnippets = DashMap::new(); // Thread-safe set for vocabulary
     let bucket_contents: Option<BucketContents> = if config.debug {
         Some(DashMap::new())
     } else {
@@ -806,7 +849,8 @@ pub fn build_toxic_index(
             &toxic_buckets,
             &eval_documents,
             &eval_vocabulary,
-            &bucket_contents
+            &bucket_contents,
+            &eval_text_snippets
         ) {
             println!("Error processing reference file {:?}: {:?}", file_path, e);
         }
@@ -844,7 +888,7 @@ pub fn build_toxic_index(
     // Convert eval vocabulary to HashSet for return
     let eval_vocab_set: HashSet<String> = eval_vocabulary.into_iter().map(|(word, _)| word).collect();
 
-    Ok((toxic_buckets, hot_buckets, eval_documents, eval_vocab_set, bucket_contents))
+    Ok((toxic_buckets, hot_buckets, eval_documents, eval_vocab_set, bucket_contents, eval_text_snippets))
 }
 
 fn process_toxic_reference_file(
@@ -855,7 +899,8 @@ fn process_toxic_reference_file(
     toxic_buckets: &ToxicBuckets,
     eval_documents: &EvalDocuments,
     eval_vocabulary: &DashMap<String, ()>,
-    bucket_contents: &Option<BucketContents>
+    bucket_contents: &Option<BucketContents>,
+    eval_text_snippets: &EvalTextSnippets
 ) -> Result<(), Error> {
     let data = read_pathbuf_to_mem(file_path)?;
     // We don't need tokenizer for TOXIC - we work with words directly
@@ -889,6 +934,14 @@ fn process_toxic_reference_file(
         for word in &word_tokens {
             eval_vocabulary.insert(word.clone(), ());
         }
+        
+        // Store eval text snippet (first 1000 words)
+        let text_snippet = word_tokens.iter()
+            .take(1000)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(" ");
+        eval_text_snippets.insert((eval_name.clone(), line_num), text_snippet);
 
         // Skip entries with insufficient words for meaningful n-gram analysis
         if word_count < min_word_count {
@@ -990,7 +1043,8 @@ fn detect_toxic_contamination(
     toxic_buckets: &ToxicBuckets,
     hot_buckets: &HotBuckets,
     eval_documents: &EvalDocuments,
-    eval_vocabulary: &HashSet<String>
+    eval_vocabulary: &HashSet<String>,
+    eval_text_snippets: &EvalTextSnippets
 ) -> Result<(), Error> {
     // Find all training files
     let training_files = expand_dirs(
@@ -1029,7 +1083,8 @@ fn detect_toxic_contamination(
             hot_buckets,
             eval_documents,
             eval_vocabulary,
-            &contamination_results
+            &contamination_results,
+            eval_text_snippets
         ) {
             Ok(stats) => {
                 file_stats.insert(file_name.clone(), stats);
@@ -1042,7 +1097,7 @@ fn detect_toxic_contamination(
     });
 
     // Save contamination results
-    save_toxic_contamination_results(&contamination_results, &config.output_dir)?;
+    save_toxic_contamination_results(&contamination_results, &config.output_dir, eval_text_snippets)?;
     
     // Create purified files if requested
     if config.purify {
@@ -1283,6 +1338,9 @@ pub struct ToxicContaminationEntry {
     matching_ngrams: Option<Vec<String>>,
     bucket_sizes: Option<Vec<usize>>,
     bucket_ids: Option<Vec<u64>>,
+    contamination_start_idx: Option<usize>,
+    contamination_end_idx: Option<usize>,
+    training_overlap_text: Option<String>,
 }
 
 #[derive(Clone)]
@@ -1886,7 +1944,8 @@ pub fn process_toxic_training_file(
     hot_buckets: &HotBuckets,
     eval_documents: &EvalDocuments,
     eval_vocabulary: &HashSet<String>,
-    contamination_results: &DashMap<String, Vec<ToxicContaminationEntry>>
+    contamination_results: &DashMap<String, Vec<ToxicContaminationEntry>>,
+    eval_text_snippets: &EvalTextSnippets
 ) -> Result<FileProcessingStats, Error> {
     let data = read_pathbuf_to_mem(file_path)?;
 
@@ -2027,6 +2086,14 @@ pub fn process_toxic_training_file(
                         })
                         .sum();
 
+                    // Extract the overlapping text with context
+                    let training_overlap_text = extract_overlap_with_context_toxic(
+                        &word_tokens,
+                        cluster.start_idx,
+                        cluster.end_idx,
+                        10 // context words
+                    );
+                    
                     contamination_results
                         .entry(file_name.to_string())
                         .or_default()
@@ -2039,6 +2106,9 @@ pub fn process_toxic_training_file(
                             matching_ngrams,
                             bucket_sizes,
                             bucket_ids,
+                            contamination_start_idx: Some(cluster.start_idx),
+                            contamination_end_idx: Some(cluster.end_idx),
+                            training_overlap_text,
                         });
 
                     contaminated_lines += 1;
@@ -2294,15 +2364,17 @@ fn save_bucket_contents(
 
 pub fn save_toxic_contamination_results(
     results: &DashMap<String, Vec<ToxicContaminationEntry>>,
-    output_dir: &PathBuf
+    output_dir: &PathBuf,
+    eval_text_snippets: &EvalTextSnippets
 ) -> Result<PathBuf, Error> {
-    save_toxic_contamination_results_with_filename(results, output_dir, None)
+    save_toxic_contamination_results_with_filename(results, output_dir, None, eval_text_snippets)
 }
 
 pub fn save_toxic_contamination_results_with_filename(
     results: &DashMap<String, Vec<ToxicContaminationEntry>>,
     output_dir: &PathBuf,
-    custom_filename: Option<&str>
+    custom_filename: Option<&str>,
+    eval_text_snippets: &EvalTextSnippets
 ) -> Result<PathBuf, Error> {
     create_dir_all(output_dir)?;
     let default_filename = get_results_filename("toxic");
@@ -2334,6 +2406,26 @@ pub fn save_toxic_contamination_results_with_filename(
             }
             if let Some(ref ids) = contamination_entry.bucket_ids {
                 result["bucket_ids"] = json!(ids);
+            }
+            
+            // Add token indices if available
+            if let Some(start_idx) = contamination_entry.contamination_start_idx {
+                result["contamination_start_idx"] = json!(start_idx);
+            }
+            if let Some(end_idx) = contamination_entry.contamination_end_idx {
+                result["contamination_end_idx"] = json!(end_idx);
+            }
+            
+            // Add overlapping text if available
+            if let Some(ref overlap_text) = contamination_entry.training_overlap_text {
+                result["training_overlap_text"] = json!(overlap_text);
+            }
+            
+            // Look up eval text snippet
+            if let Some(eval_text) = eval_text_snippets.get(&(contamination_entry.eval_name.clone(), contamination_entry.eval_line)) {
+                result["eval_overlap_text"] = json!(eval_text.value());
+            } else {
+                result["eval_overlap_text"] = json!("");
             }
 
             output_data.push(serde_json::to_vec(&result)?);
