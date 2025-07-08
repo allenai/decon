@@ -123,10 +123,10 @@ cargo run --release review --config config.yaml
 | `content_key` | JSON field containing text | `text` | Supports nested keys like `data.content` |
 | `local_input` | Training data directory | - | Path to training datasets |
 | `reference_input` | Evaluation data directory | - | Path to evaluation datasets |
-| `output_dir` | Results output directory | - | Where to save contamination results |
+| `report_output_dir` | Results output directory | - | Where to save contamination results |
 | `ngram_size` | N-gram window size | 3 | Larger = more precise, smaller = more sensitive |
 | `purify` | Create cleaned files | `false` | Remove contaminated lines from training data |
-| `cleaned_file_output` | Cleaned files directory | `output_dir` | Optional separate directory for purified files |
+| `cleaned_output_dir` | Cleaned files directory | `report_output_dir` | Optional separate directory for purified files |
 
 ### MinHash-Specific Parameters
 
@@ -223,7 +223,8 @@ When `purify: true` is set:
 mode: simple
 local_input: /data/training
 reference_input: /data/evaluation
-output_dir: /results/contamination
+report_output_dir: /results/contamination
+cleaned_output_dir: /results/cleaned  # Optional: where purified files go when purify=true
 purify: true
 ```
 

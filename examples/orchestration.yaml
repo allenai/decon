@@ -1,8 +1,9 @@
 # Orchestration configuration for distributed contamination detection
 
 # S3 locations
-remote_file_input: s3://robertb-decon-test # s3://ai2-llm/pretraining-data/sources/sponge_alldressed_422
-remote_output_dir: s3://robertb-decon-test-output  # All outputs go here (reports, cleaned files, markers)
+remote_file_input: s3://ai2-llm/pretraining-data/sources/sponge_alldressed_422/2025/01
+remote_report_output_dir: s3://robertb-decon-test-report  # Contamination reports go here
+remote_cleaned_output_dir: s3://robertb-decon-test-cleaned  # Cleaned files go here (when purify=true)
 
 # Daemon configuration
 daemon_url: http://localhost:8080

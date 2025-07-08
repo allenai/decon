@@ -38,7 +38,8 @@ Create an orchestration configuration file (see `examples/orchestration.yaml`):
 ```yaml
 # S3 locations
 remote_file_input: s3://your-bucket/training-data/
-remote_output_dir: s3://your-bucket/output/  # All outputs go here
+remote_report_output_dir: s3://your-bucket/output/  # Contamination reports go here
+remote_cleaned_output_dir: s3://your-bucket/cleaned/  # Cleaned files go here (when purify=true)
 
 # Daemon configuration
 daemon_url: http://localhost:8080
@@ -114,7 +115,7 @@ When `MAX_FILES_DEBUG` is set:
 
 ## Output Structure
 
-All outputs go to the same S3 directory (`remote_output_dir`):
+All outputs go to configured S3 directories:
 
 - **Contamination reports**: `{basename}.report.jsonl`
 - **Cleaned files**: `{basename}.clean.jsonl{compression}`

@@ -960,7 +960,7 @@ fn save_contamination_results(
     // println!("Saving contamination results..."); //debug
 
     // Create output directory if it doesn't exist
-    create_dir_all(&config.output_dir)?;
+    create_dir_all(&config.report_output_dir)?;
 
     for entry in contamination_results.iter() {
         let file_name = entry.key();
@@ -973,7 +973,7 @@ fn save_contamination_results(
         // println!("Saving results for {}: {} contamination entries", file_name, results.len()); //debug
 
         // Create output filename similar to toxic format
-        let results_filename = config.output_dir.join(format!("{}_simple_contamination.jsonl", file_name));
+        let results_filename = config.report_output_dir.join(format!("{}_simple_contamination.jsonl", file_name));
 
         // Convert to JSON format similar to toxic results
         let json_results: Vec<Value> = results.iter().map(|entry| {
@@ -1033,12 +1033,12 @@ pub fn save_contamination_results_toxic_format_with_filename_and_eval_text(
     eval_text_snippets: &EvalTextSnippets
 ) -> Result<PathBuf, Error> {
     // Create output directory if it doesn't exist
-    create_dir_all(&config.output_dir)?;
+    create_dir_all(&config.report_output_dir)?;
 
     // Use custom filename if provided, otherwise use default
     let default_filename = get_results_filename("simple");
     let filename = custom_filename.unwrap_or(&default_filename);
-    let output_file = config.output_dir.join(filename);
+    let output_file = config.report_output_dir.join(filename);
 
     let mut output_data = Vec::new();
     let mut total_contaminations = 0;
@@ -1112,7 +1112,7 @@ fn create_purified_files(
     println!("\nCreating purified files...");
     
     // Determine output directory for cleaned files
-    let cleaned_dir = config.cleaned_file_output.as_ref().unwrap_or(&config.output_dir);
+    let cleaned_dir = config.cleaned_output_dir.as_ref().unwrap_or(&config.report_output_dir);
     
     // Process each training file that has contamination
     for file_path in training_files {

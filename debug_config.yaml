@@ -4,5 +4,5 @@ tokenizer_str: uniseg
 ngram_size: 5
 local_input: /tmp/dummy
 reference_input: /tmp/dummy  
-output_dir: /tmp/dummy
+report_output_dir: /tmp/dummy
 punctuation_chars: "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"

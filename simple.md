@@ -90,7 +90,7 @@ debug: false
 content_key: text
 local_input: /path/to/training/data
 reference_input: /path/to/eval/data
-output_dir: /path/to/output
+report_output_dir: /path/to/output
 
 ngram_size: 13
 sample_every_m_tokens: 50

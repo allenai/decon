@@ -31,7 +31,8 @@ from requests.packages.urllib3.util.retry import Retry
 class OrchestrationConfig:
     # Required fields
     remote_file_input: str  # s3://bucket/training-data/
-    remote_output_dir: str  # s3://bucket/output/
+    remote_report_output_dir: str  # s3://bucket/output/
+    remote_cleaned_output_dir: Optional[str] = None  # s3://bucket/cleaned/
     daemon_url: str  # http://localhost:8080
     local_work_dir: str  # /tmp/decon-work/
     
@@ -49,7 +50,8 @@ class OrchestrationConfig:
         # Extract required fields
         config = cls(
             remote_file_input=data['remote_file_input'],
-            remote_output_dir=data['remote_output_dir'],
+            remote_report_output_dir=data['remote_report_output_dir'],
+            remote_cleaned_output_dir=data.get('remote_cleaned_output_dir'),
             daemon_url=data.get('daemon_url', 'http://localhost:8080'),
             local_work_dir=data.get('local_work_dir', '/tmp/decon-work')
         )
@@ -261,8 +263,8 @@ class ContaminationOrchestrator:
         self.logger.info("Checking for already processed files...")
         
         # Check for report files and clean markers
-        report_files = self._list_s3_files(self.config.remote_output_dir, ['.report.jsonl', '.report.jsonl.gz'])
-        clean_markers = self._list_s3_files(self.config.remote_output_dir, ['.clean'])
+        report_files = self._list_s3_files(self.config.remote_report_output_dir, ['.report.jsonl', '.report.jsonl.gz'])
+        clean_markers = self._list_s3_files(self.config.remote_report_output_dir, ['.clean'])
         
         self.logger.info(f"Found {len(report_files)} report files and {len(clean_markers)} clean markers")
         
@@ -506,7 +508,7 @@ class ContaminationOrchestrator:
                     report_filename = f"{basename_no_ext}.report.jsonl"
                     self._upload_file(
                         job.output_path,
-                        self.config.remote_output_dir,
+                        self.config.remote_report_output_dir,
                         report_filename
                     )
                     
@@ -520,9 +522,11 @@ class ContaminationOrchestrator:
                                 break
                         
                         cleaned_filename = f"{basename_no_ext}.clean.jsonl{compression_ext}"
+                        # Use cleaned output dir if configured, otherwise use report dir
+                        cleaned_output_dir = self.config.remote_cleaned_output_dir or self.config.remote_report_output_dir
                         self._upload_file(
                             job.purified_path,
-                            self.config.remote_output_dir,
+                            cleaned_output_dir,
                             cleaned_filename
                         )
                 else:
@@ -545,7 +549,7 @@ class ContaminationOrchestrator:
         
         self._upload_file(
             str(marker_path),
-            self.config.remote_output_dir,
+            self.config.remote_report_output_dir,
             f"{filename}.clean"
         )
         

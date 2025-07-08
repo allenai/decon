@@ -345,7 +345,7 @@ fn process_single_file(
                 }
                 
                 if !contaminated_lines.is_empty() {
-                    let cleaned_dir = config.cleaned_file_output.as_ref().unwrap_or(&config.output_dir);
+                    let cleaned_dir = config.cleaned_output_dir.as_ref().unwrap_or(&config.report_output_dir);
                     Some(write_purified_file(file_path, cleaned_dir, &contaminated_lines)?)
                 } else {
                     None
@@ -386,7 +386,7 @@ fn process_single_file(
             let unique_filename = crate::get_unique_results_filename(file_path, config);
             let output_path = crate::toxic::save_toxic_contamination_results_with_filename(
                 &contamination_results, 
-                &config.output_dir,
+                &config.report_output_dir,
                 Some(&unique_filename),
                 eval_text_snippets
             )?;
@@ -404,7 +404,7 @@ fn process_single_file(
                 }
                 
                 if !contaminated_lines.is_empty() {
-                    let cleaned_dir = config.cleaned_file_output.as_ref().unwrap_or(&config.output_dir);
+                    let cleaned_dir = config.cleaned_output_dir.as_ref().unwrap_or(&config.report_output_dir);
                     Some(write_purified_file(file_path, cleaned_dir, &contaminated_lines)?)
                 } else {
                     None
@@ -456,7 +456,7 @@ fn process_single_file(
             let unique_filename = crate::get_unique_results_filename(file_path, config);
             let output_path = crate::minhash::save_contamination_results_with_filename(
                 &contamination_results,
-                &config.output_dir,
+                &config.report_output_dir,
                 Some(&unique_filename),
                 eval_text_snippets
             )?;
@@ -474,7 +474,7 @@ fn process_single_file(
                 }
                 
                 if !contaminated_lines.is_empty() {
-                    let cleaned_dir = config.cleaned_file_output.as_ref().unwrap_or(&config.output_dir);
+                    let cleaned_dir = config.cleaned_output_dir.as_ref().unwrap_or(&config.report_output_dir);
                     Some(write_purified_file(file_path, cleaned_dir, &contaminated_lines)?)
                 } else {
                     None

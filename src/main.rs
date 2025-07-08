@@ -114,11 +114,9 @@ pub struct Config {
     // Directory paths
     pub local_input: PathBuf,
     pub reference_input: PathBuf,
-    pub output_dir: PathBuf,
-    
-    // Optional separate directory for cleaned files
+    pub report_output_dir: PathBuf,
     #[serde(default)]
-    pub cleaned_file_output: Option<PathBuf>,
+    pub cleaned_output_dir: Option<PathBuf>,
 
     // Processing options
     #[serde(default)]
@@ -283,30 +281,41 @@ pub fn get_unique_results_filename(input_file: &PathBuf, config: &Config) -> Str
 }
 
 pub fn get_purified_filename(input_file: &PathBuf) -> String {
-    // Extract the base filename without extension
-    let base_name = input_file
-        .file_stem()
+    // Get the full filename
+    let filename = input_file
+        .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("unknown");
     
-    // Format: {input file name}.clean.jsonl
+    // Remove .jsonl extension if present (and any compression extension)
+    let base_name = if let Some(pos) = filename.find(".jsonl") {
+        &filename[..pos]
+    } else {
+        // If no .jsonl extension, just use the stem
+        input_file
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown")
+    };
+    
+    // Format: {base name}.clean.jsonl
     format!("{}.clean.jsonl", base_name)
 }
 
 // Common function to write a purified file with contaminated lines removed
 pub fn write_purified_file(
     input_path: &PathBuf,
-    output_dir: &PathBuf,
+    cleaned_output_dir: &PathBuf,
     contaminated_lines: &std::collections::HashSet<usize>,
 ) -> Result<PathBuf, anyhow::Error> {
     use std::fs::create_dir_all;
     use std::io::{BufWriter, Write, BufRead};
     
     // Ensure output directory exists
-    create_dir_all(output_dir)?;
+    create_dir_all(cleaned_output_dir)?;
     
     let purified_filename = get_purified_filename(input_path);
-    let purified_path = output_dir.join(&purified_filename);
+    let purified_path = cleaned_output_dir.join(&purified_filename);
     
     // Use read_pathbuf_to_mem to handle compressed files
     let data = read_pathbuf_to_mem(input_path)?;
@@ -657,7 +666,7 @@ fn review_contamination(config: &PathBuf, results_file: Option<&PathBuf>, step: 
     // Determine results file path
     let results_path = match results_file {
         Some(path) => path.clone(),
-        None => config_obj.output_dir.join(get_results_filename(&config_obj.mode))
+        None => config_obj.report_output_dir.join(get_results_filename(&config_obj.mode))
     };
 
     if !results_path.exists() {
