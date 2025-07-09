@@ -311,7 +311,7 @@ fn process_single_file(
 ) -> Result<(Option<PathBuf>, Option<PathBuf>)> {
     match index {
         IndexType::Simple(simple_index) => {
-            let (ngram_to_id, id_to_docs, eval_documents, id_to_ngram_tokens, tokenizer, eval_text_snippets) = simple_index;
+            let (ngram_to_id, id_to_docs, eval_documents, id_to_ngram_tokens, tokenizer, eval_text_snippets, _eval_name_to_doc_id) = simple_index;
             
             // Use the existing detection logic from simple.rs
             let contamination_results = dashmap::DashMap::new();

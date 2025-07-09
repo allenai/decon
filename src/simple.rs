@@ -19,6 +19,7 @@ type IdToDocsMap = DashMap<u64, HashSet<u32>>; // Maps n-gram ID to set of docum
 type EvalDocuments = DashMap<u32, (String, usize, usize, usize)>; // Maps doc_id to (eval_name, line_num, total_ngrams, unique_ngrams)
 type EvalTextSnippets = DashMap<(String, usize), String>; // Maps (eval_name, line_num) to text snippet (first 1000 words)
 type IdToNgramTokens = DashMap<u64, Vec<usize>>; // Maps unique ID to token IDs for display
+type EvalNameToDocId = DashMap<(String, usize), u32>; // Maps (eval_name, line_num) to doc_id for collision-free lookup
 
 pub fn contamination_detect(config: &Config) -> Result<(), Error> {
     println!("Starting SIMPLE contamination detection...");
@@ -27,7 +28,7 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
     // Step 1: Process eval datasets and build n-gram mappings
     println!("Processing eval datasets and building n-gram index...");
     let index_start = Instant::now();
-    let (ngram_to_id, id_to_docs, eval_documents, id_to_ngram_tokens, tokenizer, eval_text_snippets) = build_simple_index(config)?;
+    let (ngram_to_id, id_to_docs, eval_documents, id_to_ngram_tokens, tokenizer, eval_text_snippets, _eval_name_to_doc_id) = build_simple_index(config)?;
     let index_time = index_start.elapsed();
     println!("Built simple index with {} unique n-grams in {:.2}s", ngram_to_id.len(), index_time.as_secs_f64());
 
@@ -47,7 +48,7 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
 }
 
 // Public type for the index
-pub type SimpleIndex = (NgramToIdMap, IdToDocsMap, EvalDocuments, IdToNgramTokens, OmniTokenizer, EvalTextSnippets);
+pub type SimpleIndex = (NgramToIdMap, IdToDocsMap, EvalDocuments, IdToNgramTokens, OmniTokenizer, EvalTextSnippets, EvalNameToDocId);
 
 pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
     let ngram_to_id: NgramToIdMap = DashMap::new();
@@ -55,9 +56,11 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
     let eval_documents: EvalDocuments = DashMap::new();
     let id_to_ngram_tokens: IdToNgramTokens = DashMap::new();
     let eval_text_snippets: EvalTextSnippets = DashMap::new();
+    let eval_name_to_doc_id: EvalNameToDocId = DashMap::new();
 
-    use std::sync::atomic::AtomicU64;
+    use std::sync::atomic::{AtomicU64, AtomicU32};
     let next_ngram_id = AtomicU64::new(0);
+    let next_doc_id = AtomicU32::new(0);
     
     // Initialize tokenizer
     let tokenizer = OmniTokenizer::new(&config.tokenizer_str)?;
@@ -79,9 +82,11 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
             &id_to_docs,
             &eval_documents,
             &next_ngram_id,
+            &next_doc_id,
             &tokenizer,
             &id_to_ngram_tokens,
-            &eval_text_snippets
+            &eval_text_snippets,
+            &eval_name_to_doc_id
         ) {
             println!("Error processing reference file {:?}: {:?}", file_path, e);
         }
@@ -91,7 +96,7 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
     // println!("Finished processing reference files. Total unique n-grams: {}", ngram_to_id.len()); //debug
     // println!("Total eval documents indexed: {}", eval_documents.len()); //debug
 
-    Ok((ngram_to_id, id_to_docs, eval_documents, id_to_ngram_tokens, tokenizer, eval_text_snippets))
+    Ok((ngram_to_id, id_to_docs, eval_documents, id_to_ngram_tokens, tokenizer, eval_text_snippets, eval_name_to_doc_id))
 }
 
 fn process_simple_reference_file(
@@ -101,9 +106,11 @@ fn process_simple_reference_file(
     id_to_docs: &IdToDocsMap,
     eval_documents: &EvalDocuments,
     next_ngram_id: &std::sync::atomic::AtomicU64,
+    next_doc_id: &std::sync::atomic::AtomicU32,
     tokenizer: &OmniTokenizer,
     id_to_ngram_tokens: &IdToNgramTokens,
-    eval_text_snippets: &EvalTextSnippets
+    eval_text_snippets: &EvalTextSnippets,
+    eval_name_to_doc_id: &EvalNameToDocId
 ) -> Result<(), Error> {
     let data = read_pathbuf_to_mem(file_path)?;
 
@@ -169,8 +176,16 @@ fn process_simple_reference_file(
             word_tokens.len() - config.ngram_size + 1
         };
 
-        // Generate document ID (similar to toxic approach)
-        let doc_id = generate_doc_id(&eval_name, line_num);
+        // Get or create document ID using collision-free approach
+        let eval_key = (eval_name.clone(), line_num);
+        let doc_id = if let Some(existing_id) = eval_name_to_doc_id.get(&eval_key) {
+            *existing_id
+        } else {
+            use std::sync::atomic::Ordering;
+            let new_id = next_doc_id.fetch_add(1, Ordering::SeqCst);
+            eval_name_to_doc_id.insert(eval_key.clone(), new_id);
+            new_id
+        };
 
         // Track unique n-grams for this document
         let mut unique_ngrams_set = HashSet::new();
@@ -202,7 +217,7 @@ fn process_simple_reference_file(
 
         let unique_ngrams = unique_ngrams_set.len();
 
-        // Store document metadata
+        // Store document metadata (no collision possible with sequential IDs)
         eval_documents.insert(doc_id, (eval_name.clone(), line_num, total_ngrams, unique_ngrams));
 
         // if _lines_processed % 1000 == 0 {
@@ -222,14 +237,6 @@ fn hash_ngram(tokens: &[usize]) -> u64 {
     hasher.finish()
 }
 
-fn generate_doc_id(eval_name: &str, line_num: usize) -> u32 {
-    // Simple hash-based document ID generation
-    use std::hash::{Hash, Hasher, DefaultHasher};
-    let mut hasher = DefaultHasher::new();
-    eval_name.hash(&mut hasher);
-    line_num.hash(&mut hasher);
-    (hasher.finish() & 0xFFFFFFFF) as u32
-}
 
 fn get_or_create_ngram_id(ngram_tokens: &[usize], ngram_to_id: &NgramToIdMap, next_id: &std::sync::atomic::AtomicU64, id_to_ngram_tokens: &IdToNgramTokens) -> u64 {
     use std::sync::atomic::Ordering;
@@ -239,12 +246,22 @@ fn get_or_create_ngram_id(ngram_tokens: &[usize], ngram_to_id: &NgramToIdMap, ne
     if let Some(existing_id) = ngram_to_id.get(&ngram_hash) {
         *existing_id
     } else {
-        let new_id = next_id.fetch_add(1, Ordering::SeqCst);
-        // Insert and handle potential race condition
-        let id = ngram_to_id.entry(ngram_hash).or_insert(new_id).clone();
-        // Store the tokens for display/lookup
-        id_to_ngram_tokens.insert(id, ngram_tokens.to_vec());
-        id
+        // Use entry API to handle race condition properly
+        let entry = ngram_to_id.entry(ngram_hash);
+        match entry {
+            dashmap::mapref::entry::Entry::Occupied(occupied) => {
+                // Another thread inserted it first
+                *occupied.get()
+            }
+            dashmap::mapref::entry::Entry::Vacant(vacant) => {
+                // We're first, insert new ID
+                let new_id = next_id.fetch_add(1, Ordering::SeqCst);
+                vacant.insert(new_id);
+                // Store the tokens for display/lookup
+                id_to_ngram_tokens.insert(new_id, ngram_tokens.to_vec());
+                new_id
+            }
+        }
     }
 }
 
@@ -503,8 +520,45 @@ pub fn process_simple_training_file(
                         0.0
                     };
 
-                    // println!("DEBUG: eval={}:{}, unique_matches={}, unique_ngrams={}, ratio={:.3}", //debug
-                    //          eval_name, eval_line, unique_matches, unique_ngrams, overlap_ratio);
+                    // Debug output for overlap ratios > 1
+                    if overlap_ratio > 1.0 {
+                        println!("\nWARNING: Overlap ratio > 1.0 detected!");
+                        println!("  Training file: {}", file_name);
+                        println!("  Eval: {}:{}", eval_name, eval_line);
+                        println!("  unique_matches={}, unique_ngrams={}, ratio={:.3}", 
+                                 unique_matches, unique_ngrams, overlap_ratio);
+                        println!("  Cluster indices: start={}, end={}", cluster.start_idx, cluster.end_idx);
+                        
+                        // Print first 10 matched ngram IDs for debugging
+                        let id_vec: Vec<_> = matched_ngram_ids.iter().take(10).collect();
+                        println!("  First 10 matched ngram IDs: {:?}", id_vec);
+                        if matched_ngram_ids.len() > 10 {
+                            println!("  ... and {} more", matched_ngram_ids.len() - 10);
+                        }
+                        
+                        // Try to understand what's happening
+                        println!("  This means we found {} unique n-grams in the training cluster", unique_matches);
+                        println!("  But the eval document only has {} unique n-grams total", unique_ngrams);
+                        println!("  This should be impossible - investigating...");
+                        
+                        // Additional validation
+                        // Check if any of the matched ngram IDs are NOT in the eval document's ngrams
+                        let mut invalid_matches = 0;
+                        for ngram_id in &matched_ngram_ids {
+                            if let Some(doc_set) = id_to_docs.get(ngram_id) {
+                                if !doc_set.contains(&doc_id) {
+                                    invalid_matches += 1;
+                                    println!("    ERROR: ngram_id {} is not associated with doc_id {} in id_to_docs!", ngram_id, doc_id);
+                                }
+                            } else {
+                                println!("    ERROR: ngram_id {} not found in id_to_docs at all!", ngram_id);
+                            }
+                        }
+                        if invalid_matches > 0 {
+                            println!("  Found {} invalid ngram matches!", invalid_matches);
+                        }
+                        println!();
+                    }
 
                     // Calculate toxic score using IDF approach
                     let toxic_score = calculate_simple_toxic_score(
