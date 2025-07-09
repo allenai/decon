@@ -12,7 +12,7 @@ daemon_url: http://localhost:8080
 local_work_dir: /tmp/decon-work
 
 # Performance settings
-# max_concurrent_jobs: 10  # Maximum number of concurrent daemon jobs
+# max_concurrent_jobs: 10  # Maximum number of concurrent daemon jobs. By default set to cpu count via daemon.
 poll_interval: 5  # Seconds between status polls
 s5cmd_workers: 50  # Number of parallel S3 operations
 cleanup_delay: 10  # Seconds to wait before cleaning up completed job files
