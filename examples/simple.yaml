@@ -14,5 +14,5 @@ toxic_overlap_threshold: 0.8
 toxic_score_threshold: 2
 sample_every_m_tokens: 5
 punctuation_chars: "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"  # (uses default if not specified)
-tokenizer_str: word
+tokenizer_str: word # cl100k (So far observed word equivalent)
 # worker_threads: 8  # Number of worker threads for daemon mode, controls downloads
