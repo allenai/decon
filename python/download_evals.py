@@ -8,6 +8,10 @@ from datasets import load_dataset
 from pathlib import Path
 import os
 
+# Document splitting configuration
+# Set to -1 to disable splitting, or a positive number for the character threshold
+DOCUMENT_SPLIT_THRESHOLD = 2500
+
 # Configuration for downloading and transforming eval datasets
 EVAL_CONFIG = {
     'output_dir': 'fixtures/reference',
@@ -83,7 +87,8 @@ EVAL_CONFIG = {
             'hf_config': 'arithmetic',
             'splits': ['validation'],
             'transform': {
-                'text_field': 'question'
+                'text_field': 'question',
+                'answer_field': 'answer'
             }
         },
 
@@ -92,7 +97,8 @@ EVAL_CONFIG = {
             'hf_config': 'coding',
             'splits': ['validation'],
             'transform': {
-                'text_field': 'question'
+                'text_field': 'question',
+                'answer_field': 'answer'
             }
         },
 
@@ -100,7 +106,8 @@ EVAL_CONFIG = {
             'hf_path': 'allenai/coqa_mc',
             'splits': ['validation'],
             'transform': {
-                'text_field': 'query_original'
+                'text_field': 'query_original',
+                'answer_field': 'choices_original'
             }
         },
 
@@ -108,7 +115,9 @@ EVAL_CONFIG = {
             'hf_path': 'allenai/drop_mc',
             'splits': ['validation'],
             'transform': {
-                'text_field': 'question_original'
+                'text_field': 'question_original',
+                'context_field': 'passage_original',
+                'answer_field': 'answer_original'
             }
         },
 
@@ -141,7 +150,9 @@ EVAL_CONFIG = {
             'hf_path': 'allenai/qasper-yesno',
             'splits': ['train', 'validation', 'test'],
             'transform': {
-                'text_field': 'question'
+                'text_field': 'question',
+                'context_field': 'context',
+                'answer_field': 'answer'
             }
         },
 
@@ -149,7 +160,9 @@ EVAL_CONFIG = {
             'hf_path': 'allenai/sciriff-yesno',
             'splits': ['train', 'validation', 'test'],
             'transform': {
-                'text_field': 'question'
+                'text_field': 'question',
+                'context_field': 'context',
+                'answer_field': 'answer'
             }
         },
 
@@ -158,7 +171,9 @@ EVAL_CONFIG = {
             'hf_config': 'mental-state-qa',
             'splits': ['test'],
             'transform': {
-                'text_field': 'question'
+                'text_field': 'question',
+                'context_field': 'story',
+                'answer_field': 'answerKey'
             }
         },
 
@@ -166,7 +181,9 @@ EVAL_CONFIG = {
             'hf_path': 'allenai/squad_mc',
             'splits': ['validation'],
             'transform': {
-                'text_field': 'question_original'
+                'text_field': 'question_original',
+                'context_field': 'context_original',
+                'answer_field': 'answers_original'
             }
         },
 
@@ -207,7 +224,9 @@ EVAL_CONFIG = {
             'hf_path': 'allenai/cosmos_qa',
             'splits': ['train', 'test', 'validation'],
             'transform': {
-                'text_field': 'question'
+                'text_field': 'question',
+                'context_field': 'context',
+                'answer_field': 'answer'
             }
         },
 
@@ -215,7 +234,8 @@ EVAL_CONFIG = {
             'hf_path': 'cruxeval-org/cruxeval',
             'splits': ['test'],
             'transform': {
-                'text_field': 'code'
+                'text_field': 'code',
+                'answer_field': 'output'
             }
         },
 
@@ -238,16 +258,15 @@ EVAL_CONFIG = {
         'coqa': {
             'hf_path': 'EleutherAI/coqa',
             'splits': ['train', 'validation'],
-            'transform': {
-                'text_field': 'story'
-            }
+            'transform': 'auto'
         },
 
         'drop': {
             'hf_path': 'EleutherAI/drop',
             'splits': ['train', 'validation'],
             'transform': {
-                'text_field': 'question'
+                'text_field': 'question',
+                'context_field': 'passage'
             }
         },
 
@@ -300,14 +319,16 @@ EVAL_CONFIG = {
             }
         },
 
-        'tydiqa_primary': {
-            'hf_path': 'google-research-datasets/tydiqa',
-            'hf_config': 'primary_task',
-            'splits': ['train', 'validation'],
-            'transform': {
-                'text_field': 'question_text'
-            }
-        },
+        # Massive with bad chars and unusual language.
+        # 'tydiqa_primary': {
+        #     'hf_path': 'google-research-datasets/tydiqa',
+        #     'hf_config': 'primary_task',
+        #     'splits': ['train', 'validation'],
+        #     'transform': {
+        #         'text_field': 'question_text',
+        #         'context_field': 'document_plaintext'
+        #     }
+        # },
 
         'ifeval': {
             'hf_path': 'HuggingFaceH4/ifeval',
@@ -362,7 +383,9 @@ EVAL_CONFIG = {
             'hf_path': 'lucasmccabe/logiqa',
             'splits': ['train', 'validation', 'test'],
             'transform': {
-                'text_field': 'query'
+                'text_field': 'query',
+                'context_field': 'context',
+                'answer_field': 'correct_option'
             }
         },
 
@@ -380,7 +403,8 @@ EVAL_CONFIG = {
             'hf_config': 'rc',
             'splits': ['train', 'validation', 'test'],
             'transform': {
-                'text_field': 'question'
+                'text_field': 'question',
+                'answer_field': 'answer'
             }
         },
 
@@ -429,7 +453,9 @@ EVAL_CONFIG = {
             'hf_path': 'rajpurkar/squad',
             'splits': ['train', 'validation'],
             'transform': {
-                'text_field': 'question'
+                'text_field': 'question',
+                'context_field': 'context',
+                'answer_field': 'answers'
             }
         },
 
@@ -437,7 +463,9 @@ EVAL_CONFIG = {
             'hf_path': 'rajpurkar/squad_v2',
             'splits': ['train', 'validation'],
             'transform': {
-                'text_field': 'question'
+                'text_field': 'question',
+                'context_field': 'context',
+                'answer_field': 'answers'
             }
         },
 
@@ -454,7 +482,9 @@ EVAL_CONFIG = {
             'hf_path': 'allenai/sciq',
             'splits': ['train', 'validation', 'test'],
             'transform': {
-                'text_field': 'question'
+                'text_field': 'question',
+                'context_field': 'support',
+                'answer_field': 'correct_answer'
             }
         },
 
@@ -462,6 +492,7 @@ EVAL_CONFIG = {
             'hf_path': 'allenai/social_i_qa',
             'splits': ['train', 'validation'],
             'transform': {
+                'context_field': 'context',
                 'text_field': 'question'
             }
         },
@@ -471,7 +502,8 @@ EVAL_CONFIG = {
             'hf_config': 'all_questions',
             'splits': ['train'],
             'transform': {
-                'text_field': 'question'
+                'text_field': 'question',
+                'answer_field': 'continuation'
             }
         },
 
@@ -488,12 +520,10 @@ EVAL_CONFIG = {
             'hf_path': 'wckwan/MT-Eval',
             'hf_config': 'refinement_single',
             'splits': ['test'],
-            'transform': {
-                'text_field': 'conv'
-            }
+            'transform': 'auto'
         },
 
-        'winogrande': {
+        'winogrande': { # Settled
             'hf_path': 'allenai/winogrande',
             'hf_config': 'winogrande_l',
             'splits': ['train', 'test', 'validation'],
@@ -502,15 +532,174 @@ EVAL_CONFIG = {
             }
         },
 
-        'ds_1000': {
+        'ds_1000': { # Settled
             'hf_path': 'xlangai/DS-1000',
             'splits': ['test'],
             'transform': {
-                'text_field': 'prompt'
+                'text_field': 'prompt',
+                'answer': 'reference_code'
+            }
+        },
+
+        'omega_compositional': {
+            'hf_path': 'allenai/omega-compositional',
+            'splits': ['train', 'test'],
+            'transform': 'auto'
+        },
+
+        'omega_explorative': {
+            'hf_path': 'allenai/omega-explorative',
+            'splits': ['train', 'test_in', 'test_out'],
+            'transform': 'auto'
+        },
+
+        'omega_transformative': {
+            'hf_path': 'allenai/omega-transformative',
+            'splits': ['train', 'test'],
+            'transform': 'auto'
+        },
+
+        'commonsense_qa': {
+            'hf_path': 'tau/commonsense_qa',
+            'splits': ['train', 'validation', 'test'],
+            'transform': {
+                'text_field': 'question',
+                'answer_field': 'answerKey'
+            }
+        },
+
+        'hellaswag': {
+            'hf_path': 'Rowan/hellaswag',
+            'splits': ['train', 'test', 'validation'],
+            'transform': {
+                'text_field': 'ctx',
+                'answer_field': 'label'
+            }
+        },
+
+        'piqa': {
+            'hf_path': 'ybisk/piqa',
+            'splits': ['train', 'test', 'validation'],
+            'transform': {
+                'text_field': 'goal',
+                'answer_field': 'label'
+            }
+        },
+
+        'super_glue_boolq': {
+            'hf_path': 'aps/super_glue',
+            'hf_config': 'boolq',
+            'splits': ['train', 'validation', 'test'],
+            'transform': {
+                'text_field': 'question',
+                'context_field': 'passage',
+                'answer_field': 'label'
+            }
+        },
+
+        'super_glue_rte': {
+            'hf_path': 'aps/super_glue',
+            'hf_config': 'rte',
+            'splits': ['train', 'validation', 'test'],
+            'transform': {
+                'text_field': 'hypothesis',
+                'context_field': 'premise',
+                'answer_field': 'label'
+            }
+        },
+
+        'truthful_qa': {
+            'hf_path': 'truthfulqa/truthful_qa',
+            'hf_config': 'generation',
+            'splits': ['validation'],
+            'transform': {
+                'text_field': 'question',
+                'answer_field': 'best_answer'
             }
         }
     }
 }
+
+def split_document(text, threshold):
+    """Split a document into chunks if it exceeds the threshold.
+
+    Args:
+        text: The text to potentially split
+        threshold: Character threshold for splitting (-1 to disable)
+
+    Returns:
+        List of text chunks
+    """
+    if threshold == -1 or len(text) <= threshold:
+        return [text]
+
+    chunks = []
+    current_chunk = ""
+
+    # Split on whitespace
+    words = text.split()
+
+    for word in words:
+        # Check if adding this word would exceed threshold
+        if current_chunk and len(current_chunk) + len(word) + 1 > threshold:
+            # Save current chunk and start new one
+            chunks.append(current_chunk.strip())
+            current_chunk = word
+        else:
+            # Add word to current chunk
+            if current_chunk:
+                current_chunk += " " + word
+            else:
+                current_chunk = word
+
+    # Don't forget the last chunk
+    if current_chunk:
+        chunks.append(current_chunk.strip())
+
+    return chunks
+
+
+def auto_extract(example):
+    """Automatically extract text fields from complex dataset structures.
+
+    Returns:
+        tuple: (longest_text, second_longest_text) or (longest_text, None) if only one found
+    """
+    text_candidates = []
+
+    def extract_text_fields(obj, path=""):
+        """Recursively traverse the data structure to find text fields."""
+        if isinstance(obj, str):
+            # Check if this string has at least 8 words
+            word_count = len(obj.split())
+            if word_count >= 8:
+                text_candidates.append((obj, word_count, path))
+        elif isinstance(obj, (list, tuple)):
+            # For lists, check each element
+            for i, item in enumerate(obj):
+                extract_text_fields(item, f"{path}[{i}]")
+        elif isinstance(obj, dict):
+            # For dicts, check each value
+            for key, value in obj.items():
+                new_path = f"{path}.{key}" if path else key
+                extract_text_fields(value, new_path)
+        # For other types (int, float, bool, etc.), we skip them
+        # unless you want to convert numbers to strings
+
+    # Start extraction
+    extract_text_fields(example)
+
+    # Sort by word count (descending)
+    text_candidates.sort(key=lambda x: x[1], reverse=True)
+
+    # Return the longest and second longest
+    if len(text_candidates) == 0:
+        return None, None
+    elif len(text_candidates) == 1:
+        return text_candidates[0][0], None
+    else:
+        return text_candidates[0][0], text_candidates[1][0]
+
 
 def download_and_transform_eval(eval_name, eval_config, global_config, document_id_counter):
     """Download HF dataset and transform to our JSONL format"""
@@ -543,110 +732,195 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
         # Output file path
         output_file = output_dir / f"{eval_name}_{split}.jsonl"
 
+        # Track seen contexts to avoid duplicates
+        seen_contexts = set()
+        skipped_duplicates = 0
+
         with open(output_file, 'w') as f:
             for idx, example in enumerate(dataset[split]):
-                # Extract text field
-                text_field = eval_config['transform']['text_field']
-                text = example[text_field]
-                
-                # Handle cases where text might be a list
-                if isinstance(text, list):
-                    # Join list elements into a string
-                    text = ' '.join(str(item) for item in text)
-                elif not isinstance(text, str):
-                    # Convert to string if it's not already
-                    text = str(text)
-                
-                # Skip empty or None text
-                if not text or text.strip() == '':
-                    continue
+                # Check if we should use auto extraction
+                if eval_config['transform'] == 'auto':
+                    # Use auto extraction
+                    text, answer_value = auto_extract(example)
 
-                # Generate records based on answer field configuration
-                records_to_write = []
+                    # Skip if no valid text found
+                    if text is None:
+                        continue
 
-                # Create base record template
-                def create_record_template():
+                    # Generate records
+                    records_to_write = []
+
+                    # Create base record template
                     record = {
                         global_config['jsonl_format']['eval_field']: eval_name,
                         global_config['jsonl_format']['index_field']: idx,
                         global_config['jsonl_format']['split_field']: split,
                     }
-                    # Add any extra fields
-                    if 'extra_fields' in eval_config['transform']:
-                        for field in eval_config['transform']['extra_fields']:
-                            if field in example:
-                                record[field] = example[field]
-                    return record
 
-                # Handle answer fields if configured
-                if 'answer_field' in eval_config['transform']:
-                    answer_field = eval_config['transform']['answer_field']
-                    if answer_field in example:
-                        answer_value = example[answer_field]
+                    # Add text-only record
+                    record_text = record.copy()
+                    record_text[global_config['jsonl_format']['text_field']] = text
+                    records_to_write.append(record_text)
 
-                        # Always create a question-only record first
-                        record_question_only = create_record_template()
-                        record_question_only[global_config['jsonl_format']['text_field']] = text
-                        records_to_write.append(record_question_only)
+                    # Add text + answer record if we found a second text
+                    if answer_value is not None:
+                        record_with_answer = record.copy()
+                        record_with_answer[global_config['jsonl_format']['text_field']] = text + " " + answer_value
+                        records_to_write.append(record_with_answer)
 
-                        # Handle different answer field types
-                        if isinstance(answer_value, list):
-                            # Array of answers - create record for question + each answer
-                            for answer in answer_value:
-                                if answer is not None:  # Skip None answers
+                else:
+                    # Use the existing manual extraction logic
+                    # Extract text field
+                    text_field = eval_config['transform']['text_field']
+                    text = example[text_field]
+
+                    # Handle cases where text might be a list
+                    if isinstance(text, list):
+                        # Take the first element if it's a list
+                        if text:  # Check if list is not empty
+                            text = str(text[0])
+                        else:
+                            text = ""
+                    elif not isinstance(text, str):
+                        # Convert to string if it's not already
+                        text = str(text)
+
+                    # Handle context field if configured
+                    original_context = None
+                    if 'context_field' in eval_config['transform']:
+                        context_field = eval_config['transform']['context_field']
+                        if context_field in example:
+                            context = example[context_field]
+                            # Handle cases where context might be a list
+                            if isinstance(context, list):
+                                # Take the first element if it's a list
+                                if context:  # Check if list is not empty
+                                    context = str(context[0])
+                                else:
+                                    context = ""
+                            elif not isinstance(context, str):
+                                context = str(context)
+                            
+                            # Store original context for deduplication
+                            if context and context.strip():
+                                original_context = context
+                                # Check if we've seen this context before
+                                context_hash = hash(context)
+                                if context_hash in seen_contexts:
+                                    skipped_duplicates += 1
+                                    continue  # Skip this record
+                                else:
+                                    seen_contexts.add(context_hash)
+                                
+                                # Concatenate context with text
+                                text = context + " " + text
+
+                    # Skip empty or None text
+                    if not text or text.strip() == '':
+                        continue
+
+                    # Generate records based on answer field configuration
+                    records_to_write = []
+
+                    # Create base record template
+                    def create_record_template():
+                        record = {
+                            global_config['jsonl_format']['eval_field']: eval_name,
+                            global_config['jsonl_format']['index_field']: idx,
+                            global_config['jsonl_format']['split_field']: split,
+                        }
+                        # Add any extra fields
+                        if 'extra_fields' in eval_config['transform']:
+                            for field in eval_config['transform']['extra_fields']:
+                                if field in example:
+                                    record[field] = example[field]
+                        return record
+
+                    # Handle answer fields if configured
+                    if 'answer_field' in eval_config['transform']:
+                        answer_field = eval_config['transform']['answer_field']
+                        if answer_field in example:
+                            answer_value = example[answer_field]
+
+                            # Always create a question-only record first
+                            record_question_only = create_record_template()
+                            record_question_only[global_config['jsonl_format']['text_field']] = text
+                            records_to_write.append(record_question_only)
+
+                            # Handle different answer field types
+                            if isinstance(answer_value, list):
+                                # Array of answers - just take the first one
+                                if answer_value and answer_value[0] is not None:  # Check list is not empty and first answer is not None
                                     record = create_record_template()
-                                    record[global_config['jsonl_format']['text_field']] = text + " " + str(answer)
+                                    record[global_config['jsonl_format']['text_field']] = text + " " + str(answer_value[0])
+                                    records_to_write.append(record)
+                            else:
+                                # Single answer - create record with question + answer
+                                if answer_value is not None:  # Skip None answers
+                                    record = create_record_template()
+                                    record[global_config['jsonl_format']['text_field']] = text + " " + str(answer_value)
                                     records_to_write.append(record)
                         else:
-                            # Single answer - create record with question + answer
-                            if answer_value is not None:  # Skip None answers
-                                record = create_record_template()
-                                record[global_config['jsonl_format']['text_field']] = text + " " + str(answer_value)
-                                records_to_write.append(record)
+                            # No answer value found - just use question
+                            record = create_record_template()
+                            record[global_config['jsonl_format']['text_field']] = text
+                            records_to_write.append(record)
                     else:
-                        # No answer value found - just use question
+                        # No answer field configured - just use question
                         record = create_record_template()
                         record[global_config['jsonl_format']['text_field']] = text
                         records_to_write.append(record)
-                else:
-                    # No answer field configured - just use question
-                    record = create_record_template()
-                    record[global_config['jsonl_format']['text_field']] = text
-                    records_to_write.append(record)
 
-                # Handle choices field if configured (e.g., multiple choice questions)
-                if 'choices_field' in eval_config['transform']:
-                    choices_field = eval_config['transform']['choices_field']
-                    if choices_field in example:
-                        choices = example[choices_field]
+                    # Handle choices field if configured (e.g., multiple choice questions)
+                    if 'choices_field' in eval_config['transform']:
+                        choices_field = eval_config['transform']['choices_field']
+                        if choices_field in example:
+                            choices = example[choices_field]
 
-                        # Handle choices structure: {'text': [...], 'label': [...]}
-                        if isinstance(choices, dict) and 'text' in choices:
-                            for choice_text in choices['text']:
-                                record = create_record_template()
-                                record[global_config['jsonl_format']['text_field']] = text + " " + str(choice_text)
-                                records_to_write.append(record)
-                        elif isinstance(choices, list):
-                            # Handle simple list of choices
-                            for choice in choices:
-                                record = create_record_template()
-                                record[global_config['jsonl_format']['text_field']] = text + " " + str(choice)
-                                records_to_write.append(record)
+                            # Handle choices structure: {'text': [...], 'label': [...]}
+                            if isinstance(choices, dict) and 'text' in choices:
+                                for choice_text in choices['text']:
+                                    record = create_record_template()
+                                    record[global_config['jsonl_format']['text_field']] = text + " " + str(choice_text)
+                                    records_to_write.append(record)
+                            elif isinstance(choices, list):
+                                # Handle simple list of choices
+                                for choice in choices:
+                                    record = create_record_template()
+                                    record[global_config['jsonl_format']['text_field']] = text + " " + str(choice)
+                                    records_to_write.append(record)
 
                 # Write all records to JSONL (filter out records with < 8 words)
                 for record in records_to_write:
                     text = record[global_config['jsonl_format']['text_field']]
-                    word_count = len(text.split())
 
-                    # Skip records with fewer than 8 words
-                    if word_count >= 8:
-                        # Add unique document ID
-                        record['doc_id'] = document_id_counter[0]
-                        document_id_counter[0] += 1
+                    # Split long documents if enabled
+                    text_chunks = split_document(text, DOCUMENT_SPLIT_THRESHOLD)
 
-                        f.write(json.dumps(record) + '\n')
+                    for chunk_idx, chunk_text in enumerate(text_chunks):
+                        word_count = len(chunk_text.split())
 
-        print(f"Saved {len(dataset[split])} examples to {output_file}")
+                        # Skip records with fewer than 8 words
+                        if word_count >= 8:
+                            # Create a new record for this chunk
+                            chunk_record = record.copy()
+                            chunk_record[global_config['jsonl_format']['text_field']] = chunk_text
+
+                            # Add unique document ID
+                            chunk_record['doc_id'] = document_id_counter[0]
+                            document_id_counter[0] += 1
+
+                            # Add chunk info if document was split
+                            if len(text_chunks) > 1:
+                                chunk_record['chunk_idx'] = chunk_idx
+                                chunk_record['total_chunks'] = len(text_chunks)
+
+                            f.write(json.dumps(chunk_record) + '\n')
+
+        if skipped_duplicates > 0:
+            print(f"Saved {len(dataset[split]) - skipped_duplicates} examples to {output_file} (skipped {skipped_duplicates} duplicates)")
+        else:
+            print(f"Saved {len(dataset[split])} examples to {output_file}")
 
 def main():
     """Main function to process all eval datasets"""

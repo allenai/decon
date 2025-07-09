@@ -8,7 +8,7 @@ cleaned_output_dir: fixtures/cleaned  # Optional: separate directory for purifie
 purify: false  # Enable creation of cleaned files
 produce_duplicate_clean_files_when_no_contamination: false  # When true creates a full copy of dataset without contamination. Expensive, lots of uploading.
 
-ngram_size: 3
+ngram_size: 4
 max_consecutive_misses: 6
 toxic_overlap_threshold: 0.8
 toxic_score_threshold: 2

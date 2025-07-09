@@ -111,26 +111,31 @@ def examine_dataset(path):
                 "status": "success"
             }
 
-            # Examine each split
-            for split_name in dataset.keys():
+            # Examine only the first split
+            split_names = list(dataset.keys())
+            if split_names:
+                split_name = split_names[0]
                 try:
                     # Get first sample to examine
                     sample = next(iter(dataset[split_name]))
                     fields = list(sample.keys())
                     
-                    # Truncate each field to first 500 characters for display
+                    # Truncate each field to first 200 characters for display
                     truncated_sample = {}
                     for field, value in sample.items():
                         if isinstance(value, str):
-                            truncated_sample[field] = value[:500] + "..." if len(value) > 500 else value
+                            truncated_sample[field] = value[:200] + "..." if len(value) > 200 else value
                         elif isinstance(value, list):
-                            truncated_sample[field] = str(value)[:500] + "..." if len(str(value)) > 500 else value
+                            str_value = str(value)
+                            truncated_sample[field] = str_value[:200] + "..." if len(str_value) > 200 else str_value
                         else:
-                            truncated_sample[field] = str(value)[:500] + "..." if len(str(value)) > 500 else value
+                            str_value = str(value)
+                            truncated_sample[field] = str_value[:200] + "..." if len(str_value) > 200 else str_value
                     
                     results["configs"]["default"][split_name] = {
                         "fields": fields,
-                        "sample": truncated_sample
+                        "sample": truncated_sample,
+                        "all_splits": split_names
                     }
                 except Exception as e:
                     results["configs"]["default"][split_name] = f"ERROR: {str(e)}"
@@ -156,26 +161,31 @@ def examine_dataset(path):
                             dataset = load_dataset(dataset_path, config_name, streaming=True, trust_remote_code=True)
                             results["configs"][config_name] = {}
 
-                            # Examine each split in this config
-                            for split_name in dataset.keys():
+                            # Examine only the first split in this config
+                            split_names = list(dataset.keys())
+                            if split_names:
+                                split_name = split_names[0]
                                 try:
                                     # Get first sample to examine
                                     sample = next(iter(dataset[split_name]))
                                     fields = list(sample.keys())
                                     
-                                    # Truncate each field to first 500 characters for display
+                                    # Truncate each field to first 200 characters for display
                                     truncated_sample = {}
                                     for field, value in sample.items():
                                         if isinstance(value, str):
-                                            truncated_sample[field] = value[:500] + "..." if len(value) > 500 else value
+                                            truncated_sample[field] = value[:200] + "..." if len(value) > 200 else value
                                         elif isinstance(value, list):
-                                            truncated_sample[field] = str(value)[:500] + "..." if len(str(value)) > 500 else value
+                                            str_value = str(value)
+                                            truncated_sample[field] = str_value[:200] + "..." if len(str_value) > 200 else str_value
                                         else:
-                                            truncated_sample[field] = str(value)[:500] + "..." if len(str(value)) > 500 else value
+                                            str_value = str(value)
+                                            truncated_sample[field] = str_value[:200] + "..." if len(str_value) > 200 else str_value
                                     
                                     results["configs"][config_name][split_name] = {
                                         "fields": fields,
-                                        "sample": truncated_sample
+                                        "sample": truncated_sample,
+                                        "all_splits": split_names
                                     }
                                 except Exception as split_e:
                                     results["configs"][config_name][split_name] = f"ERROR: {str(split_e)}"
@@ -236,18 +246,27 @@ def main():
 
             for config_name, splits in result["configs"].items():
                 if isinstance(splits, dict):
-                    print(f"    Config '{config_name}': {len(splits)} splits")
-                    for split_name, split_data in splits.items():
+                    # We're only showing one split now
+                    split_count = len(splits)
+                    if split_count > 0:
+                        split_name = list(splits.keys())[0]
+                        split_data = splits[split_name]
+                        
                         if isinstance(split_data, dict) and "fields" in split_data:
                             fields = split_data["fields"]
                             sample = split_data["sample"]
-                            print(f"      {split_name}: {len(fields)} fields")
+                            all_splits = split_data.get("all_splits", [split_name])
+                            
+                            print(f"    Config '{config_name}': Available splits: {', '.join(all_splits)}")
+                            print(f"      Showing split '{split_name}': {len(fields)} fields")
                             print(f"        Fields: {', '.join(fields)}")
                             print(f"        Sample data:")
                             for field, value in sample.items():
                                 print(f"          {field}: {value}")
                         else:
                             print(f"      {split_name}: {split_data}")
+                    else:
+                        print(f"    Config '{config_name}': No splits found")
                 else:
                     print(f"    Config '{config_name}': {splits}")
         else:
