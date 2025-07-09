@@ -58,7 +58,8 @@ evals:
 	python python/download_evals.py
 
 evals-s3:
-	python python/download_s3_evals.py
+	mkdir -p fixtures/reference
+	s5cmd sync s3://decon-evals/* fixtures/reference
 
 embeddings:
 	python python/prepare_embeddings.py
