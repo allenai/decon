@@ -2086,32 +2086,35 @@ pub fn process_toxic_training_file(
                         })
                         .sum();
 
-                    // Extract the overlapping text with context
-                    let training_overlap_text = extract_overlap_with_context_toxic(
-                        &word_tokens,
-                        cluster.start_idx,
-                        cluster.end_idx,
-                        10 // context words
-                    );
-                    
-                    contamination_results
-                        .entry(file_name.to_string())
-                        .or_default()
-                        .push(ToxicContaminationEntry {
-                            training_line: line_num,
-                            eval_name: eval_name.clone(),
-                            eval_line,
-                            overlap_ratio: local_overlap_ratio,
-                            toxic_score,
-                            matching_ngrams,
-                            bucket_sizes,
-                            bucket_ids,
-                            contamination_start_idx: Some(cluster.start_idx),
-                            contamination_end_idx: Some(cluster.end_idx),
-                            training_overlap_text,
-                        });
+                    // Only count as contamination if toxic_score exceeds threshold
+                    if toxic_score >= config.toxic_score_threshold {
+                        // Extract the overlapping text with context
+                        let training_overlap_text = extract_overlap_with_context_toxic(
+                            &word_tokens,
+                            cluster.start_idx,
+                            cluster.end_idx,
+                            10 // context words
+                        );
+                        
+                        contamination_results
+                            .entry(file_name.to_string())
+                            .or_default()
+                            .push(ToxicContaminationEntry {
+                                training_line: line_num,
+                                eval_name: eval_name.clone(),
+                                eval_line,
+                                overlap_ratio: local_overlap_ratio,
+                                toxic_score,
+                                matching_ngrams,
+                                bucket_sizes,
+                                bucket_ids,
+                                contamination_start_idx: Some(cluster.start_idx),
+                                contamination_end_idx: Some(cluster.end_idx),
+                                training_overlap_text,
+                            });
 
-                    contaminated_lines += 1;
+                        contaminated_lines += 1;
+                    }
                 }
             }
         }
