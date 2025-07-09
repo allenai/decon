@@ -22,6 +22,10 @@ help:
 	@echo ""
 	@echo "Orchestration targets:"
 	@echo "  orchestrate       - Run distributed orchestration (default: examples/orchestration.yaml, or CONFIG=<path>)"
+	@echo "                      Optional parameters:"
+	@echo "                        REMOTE_FILE_INPUT=<s3://bucket/path>         - Override input data location"
+	@echo "                        REMOTE_REPORT_OUTPUT_DIR=<s3://bucket/path>  - Override report output location"
+	@echo "                        REMOTE_CLEANED_OUTPUT_DIR=<s3://bucket/path> - Override cleaned files location"
 	@echo "  orchestrate-test  - Test orchestration with example config"
 	@echo "  orchestrate-debug - Test with MAX_FILES_DEBUG=5 for development"
 
@@ -94,11 +98,22 @@ status:
 
 orchestrate:
 	@if [ -z "$(CONFIG)" ]; then \
-		echo "No CONFIG specified, using default: examples/orchestration.yaml"; \
-		python python/orchestration.py --config examples/orchestration.yaml; \
+		CONFIG_FILE="examples/orchestration.yaml"; \
 	else \
-		python python/orchestration.py --config $(CONFIG); \
-	fi
+		CONFIG_FILE="$(CONFIG)"; \
+	fi; \
+	CMD="python python/orchestration.py --config $$CONFIG_FILE"; \
+	if [ -n "$(REMOTE_FILE_INPUT)" ]; then \
+		CMD="$$CMD --remote-file-input $(REMOTE_FILE_INPUT)"; \
+	fi; \
+	if [ -n "$(REMOTE_REPORT_OUTPUT_DIR)" ]; then \
+		CMD="$$CMD --remote-report-output-dir $(REMOTE_REPORT_OUTPUT_DIR)"; \
+	fi; \
+	if [ -n "$(REMOTE_CLEANED_OUTPUT_DIR)" ]; then \
+		CMD="$$CMD --remote-cleaned-output-dir $(REMOTE_CLEANED_OUTPUT_DIR)"; \
+	fi; \
+	echo "Running: $$CMD"; \
+	$$CMD
 
 orchestrate-test:
 	@echo "Testing orchestration with single host"

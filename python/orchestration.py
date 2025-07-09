@@ -50,9 +50,13 @@ class OrchestrationConfig:
     upload_batch_timeout: int = 10  # Seconds to wait before processing partial batch
 
     @classmethod
-    def from_yaml(cls, path: str) -> 'OrchestrationConfig':
+    def from_yaml(cls, path: str, cli_overrides: Optional[Dict] = None) -> 'OrchestrationConfig':
         with open(path) as f:
             data = yaml.safe_load(f)
+
+        # Apply CLI overrides if provided
+        if cli_overrides:
+            data.update(cli_overrides)
 
         # Extract required fields
         config = cls(
@@ -144,6 +148,14 @@ class ContaminationOrchestrator:
             self.max_files_debug = int(os.environ['MAX_FILES_DEBUG'])
             self.logger.warning(f"DEBUG MODE: Limited to processing {self.max_files_debug} files")
 
+        # Initialize lock file
+        self.lock_file = Path(self.config.local_work_dir) / 'orchestrator.lock'
+        self._acquire_lock()
+        
+        # Setup signal handlers for cleanup
+        signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGTERM, self._signal_handler)
+        
         # Orchestrator initialized
 
     def _setup_logging(self) -> logging.Logger:
@@ -164,6 +176,64 @@ class ContaminationOrchestrator:
         session.mount('http://', adapter)
         session.mount('https://', adapter)
         return session
+    
+    def _acquire_lock(self):
+        """Acquire lock file to prevent multiple instances."""
+        if self.lock_file.exists():
+            try:
+                with open(self.lock_file, 'r') as f:
+                    existing_pid = int(f.read().strip())
+                
+                # Check if the process is still running
+                if self._is_process_running(existing_pid):
+                    self.logger.error(f"Another orchestrator is already running (PID: {existing_pid})")
+                    self.logger.error(f"Lock file: {self.lock_file}")
+                    self.logger.error("If you're sure no other instance is running, delete the lock file and try again.")
+                    sys.exit(1)
+                else:
+                    self.logger.warning(f"Stale lock file found (PID {existing_pid} not running), removing it")
+                    self.lock_file.unlink()
+            except (ValueError, FileNotFoundError):
+                self.logger.warning("Invalid lock file found, removing it")
+                if self.lock_file.exists():
+                    self.lock_file.unlink()
+        
+        # Create new lock file with current PID
+        try:
+            self.lock_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.lock_file, 'w') as f:
+                f.write(str(os.getpid()))
+            self.logger.warning(f"Acquired lock (PID: {os.getpid()})")
+        except Exception as e:
+            self.logger.error(f"Failed to create lock file: {e}")
+            sys.exit(1)
+    
+    def _is_process_running(self, pid: int) -> bool:
+        """Check if a process with given PID is running."""
+        try:
+            # On Unix systems, sending signal 0 to a process checks if it exists
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+    
+    def _release_lock(self):
+        """Release the lock file."""
+        try:
+            if self.lock_file.exists():
+                self.lock_file.unlink()
+                self.logger.warning("Released lock")
+        except Exception as e:
+            self.logger.warning(f"Failed to remove lock file: {e}")
+    
+    def _signal_handler(self, signum, frame):
+        """Handle signals by cleaning up lock file and exiting."""
+        try:
+            if self.lock_file.exists():
+                self.lock_file.unlink()
+        except:
+            pass  # Ignore any errors during cleanup
+        sys.exit(1)
 
 
     def _log_performance_metrics(self, force=False):
@@ -230,6 +300,9 @@ class ContaminationOrchestrator:
 
         # Print summary statistics
         self.logger.warning(f"\nSUMMARY: Processed={self.stats_files_processed} Clean={self.stats_files_clean} Contaminated={self.stats_files_contaminated} Failed={len(self.failed_files)} Time={elapsed:.2f}s")
+        
+        # Release lock file
+        self._release_lock()
 
     def _check_daemon_health(self) -> bool:
         """Check if the daemon is running and healthy."""
@@ -939,11 +1012,23 @@ def main():
 
     parser = argparse.ArgumentParser(description='Contamination detection orchestrator')
     parser.add_argument('--config', required=True, help='Path to configuration YAML file')
+    parser.add_argument('--remote-file-input', help='S3 path for training data input (overrides config)')
+    parser.add_argument('--remote-report-output-dir', help='S3 path for contamination reports (overrides config)')
+    parser.add_argument('--remote-cleaned-output-dir', help='S3 path for cleaned files (overrides config)')
     args = parser.parse_args()
+
+    # Prepare CLI overrides
+    cli_overrides = {}
+    if args.remote_file_input:
+        cli_overrides['remote_file_input'] = args.remote_file_input
+    if args.remote_report_output_dir:
+        cli_overrides['remote_report_output_dir'] = args.remote_report_output_dir
+    if args.remote_cleaned_output_dir:
+        cli_overrides['remote_cleaned_output_dir'] = args.remote_cleaned_output_dir
 
     # Load configuration
     try:
-        config = OrchestrationConfig.from_yaml(args.config)
+        config = OrchestrationConfig.from_yaml(args.config, cli_overrides)
     except Exception as e:
         print(f"Failed to load configuration: {e}", file=sys.stderr)
         sys.exit(1)
