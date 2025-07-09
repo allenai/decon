@@ -124,17 +124,18 @@ EVAL_CONFIG = {
         'jeopardy_mc': {
             'hf_path': 'allenai/jeopardy_mc',
             'splits': ['test'],
-            'transform': {
-                'text_field': 'context_original'
-            }
+            'transform': 'auto'
         },
 
+        # Please pick one among the available configs: ['cpp', 'c', 'javascript', 'java', 'python', 'php', 'csharp', 'typescript', 'bash', 'swift', 'go', 'rust', 'ruby', 'r', 'matlab', 'scala', 'haskell']
+        # TODO iterate over these ^
         'multilingual_mbpp_python': {
             'hf_path': 'allenai/multilingual_mbpp',
             'hf_config': 'python',
             'splits': ['test', 'train', 'validation'],
             'transform': {
-                'text_field': 'text'
+                'text_field': 'text',
+                'answer_field': 'code'
             }
         },
 
@@ -142,7 +143,8 @@ EVAL_CONFIG = {
             'hf_path': 'allenai/nq_open_mc',
             'splits': ['validation'],
             'transform': {
-                'text_field': 'question'
+                'text_field': 'question',
+                'answer_field': 'answer_original'
             }
         },
 
@@ -192,7 +194,8 @@ EVAL_CONFIG = {
             'hf_config': 'grid_mode',
             'splits': ['test'],
             'transform': {
-                'text_field': 'puzzle'
+                'text_field': 'puzzle',
+                'answer_field': 'solution'
             }
         },
 
@@ -200,7 +203,8 @@ EVAL_CONFIG = {
             'hf_path': 'apple/GSM-Symbolic',
             'splits': ['test'],
             'transform': {
-                'text_field': 'question'
+                'text_field': 'question',
+                'answer_field': 'answer'
             }
         },
 
@@ -208,7 +212,8 @@ EVAL_CONFIG = {
             'hf_path': 'bigcode/bigcodebench',
             'splits': ['v0.1.4'],
             'transform': {
-                'text_field': 'complete_prompt'
+                'text_field': 'complete_prompt',
+                'answer_field': 'canonical_solution'
             }
         },
 
@@ -216,7 +221,8 @@ EVAL_CONFIG = {
             'hf_path': 'bigcode/bigcodebench-hard',
             'splits': ['v0.1.4'],
             'transform': {
-                'text_field': 'complete_prompt'
+                'text_field': 'complete_prompt',
+                'answer_field': 'canonical_solution'
             }
         },
 
@@ -239,7 +245,7 @@ EVAL_CONFIG = {
             }
         },
 
-        'deepseek_leetcode': {
+        'deepseek_leetcode': {  # Settled
             'hf_path': 'davidheineman/deepseek-leetcode',
             'splits': ['test'],
             'transform': {
@@ -251,7 +257,8 @@ EVAL_CONFIG = {
             'hf_path': 'davidheineman/medqa-en',
             'splits': ['train', 'test', 'dev'],
             'transform': {
-                'text_field': 'question'
+                'text_field': 'question',
+                'answer_field': 'answer'
             }
         },
 
@@ -275,11 +282,12 @@ EVAL_CONFIG = {
             'hf_config': 'algebra',
             'splits': ['train', 'test'],
             'transform': {
-                'text_field': 'problem'
+                'text_field': 'problem',
+                'answer_field': 'solution'
             }
         },
 
-        'lambada_openai': {
+        'lambada_openai': {  # Settled
             'hf_path': 'EleutherAI/lambada_openai',
             'splits': ['test'],
             'transform': {
@@ -291,31 +299,29 @@ EVAL_CONFIG = {
             'hf_path': 'evalplus/humanevalplus',
             'splits': ['test'],
             'transform': {
-                'text_field': 'prompt'
+                'text_field': 'prompt',
+                'answer_field': 'canonical_solution'
             }
         },
 
         'mbpp_plus': {
             'hf_path': 'evalplus/mbppplus',
             'splits': ['test'],
-            'transform': {
-                'text_field': 'prompt'
-            }
+            'transform': 'auto'
         },
 
         'mbpp': {
             'hf_path': 'google-research-datasets/mbpp',
             'splits': ['train', 'test', 'validation'],
-            'transform': {
-                'text_field': 'text'
-            }
+            'transform': 'auto'
         },
 
         'nq_open': {
             'hf_path': 'google-research-datasets/nq_open',
             'splits': ['train', 'validation'],
             'transform': {
-                'text_field': 'question'
+                'text_field': 'question',
+                'answer_field': 'answer'
             }
         },
 
@@ -330,7 +336,7 @@ EVAL_CONFIG = {
         #     }
         # },
 
-        'ifeval': {
+        'ifeval': {  # Settled
             'hf_path': 'HuggingFaceH4/ifeval',
             'splits': ['train'],
             'transform': {
@@ -342,16 +348,19 @@ EVAL_CONFIG = {
             'hf_path': 'HuggingFaceH4/MATH-500',
             'splits': ['test'],
             'transform': {
-                'text_field': 'problem'
+                'text_field': 'problem',
+                'answer_field': 'solution'
             }
         },
 
+        # Please pick one among the available configs: ['mcq_4_choices', 'mcq_perturbation', 'open_question']
         'lexam_mcq': {
             'hf_path': 'LEXam-Benchmark/LEXam',
             'hf_config': 'mcq_4_choices',
             'splits': ['test'],
             'transform': {
-                'text_field': 'question'
+                'text_field': 'question',
+                'answer_field': 'choices'
             }
         },
 
@@ -359,11 +368,12 @@ EVAL_CONFIG = {
             'hf_path': 'lighteval/SimpleQA',
             'splits': ['test'],
             'transform': {
-                'text_field': 'problem'
+                'text_field': 'problem',
+                'answer_field': 'answer'
             }
         },
 
-        'livecodebench': {
+        'livecodebench': {  # Settled
             'hf_path': 'livecodebench/code_generation_lite',
             'splits': ['test'],
             'transform': {
@@ -375,7 +385,8 @@ EVAL_CONFIG = {
             'hf_path': 'loubnabnl/humaneval_infilling',
             'splits': ['test'],
             'transform': {
-                'text_field': 'prompt'
+                'text_field': 'prompt',
+                'answer': 'canonical_solution'
             }
         },
 
@@ -389,12 +400,14 @@ EVAL_CONFIG = {
             }
         },
 
+        # ['boolean_expressions', 'causal_judgement', 'date_understanding', 'disambiguation_qa', 'dyck_languages', 'formal_fallacies', 'geometric_shapes', 'hyperbaton', 'logical_deduction_five_objects', 'logical_deduction_seven_objects', 'logical_deduction_three_objects', 'movie_recommendation', 'multistep_arithmetic_two', 'navigate', 'object_counting', 'penguins_in_a_table', 'reasoning_about_colored_objects', 'ruin_names', 'salient_translation_error_detection', 'snarks', 'sports_understanding', 'temporal_sequences', 'tracking_shuffled_objects_five_objects', 'tracking_shuffled_objects_seven_objects', 'tracking_shuffled_objects_three_objects', 'web_of_lies', 'word_sorting']
         'bbh_boolean_expressions': {
             'hf_path': 'lukaemon/bbh',
             'hf_config': 'boolean_expressions',
             'splits': ['test'],
             'transform': {
-                'text_field': 'input'
+                'text_field': 'input',
+                'answer_field': 'target'
             }
         },
 
@@ -412,9 +425,7 @@ EVAL_CONFIG = {
             'hf_path': 'nuprl/MultiPL-E',
             'hf_config': 'humaneval-js',
             'splits': ['test'],
-            'transform': {
-                'text_field': 'prompt'
-            }
+            'transform': 'auto'
         },
 
         # 'mrcr': {
@@ -429,7 +440,8 @@ EVAL_CONFIG = {
             'hf_path': 'allenai/openbookqa',
             'splits': ['train', 'validation', 'test'],
             'transform': {
-                'text_field': 'question_stem'
+                'text_field': 'question_stem',
+                'answer_field': 'choices'
             }
         },
 
@@ -437,7 +449,8 @@ EVAL_CONFIG = {
             'hf_path': 'openlifescienceai/medmcqa',
             'splits': ['train', 'test', 'validation'],
             'transform': {
-                'text_field': 'question'
+                'text_field': 'question',
+                'answer_field': 'exp'
             }
         },
 
@@ -445,7 +458,8 @@ EVAL_CONFIG = {
             'hf_path': 'qintongli/GSM-Plus',
             'splits': ['test'],
             'transform': {
-                'text_field': 'question'
+                'text_field': 'question',
+                'answer_field': 'solution'
             }
         },
 
@@ -473,9 +487,7 @@ EVAL_CONFIG = {
             'hf_path': 'sarahwie/copycolors_mcqa',
             'hf_config': '4_answer_choices',
             'splits': ['validation', 'test'],
-            'transform': {
-                'text_field': 'question'
-            }
+            'transform': 'auto'
         },
 
         'sciq': {
@@ -507,7 +519,7 @@ EVAL_CONFIG = {
             }
         },
 
-        'zero_scrolls_qasper': {
+        'zero_scrolls_qasper': {  # Settled
             'hf_path': 'tau/zero_scrolls',
             'hf_config': 'qasper',
             'splits': ['validation', 'test'],
@@ -800,7 +812,7 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                                     context = ""
                             elif not isinstance(context, str):
                                 context = str(context)
-                            
+
                             # Store original context for deduplication
                             if context and context.strip():
                                 original_context = context
@@ -811,7 +823,7 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                                     continue  # Skip this record
                                 else:
                                     seen_contexts.add(context_hash)
-                                
+
                                 # Concatenate context with text
                                 text = context + " " + text
 
