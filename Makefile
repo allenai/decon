@@ -1,4 +1,4 @@
-.PHONY: help detect review stats simple evals embeddings
+.PHONY: help detect review stats simple evals evals-s3 embeddings
 
 help:
 	@echo "Available targets:"
@@ -11,6 +11,7 @@ help:
 	@echo "  fp         - Run review mode to show False Positives"
 	@echo "  fn         - Run review mode to show False Negatives"
 	@echo "  evals      - Download evaluation datasets using Python script"
+	@echo "  evals-s3   - Download evaluation datasets from S3 bucket decon-evals"
 	@echo "  embeddings - Download and prepare word embeddings using Python script"
 	@echo ""
 	@echo "Daemon targets:"
@@ -55,6 +56,9 @@ tn:
 
 evals:
 	python python/download_evals.py
+
+evals-s3:
+	python python/download_s3_evals.py
 
 embeddings:
 	python python/prepare_embeddings.py

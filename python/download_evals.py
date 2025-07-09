@@ -548,6 +548,18 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                 # Extract text field
                 text_field = eval_config['transform']['text_field']
                 text = example[text_field]
+                
+                # Handle cases where text might be a list
+                if isinstance(text, list):
+                    # Join list elements into a string
+                    text = ' '.join(str(item) for item in text)
+                elif not isinstance(text, str):
+                    # Convert to string if it's not already
+                    text = str(text)
+                
+                # Skip empty or None text
+                if not text or text.strip() == '':
+                    continue
 
                 # Generate records based on answer field configuration
                 records_to_write = []
@@ -581,14 +593,16 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                         if isinstance(answer_value, list):
                             # Array of answers - create record for question + each answer
                             for answer in answer_value:
-                                record = create_record_template()
-                                record[global_config['jsonl_format']['text_field']] = text + " " + str(answer)
-                                records_to_write.append(record)
+                                if answer is not None:  # Skip None answers
+                                    record = create_record_template()
+                                    record[global_config['jsonl_format']['text_field']] = text + " " + str(answer)
+                                    records_to_write.append(record)
                         else:
                             # Single answer - create record with question + answer
-                            record = create_record_template()
-                            record[global_config['jsonl_format']['text_field']] = text + " " + str(answer_value)
-                            records_to_write.append(record)
+                            if answer_value is not None:  # Skip None answers
+                                record = create_record_template()
+                                record[global_config['jsonl_format']['text_field']] = text + " " + str(answer_value)
+                                records_to_write.append(record)
                     else:
                         # No answer value found - just use question
                         record = create_record_template()
