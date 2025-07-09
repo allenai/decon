@@ -71,7 +71,7 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
 
     // println!("Processing {} reference files for n-gram indexing...", reference_files.len()); //debug
 
-    for file_path in reference_files.iter() {
+    reference_files.par_iter().for_each(|file_path| {
         if let Err(e) = process_simple_reference_file(
             file_path,
             config,
@@ -86,7 +86,7 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
             println!("Error processing reference file {:?}: {:?}", file_path, e);
         }
         pbar.inc(1);
-    }
+    });
 
     // println!("Finished processing reference files. Total unique n-grams: {}", ngram_to_id.len()); //debug
     // println!("Total eval documents indexed: {}", eval_documents.len()); //debug
