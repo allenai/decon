@@ -1148,11 +1148,13 @@ fn create_purified_files(
             
             println!("Created purified file for {} (removed {} lines)", 
                      file_name, contaminated_lines.len());
-        } else {
-            // No contamination found - create a clean copy
+        } else if config.produce_duplicate_clean_files_when_no_contamination {
+            // No contamination found - create a clean copy if configured
             let empty_set = HashSet::new();
             write_purified_file(file_path, cleaned_dir, &empty_set)?;
             println!("Created clean copy for {} (no contamination found)", file_name);
+        } else {
+            println!("No contamination found for {} - skipping clean file creation", file_name);
         }
     }
     

@@ -170,6 +170,10 @@ pub struct Config {
     #[serde(default)]
     pub purify: bool,
 
+    // Whether to produce clean files even when no contamination is detected
+    #[serde(default)]
+    pub produce_duplicate_clean_files_when_no_contamination: bool,
+
 }
 
 fn default_mode() -> String {

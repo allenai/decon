@@ -59,6 +59,7 @@ struct AppState {
     job_sender: mpsc::Sender<Job>,
     jobs: Arc<Mutex<std::collections::HashMap<String, Job>>>,
     worker_threads: usize,
+    config: Config,
 }
 
 pub async fn run_daemon(config_path: PathBuf, port: u16) -> Result<()> {
@@ -112,6 +113,7 @@ pub async fn run_daemon(config_path: PathBuf, port: u16) -> Result<()> {
         job_sender,
         jobs: Arc::new(Mutex::new(std::collections::HashMap::new())),
         worker_threads: config.worker_threads,
+        config: config.clone(),
     };
     
     // Spawn worker threads based on config
@@ -150,7 +152,10 @@ pub async fn run_daemon(config_path: PathBuf, port: u16) -> Result<()> {
 async fn health_check(State(state): State<AppState>) -> Json<serde_json::Value> {
     Json(json!({
         "status": "ok",
-        "worker_threads": state.worker_threads
+        "worker_threads": state.worker_threads,
+        "report_output_dir": state.config.report_output_dir.to_string_lossy(),
+        "cleaned_output_dir": state.config.cleaned_output_dir.as_ref().map(|p| p.to_string_lossy().to_string()),
+        "purify": state.config.purify
     }))
 }
 
@@ -353,11 +358,14 @@ fn process_single_file(
                 
                 if !contaminated_lines.is_empty() {
                     println!("Creating purified file (removing {} contaminated lines)", contaminated_lines.len());
-                } else {
+                    Some(write_purified_file(file_path, cleaned_dir, &contaminated_lines)?)
+                } else if config.produce_duplicate_clean_files_when_no_contamination {
                     println!("Creating clean copy (no contamination found)");
+                    Some(write_purified_file(file_path, cleaned_dir, &contaminated_lines)?)
+                } else {
+                    println!("No contamination found - skipping clean file creation");
+                    None
                 }
-                
-                Some(write_purified_file(file_path, cleaned_dir, &contaminated_lines)?)
             } else {
                 None
             };
@@ -420,11 +428,14 @@ fn process_single_file(
                 
                 if !contaminated_lines.is_empty() {
                     println!("Creating purified file (removing {} contaminated lines)", contaminated_lines.len());
-                } else {
+                    Some(write_purified_file(file_path, cleaned_dir, &contaminated_lines)?)
+                } else if config.produce_duplicate_clean_files_when_no_contamination {
                     println!("Creating clean copy (no contamination found)");
+                    Some(write_purified_file(file_path, cleaned_dir, &contaminated_lines)?)
+                } else {
+                    println!("No contamination found - skipping clean file creation");
+                    None
                 }
-                
-                Some(write_purified_file(file_path, cleaned_dir, &contaminated_lines)?)
             } else {
                 None
             };
@@ -498,11 +509,14 @@ fn process_single_file(
                 
                 if !contaminated_lines.is_empty() {
                     println!("Creating purified file (removing {} contaminated lines)", contaminated_lines.len());
-                } else {
+                    Some(write_purified_file(file_path, cleaned_dir, &contaminated_lines)?)
+                } else if config.produce_duplicate_clean_files_when_no_contamination {
                     println!("Creating clean copy (no contamination found)");
+                    Some(write_purified_file(file_path, cleaned_dir, &contaminated_lines)?)
+                } else {
+                    println!("No contamination found - skipping clean file creation");
+                    None
                 }
-                
-                Some(write_purified_file(file_path, cleaned_dir, &contaminated_lines)?)
             } else {
                 None
             };

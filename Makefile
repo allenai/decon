@@ -34,7 +34,7 @@ simple:
 	cargo run --release detect --config examples/simple.yaml
 
 review:
-	cargo run --release review --config examples/toxic.yaml --step
+	cargo run --release review --config examples/simple.yaml --step
 
 stats:
 	cargo run -- review --config examples/simple.yaml --stats
@@ -101,4 +101,4 @@ orchestrate-test:
 
 orchestrate-debug:
 	@echo "Testing orchestration in debug mode (max 5 files)"
-	MAX_FILES_DEBUG=5 python python/orchestration.py --config examples/orchestration.yaml
+	MAX_FILES_DEBUG=100 python python/orchestration.py --config examples/orchestration.yaml

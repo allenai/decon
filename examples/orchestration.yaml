@@ -1,7 +1,7 @@
 # Orchestration configuration for distributed contamination detection
 
 # S3 locations
-remote_file_input: s3://ai2-llm/pretraining-data/sources/sponge_alldressed_422/2025/01
+remote_file_input: s3://ai2-llm/pretraining-data/sources/sponge_alldressed_422/2025/02
 remote_report_output_dir: s3://robertb-decon-test-report  # Contamination reports go here
 remote_cleaned_output_dir: s3://robertb-decon-test-cleaned  # Cleaned files go here (when purify=true)
 
