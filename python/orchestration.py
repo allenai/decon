@@ -14,6 +14,8 @@ import hashlib
 import logging
 import subprocess
 import multiprocessing
+import threading
+from queue import Queue, Empty
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Tuple
 from dataclasses import dataclass
@@ -29,18 +31,21 @@ from requests.packages.urllib3.util.retry import Retry
 # Configuration
 @dataclass
 class OrchestrationConfig:
-    # Required fields
+    # Required fields (no defaults)
     remote_file_input: str  # s3://bucket/training-data/
     remote_report_output_dir: str  # s3://bucket/output/
-    remote_cleaned_output_dir: Optional[str] = None  # s3://bucket/cleaned/
     daemon_url: str  # http://localhost:8080
     local_work_dir: str  # /tmp/decon-work/
     
     # Optional fields with defaults
+    remote_cleaned_output_dir: Optional[str] = None  # s3://bucket/cleaned/
     max_concurrent_jobs: Optional[int] = None  # Will be set based on daemon worker threads
     poll_interval: int = 5
     s5cmd_workers: int = 50
     cleanup_delay: int = 10
+    download_batch_size: int = 50  # Files per download batch
+    download_queue_max: int = 200  # Max files in download queue
+    upload_queue_max: int = 100  # Max files in upload queue
     
     @classmethod
     def from_yaml(cls, path: str) -> 'OrchestrationConfig':
@@ -57,7 +62,8 @@ class OrchestrationConfig:
         )
         
         # Apply optional fields
-        for field in ['max_concurrent_jobs', 'poll_interval', 's5cmd_workers', 'cleanup_delay']:
+        for field in ['max_concurrent_jobs', 'poll_interval', 's5cmd_workers', 'cleanup_delay',
+                      'download_batch_size', 'download_queue_max', 'upload_queue_max']:
             if field in data:
                 setattr(config, field, data[field])
         
@@ -86,6 +92,27 @@ class ContaminationOrchestrator:
         self.active_jobs: Dict[str, Job] = {}
         self.completed_files: Set[str] = set()
         self.failed_files: Set[str] = set()
+        
+        # Thread-safe queues
+        self.download_queue = Queue(maxsize=config.download_queue_max)  # (local_path, s3_key) tuples
+        self.upload_queue = Queue(maxsize=config.upload_queue_max)  # Completed Job objects
+        
+        # Tracking
+        self.files_remaining: int = 0  # Total files left to process
+        self.files_to_download: List[str] = []  # S3 keys still to download
+        self.download_index = 0  # Current position in files_to_download
+        
+        # Thread control
+        self.threads_running = False
+        self.download_thread = None
+        self.upload_thread = None
+        
+        # Performance metrics
+        self.metrics_start_time = time.time()
+        self.last_metrics_time = time.time()
+        self.total_downloaded = 0
+        self.total_submitted = 0
+        self.total_uploaded = 0
         
         # Signal handling
         self.shutdown_requested = False
@@ -141,6 +168,35 @@ class ContaminationOrchestrator:
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
     
+    def _log_performance_metrics(self, force=False):
+        """Log performance metrics periodically."""
+        current_time = time.time()
+        elapsed_since_last = current_time - self.last_metrics_time
+        
+        # Log every 30 seconds or when forced
+        if not force and elapsed_since_last < 30:
+            return
+        
+        total_elapsed = current_time - self.metrics_start_time
+        
+        # Calculate rates
+        download_rate = self.total_downloaded / total_elapsed if total_elapsed > 0 else 0
+        submit_rate = self.total_submitted / total_elapsed if total_elapsed > 0 else 0
+        upload_rate = self.total_uploaded / total_elapsed if total_elapsed > 0 else 0
+        
+        self.logger.info("=" * 60)
+        self.logger.info("PERFORMANCE METRICS:")
+        self.logger.info(f"  Elapsed time: {total_elapsed:.1f}s")
+        self.logger.info(f"  Files remaining: {self.files_remaining}")
+        self.logger.info(f"  Download queue: {self.download_queue.qsize()} files")
+        self.logger.info(f"  Active jobs: {len(self.active_jobs)}")
+        self.logger.info(f"  Upload queue: {self.upload_queue.qsize()} files")
+        self.logger.info(f"  Rates: Download={download_rate:.1f}/s, Submit={submit_rate:.1f}/s, Upload={upload_rate:.1f}/s")
+        self.logger.info(f"  Total: Downloaded={self.total_downloaded}, Submitted={self.total_submitted}, Uploaded={self.total_uploaded}")
+        self.logger.info("=" * 60)
+        
+        self.last_metrics_time = current_time
+    
     def run(self):
         """Main orchestration loop."""
         start_time = time.time()
@@ -164,6 +220,10 @@ class ContaminationOrchestrator:
             return
         
         self.logger.info(f"Starting processing of {len(files_to_process)} files")
+        
+        # Initialize metrics
+        self.files_remaining = len(files_to_process)
+        self.metrics_start_time = time.time()
         
         # Download and process files
         self._process_files(files_to_process)
@@ -443,6 +503,7 @@ class ContaminationOrchestrator:
                     status='submitted'
                 )
                 self.logger.info(f"Submitted job {job.job_id} for {os.path.basename(s3_key)}")
+                self.total_submitted += 1
                 return job
             else:
                 self.logger.error(f"Failed to submit {file_path}: {response.text}")
@@ -562,6 +623,7 @@ class ContaminationOrchestrator:
         # Cleanup local marker
         marker_path.unlink()
     
+    
     def _upload_file(self, local_path: str, s3_base: str, key_suffix: str):
         """Upload a single file to S3 using s5cmd."""
         bucket, prefix = self._parse_s3_uri(s3_base)
@@ -599,51 +661,147 @@ class ContaminationOrchestrator:
             except Exception as e:
                 self.logger.warning(f"Failed to cleanup {file_path}: {e}")
     
+    def _download_worker(self):
+        """Worker thread that continuously downloads files."""
+        self.logger.info("Download worker thread started")
+        
+        while self.threads_running:
+            # Check if we need to download more files
+            if self.download_queue.qsize() >= self.config.download_queue_max * 0.75:
+                time.sleep(5)  # Queue is getting full, wait
+                continue
+            
+            # Get next batch of files to download
+            batch_size = min(self.config.download_batch_size, len(self.files_to_download) - self.download_index)
+            if batch_size <= 0:
+                self.logger.info("Download worker: No more files to download")
+                break
+            
+            batch = self.files_to_download[self.download_index:self.download_index + batch_size]
+            self.download_index += batch_size
+            
+            # Download the batch
+            try:
+                downloaded = self._download_batch(batch)
+                
+                # Add successfully downloaded files to queue
+                for local_path, s3_key in downloaded:
+                    # Verify file before adding to queue
+                    if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
+                        self.download_queue.put((local_path, s3_key))
+                        self.total_downloaded += 1
+                        self.files_remaining -= 1
+                    else:
+                        self.logger.error(f"Downloaded file invalid: {local_path}")
+                        
+            except Exception as e:
+                self.logger.error(f"Download worker error: {e}")
+                time.sleep(5)  # Wait before retrying
+        
+        self.logger.info("Download worker thread finished")
+    
+    def _upload_worker(self):
+        """Worker thread that continuously uploads results."""
+        self.logger.info("Upload worker thread started")
+        
+        while self.threads_running or not self.upload_queue.empty():
+            try:
+                # Get completed job from queue (wait up to 5 seconds)
+                job = self.upload_queue.get(timeout=5)
+                filename = os.path.basename(job.s3_key)
+                
+                # Upload results
+                try:
+                    self._upload_results(job)
+                    self.completed_files.add(filename)
+                    self.logger.info(f"Successfully processed: {filename}")
+                    self.total_uploaded += 1
+                except Exception as e:
+                    self.logger.error(f"Failed to upload results for job {job.job_id}: {e}")
+                    self.failed_files.add(filename)
+                
+                # Cleanup
+                if not self.max_files_debug:
+                    time.sleep(self.config.cleanup_delay)
+                self._cleanup_job_files(job)
+                
+            except Empty:
+                # No jobs in queue, continue
+                continue
+            except Exception as e:
+                self.logger.error(f"Upload worker error: {e}")
+        
+        self.logger.info("Upload worker thread finished")
+    
     def _process_files(self, files_to_process: List[str]):
-        """Main processing loop for files."""
-        # Ensure max_concurrent_jobs has a value (fallback to 10 if somehow still None)
+        """Main processing loop with concurrent download/upload threads."""
+        # Ensure max_concurrent_jobs has a value
         if self.config.max_concurrent_jobs is None:
             self.logger.warning("max_concurrent_jobs not set, using default of 10")
             self.config.max_concurrent_jobs = 10
+        
+        # Initialize files to download
+        self.files_to_download = files_to_process
+        self.download_index = 0
+        
+        # Start worker threads
+        self.threads_running = True
+        self.download_thread = threading.Thread(target=self._download_worker, name="DownloadWorker")
+        self.upload_thread = threading.Thread(target=self._upload_worker, name="UploadWorker")
+        
+        self.download_thread.start()
+        self.upload_thread.start()
+        
+        self.logger.info(f"Started concurrent processing with {self.config.max_concurrent_jobs} max concurrent jobs")
+        
+        # Main loop: submit files and poll for completion
+        last_metrics_log = time.time()
+        
+        while (self.files_remaining > 0 or 
+               not self.download_queue.empty() or 
+               len(self.active_jobs) > 0 or
+               not self.upload_queue.empty()):
             
-        batch_size = self.config.max_concurrent_jobs
-        total_batches = (len(files_to_process) + batch_size - 1) // batch_size
-        
-        self.logger.info(f"Starting file processing: {len(files_to_process)} files in {total_batches} batches")
-        
-        for batch_num, i in enumerate(range(0, len(files_to_process), batch_size), 1):
             if self.shutdown_requested:
-                self.logger.info("Shutdown requested, stopping file processing")
+                self.logger.info("Shutdown requested, stopping processing")
                 break
             
-            # Download batch
-            batch = files_to_process[i:i+batch_size]
-            self.logger.info(f"Processing batch {batch_num}/{total_batches} ({len(batch)} files)")
-            
-            downloaded_files = self._download_batch(batch)
-            
-            # Submit downloaded files
-            submitted_count = 0
-            for local_path, s3_key in downloaded_files:
-                if self.shutdown_requested:
+            # Submit files from download queue if daemon has capacity
+            while len(self.active_jobs) < self.config.max_concurrent_jobs:
+                try:
+                    local_path, s3_key = self.download_queue.get_nowait()
+                    
+                    # Submit to daemon
+                    job = self._submit_to_daemon(local_path, s3_key)
+                    if job:
+                        self.active_jobs[job.job_id] = job
+                    else:
+                        # Submission failed, update tracking
+                        self.failed_files.add(os.path.basename(s3_key))
+                        
+                except Empty:
+                    # No files ready to submit
                     break
-                
-                job = self._submit_to_daemon(local_path, s3_key)
-                if job:
-                    self.active_jobs[job.job_id] = job
-                    submitted_count += 1
             
-            self.logger.info(f"Submitted {submitted_count} jobs from batch {batch_num}")
+            # Poll active jobs
+            self._poll_and_process_jobs()
             
-            # Poll and process active jobs
-            while len(self.active_jobs) >= self.config.max_concurrent_jobs:
-                if self.force_shutdown:
-                    self.logger.warning("Force shutdown, abandoning active jobs")
-                    return
-                
-                self.logger.debug(f"Active jobs at capacity ({len(self.active_jobs)}), polling...")
-                self._poll_and_process_jobs()
-                time.sleep(self.config.poll_interval)
+            # Log metrics periodically
+            self._log_performance_metrics()
+            
+            # Brief sleep to prevent CPU spinning
+            time.sleep(1)
+        
+        # Stop worker threads
+        self.threads_running = False
+        
+        self.logger.info("Waiting for worker threads to finish...")
+        if self.download_thread.is_alive():
+            self.download_thread.join(timeout=30)
+        if self.upload_thread.is_alive():
+            self.upload_thread.join(timeout=60)  # Give more time for uploads
+        
+        self.logger.info("All worker threads finished")
     
     def _poll_and_process_jobs(self):
         """Poll active jobs and process completed ones."""
@@ -658,24 +816,10 @@ class ContaminationOrchestrator:
         if completed_jobs:
             self.logger.info(f"Found {len(completed_jobs)} completed jobs")
         
-        # Process completed jobs
+        # Move completed jobs to upload queue
         for job_id in completed_jobs:
             job = self.active_jobs.pop(job_id)
-            filename = os.path.basename(job.s3_key)
-            
-            # Upload results
-            try:
-                self._upload_results(job)
-                self.completed_files.add(filename)
-                self.logger.info(f"Successfully processed: {filename}")
-            except Exception as e:
-                self.logger.error(f"Failed to upload results for job {job_id}: {e}")
-                self.failed_files.add(filename)
-            
-            # Cleanup with delay
-            if not self.max_files_debug:
-                time.sleep(self.config.cleanup_delay)
-            self._cleanup_job_files(job)
+            self.upload_queue.put(job)
         
         # Log progress
         if completed_jobs:
@@ -684,32 +828,18 @@ class ContaminationOrchestrator:
     
     def _wait_for_completion(self):
         """Wait for all remaining jobs to complete."""
-        if not self.active_jobs:
-            self.logger.info("No remaining jobs to wait for")
-            return
-        
-        self.logger.info(f"Waiting for {len(self.active_jobs)} remaining jobs to complete")
-        
-        wait_cycles = 0
-        while self.active_jobs and not self.force_shutdown:
-            wait_cycles += 1
-            if wait_cycles % 12 == 0:  # Log every minute (assuming 5 second poll interval)
-                self.logger.info(f"Still waiting for {len(self.active_jobs)} jobs...")
-            
-            self._poll_and_process_jobs()
-            
-            if self.active_jobs:
-                time.sleep(self.config.poll_interval)
-        
-        if self.force_shutdown and self.active_jobs:
-            self.logger.warning(f"Force shutdown with {len(self.active_jobs)} active jobs")
+        # The main processing loop handles everything now
+        # Just log final metrics
+        self._log_performance_metrics(force=True)
         
         # Final summary
         self.logger.info(f"Completed: {len(self.completed_files)} files")
         if self.failed_files:
             self.logger.warning(f"Failed: {len(self.failed_files)} files")
-            for filename in self.failed_files:
+            for filename in list(self.failed_files)[:10]:  # Show first 10
                 self.logger.warning(f"  - {filename}")
+            if len(self.failed_files) > 10:
+                self.logger.warning(f"  ... and {len(self.failed_files) - 10} more")
         
         # Debug mode summary
         if self.max_files_debug:

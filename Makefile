@@ -20,7 +20,7 @@ help:
 	@echo "  status     - Check job status (usage: make status JOB_ID=<id>)"
 	@echo ""
 	@echo "Orchestration targets:"
-	@echo "  orchestrate       - Run distributed orchestration (usage: make orchestrate CONFIG=<config>)"
+	@echo "  orchestrate       - Run distributed orchestration (default: examples/orchestration.yaml, or CONFIG=<path>)"
 	@echo "  orchestrate-test  - Test orchestration with example config"
 	@echo "  orchestrate-debug - Test with MAX_FILES_DEBUG=5 for development"
 
@@ -89,8 +89,8 @@ status:
 
 orchestrate:
 	@if [ -z "$(CONFIG)" ]; then \
-		echo "Usage: make orchestrate CONFIG=<path-to-orchestration-config>"; \
-		echo "Example: make orchestrate CONFIG=examples/orchestration.yaml"; \
+		echo "No CONFIG specified, using default: examples/orchestration.yaml"; \
+		python python/orchestration.py --config examples/orchestration.yaml; \
 	else \
 		python python/orchestration.py --config $(CONFIG); \
 	fi
