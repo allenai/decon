@@ -35,7 +35,7 @@ simple:
 	cargo run --release detect --config examples/simple.yaml
 
 review:
-	cargo run --release review --config examples/simple.yaml --step
+	cargo run --release review --config examples/toxic.yaml --step
 
 stats:
 	cargo run -- review --config examples/simple.yaml --stats

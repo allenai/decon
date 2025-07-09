@@ -16,7 +16,8 @@
       "Bash(./test_hyphen_normalize)",
       "Bash(rm:*)",
       "Bash(git restore:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(cat:*)"
     ],
     "deny": []
   }

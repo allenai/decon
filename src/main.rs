@@ -1423,8 +1423,16 @@ fn display_contamination_case(
 
     println!("   \"{}\"", displayed_text);
 
-    // Show the actual contaminated text segment if we have token indices
-    if let (Some(start_idx), Some(end_idx)) = (result.contamination_start_idx, result.contamination_end_idx) {
+    // Show the actual contaminated text segment
+    // For toxic mode, use the pre-computed overlap text
+    if let Some(ref overlap_text) = result.training_overlap_text {
+        println!();
+        println!("📍 CONTAMINATED SEGMENT (tokens {} to {}):", 
+                result.contamination_start_idx.unwrap_or(0), 
+                result.contamination_end_idx.unwrap_or(0));
+        println!("   {}", overlap_text);
+    } else if let (Some(start_idx), Some(end_idx)) = (result.contamination_start_idx, result.contamination_end_idx) {
+        // For other modes, try to extract the segment
         println!();
         println!("📍 CONTAMINATED SEGMENT (tokens {} to {}):", start_idx, end_idx);
 
@@ -1445,7 +1453,12 @@ fn display_contamination_case(
         }
         _ => {
             println!("🔍 EVAL TEXT (line {}):", result.eval_line);
-            println!("   \"{}\"", eval_text);
+            // Use pre-computed eval_overlap_text if available (from toxic mode)
+            if let Some(ref overlap_text) = result.eval_overlap_text {
+                println!("   \"{}\"", overlap_text);
+            } else {
+                println!("   \"{}\"", eval_text);
+            }
         }
     }
     println!();
