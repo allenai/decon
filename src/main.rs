@@ -369,8 +369,8 @@ pub fn get_purified_filename(input_file: &PathBuf) -> String {
             .unwrap_or("unknown")
     };
     
-    // Format: {base name}.clean.jsonl
-    format!("{}.clean.jsonl", base_name)
+    // Format: {base name}.clean.jsonl.gz
+    format!("{}.clean.jsonl.gz", base_name)
 }
 
 // Common function to write a purified file with contaminated lines removed
@@ -382,6 +382,8 @@ pub fn write_purified_file(
     use std::fs::{create_dir_all, File};
     use std::io::{BufWriter, Write, BufRead, BufReader};
     use flate2::read::GzDecoder;
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
     
     // Ensure output directory exists
     create_dir_all(cleaned_output_dir)?;
@@ -397,19 +399,21 @@ pub fn write_purified_file(
         Box::new(BufReader::new(file))
     };
     
-    // Create output file
-    let mut output_file = BufWriter::new(File::create(&purified_path)?);
+    // Create output file with gzip compression
+    let output_file = File::create(&purified_path)?;
+    let gz_encoder = GzEncoder::new(output_file, Compression::default());
+    let mut writer = BufWriter::new(gz_encoder);
     
     let mut removed_count = 0;
     for (line_num, line) in reader.lines().enumerate() {
         if !contaminated_lines.contains(&line_num) {
-            writeln!(output_file, "{}", line?)?;
+            writeln!(writer, "{}", line?)?;
         } else {
             removed_count += 1;
         }
     }
     
-    output_file.flush()?;
+    writer.flush()?;
     println!("Created purified file: {:?} (removed {} contaminated lines)", 
              purified_path, removed_count);
     
