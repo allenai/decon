@@ -21,19 +21,19 @@ This tool provides three complementary detection approaches to efficiently ident
 
 ## Detection Methods
 
-### 🔍 [SIMPLE Detection](simple.md) (`mode: simple`)
+### 🔍 [SIMPLE Detection](doc/simple.md) (`mode: simple`)
 Efficient n-gram matching with intelligent sampling and cluster expansion.
 - **Best for**: Large-scale exact contamination, performance-critical scenarios
 - **Speed**: Fast with configurable sampling, efficient parallel processing
 - **Memory**: Indexes only evaluation data, streams training data
 - **Accuracy**: High precision for substantial overlaps, tunable via sampling rate
 
-### 📊 [Windowed MinHash Detection](minhash.md) (`mode: minhash`)
+### 📊 [Windowed MinHash Detection](doc/minhash.md) (`mode: minhash`)
 Memory-efficient detection using Jaccard similarity and LSH.
 - WIP.
 - Needs sliding window approach tuned, or other adaptations for dissimilar set sizes.
 
-### 🧬 [TOXIC Detection](toxic.md) (`mode: toxic`)
+### 🧬 [TOXIC Detection](doc/toxic.md) (`mode: toxic`)
 Semantic contamination detection using word embeddings and poison tokens.
 - WIP
 - **Best for**: Paraphrased content, semantic similarity, cross-domain leakage
