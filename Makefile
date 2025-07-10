@@ -38,8 +38,14 @@ toxic:
 simple:
 	cargo run --release detect --config examples/simple.yaml
 
-review:
+toxic-review:
 	cargo run --release review --config examples/toxic.yaml --step
+
+simple-review:
+	cargo run --release review --config examples/toxic.yaml --step
+
+minhash-review:
+	cargo run --release review --config examples/minhash.yaml --step
 
 stats:
 	cargo run -- review --config examples/simple.yaml --stats
@@ -114,10 +120,6 @@ orchestrate:
 	fi; \
 	echo "Running: $$CMD"; \
 	$$CMD
-
-orchestrate-test:
-	@echo "Testing orchestration with single host"
-	PMR_HOST_INDEX=0 PMR_HOST_COUNT=1 python python/orchestration.py --config examples/orchestration.yaml
 
 orchestrate-debug:
 	@echo "Testing orchestration in debug mode (max 5 files)"

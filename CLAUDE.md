@@ -84,3 +84,7 @@ Algorithm-specific:
 5. **Performance**: Configurable sampling rates balance speed vs accuracy
 
 Note: SIMPLE is the only fully tested and complete detection method. MinHash and TOXIC are work in progress.
+
+### Changes
+
+Please favor simplicity and focused changes.

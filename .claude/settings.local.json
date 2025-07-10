@@ -17,7 +17,8 @@
       "Bash(rm:*)",
       "Bash(git restore:*)",
       "Bash(git add:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(git mv:*)"
     ],
     "deny": []
   }
