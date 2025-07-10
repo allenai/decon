@@ -523,8 +523,15 @@ class ContaminationOrchestrator:
 
         try:
             start_time = time.time()
+            self.logger.info(f"Running s5cmd with command: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
             elapsed = time.time() - start_time
+
+            # Log s5cmd output
+            if result.stdout:
+                self.logger.info(f"s5cmd stdout:\n{result.stdout}")
+            if result.stderr:
+                self.logger.warning(f"s5cmd stderr:\n{result.stderr}")
 
             # Return list of downloaded files
             download_dir = Path(self.config.local_work_dir) / 'download'
@@ -534,7 +541,13 @@ class ContaminationOrchestrator:
             for s3_key in s3_keys:
                 local_file = download_dir / os.path.basename(s3_key)
                 if local_file.exists():
-                    downloaded.append((str(local_file), s3_key))
+                    file_size = os.path.getsize(local_file)
+                    if file_size > 0:
+                        downloaded.append((str(local_file), s3_key))
+                        self.logger.info(f"Downloaded: {s3_key} ({file_size:,} bytes)")
+                    else:
+                        self.logger.error(f"Downloaded empty file: {s3_key}")
+                        missing.append(s3_key)
                 else:
                     missing.append(s3_key)
 
@@ -546,12 +559,21 @@ class ContaminationOrchestrator:
                 if len(missing) > 5:
                     self.logger.error(f"  ... and {len(missing) - 5} more")
 
+            self.logger.info(f"Successfully downloaded {len(downloaded)}/{len(s3_keys)} files in {elapsed:.2f}s")
             return downloaded
 
         except subprocess.CalledProcessError as e:
             self.logger.error(f"s5cmd failed with exit code {e.returncode}")
+            self.logger.error(f"Command was: {' '.join(cmd)}")
+            if e.stdout:
+                self.logger.error(f"s5cmd stdout:\n{e.stdout}")
             if e.stderr:
-                self.logger.error(f"s5cmd stderr: {e.stderr}")
+                self.logger.error(f"s5cmd stderr:\n{e.stderr}")
+            
+            # Mark all files in batch as failed
+            for s3_key in s3_keys:
+                self.failed_files.add(s3_key)
+            
             raise
 
         finally:
@@ -631,10 +653,16 @@ class ContaminationOrchestrator:
         cmd = ['s5cmd', 'cp', local_path, s3_uri]
 
         try:
-            subprocess.run(cmd, check=True, capture_output=True, text=True)
+            result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+            if result.stdout:
+                self.logger.debug(f"s5cmd upload stdout: {result.stdout}")
+            if result.stderr:
+                self.logger.warning(f"s5cmd upload stderr: {result.stderr}")
             # File uploaded
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Failed to upload {local_path}: {e.stderr}")
+            if e.stdout:
+                self.logger.error(f"s5cmd stdout: {e.stdout}")
             raise
 
     def _batch_upload_files(self, upload_commands: List[Tuple[str, str, str]]):
@@ -662,15 +690,28 @@ class ContaminationOrchestrator:
             ]
 
             # Executing batch upload
-
+            self.logger.info(f"Running batch upload with command: {' '.join(cmd)}")
+            
             result = subprocess.run(cmd, check=True, capture_output=True, text=True)
 
+            # Log s5cmd output
+            if result.stdout:
+                self.logger.info(f"s5cmd batch upload stdout:\n{result.stdout}")
+            if result.stderr:
+                self.logger.warning(f"s5cmd batch upload stderr:\n{result.stderr}")
+
             # s5cmd completed
+            self.logger.info(f"Successfully uploaded {len(upload_commands)} files")
 
             # Batch upload successful
 
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Batch upload failed: {e.stderr}")
+            self.logger.error(f"Batch upload failed with exit code {e.returncode}")
+            self.logger.error(f"Command was: {' '.join(cmd)}")
+            if e.stdout:
+                self.logger.error(f"s5cmd stdout:\n{e.stdout}")
+            if e.stderr:
+                self.logger.error(f"s5cmd stderr:\n{e.stderr}")
             # Fall back to individual uploads for debugging
             for local_path, s3_base, key_suffix in upload_commands:
                 try:

@@ -62,6 +62,7 @@ class DeploymentConfig:
     remote_file_input: Optional[str] = None
     remote_report_output_dir: Optional[str] = None
     remote_cleaned_output_dir: Optional[str] = None
+    local_work_dir: str = "/mnt/decon-work"
 
     def __post_init__(self):
         # Expand paths
@@ -222,6 +223,9 @@ class DeploymentManager:
 
         if self.config.remote_cleaned_output_dir:
             orchestrator_cmd += f" --remote-cleaned-output-dir {self.config.remote_cleaned_output_dir}"
+        
+        # Add local work directory
+        orchestrator_cmd += f" --local-work-dir {self.config.local_work_dir}"
 
         orchestrator_cmd += " > orchestrator.log 2>&1 & disown"
 
@@ -425,12 +429,19 @@ def wizard():
     )
 
     remote_report_output_dir = None
+    local_work_dir = "/mnt/decon-work"
 
     if remote_file_input:
         default_report_path = f"s3://ai2-decon-reports/{cluster_name}"
         remote_report_output_dir = click.prompt(
             "S3 path for contamination reports",
             default=default_report_path
+        )
+        
+        # Ask for local work directory
+        local_work_dir = click.prompt(
+            "Local working directory for downloads/processing",
+            default="/mnt/decon-work"
         )
 
     # Create configuration
@@ -456,6 +467,7 @@ def wizard():
         remote_file_input=remote_file_input if remote_file_input else None,
         remote_report_output_dir=remote_report_output_dir if remote_report_output_dir else None,
         remote_cleaned_output_dir=remote_cleaned_output_dir if remote_cleaned_output_dir else None,
+        local_work_dir=local_work_dir,
     )
 
     # Show configuration summary
@@ -473,6 +485,7 @@ def wizard():
         print(f"  Reports: {deploy_config.remote_report_output_dir}")
         if deploy_config.remote_cleaned_output_dir:
             print(f"  Cleaned: {deploy_config.remote_cleaned_output_dir}")
+        print(f"  Work dir: {deploy_config.local_work_dir}")
 
     # Generate deployment commands
     print("\n")
@@ -524,11 +537,10 @@ def wizard():
         print("  --command \"cd decon && nohup python python/orchestration.py \\")
         print("    --config examples/orchestration.yaml \\")
         print(f"    --remote-file-input {remote_file_input} \\")
-        print(f"    --remote-report-output-dir {remote_report_output_dir}", end="")
+        print(f"    --remote-report-output-dir {remote_report_output_dir} \\")
         if remote_cleaned_output_dir:
-            print(" \\")
-            print(f"    --remote-cleaned-output-dir {remote_cleaned_output_dir}", end="")
-        print(" \\")
+            print(f"    --remote-cleaned-output-dir {remote_cleaned_output_dir} \\")
+        print(f"    --local-work-dir {local_work_dir} \\")
         print("    > orchestrator.log 2>&1 & disown\" \\")
         print(f"  --ssh-key-path {ssh_key} \\")
         print("  --detach\n")
@@ -602,11 +614,12 @@ def wizard():
 @click.option("--remote-file-input", help="S3 path for input data")
 @click.option("--remote-report-output-dir", help="S3 path for reports")
 @click.option("--remote-cleaned-output-dir", help="S3 path for cleaned files")
+@click.option("--local-work-dir", default="/mnt/decon-work", help="Local working directory for orchestrator")
 def deploy(name, owner, instances, instance_type, ssh_key, github_token, daemon_port,
           mode, content_key, ngram_size, sample_every_m_tokens,
           toxic_overlap_threshold, toxic_score_threshold, tokenizer,
           debug, purify, remote_file_input, remote_report_output_dir,
-          remote_cleaned_output_dir):
+          remote_cleaned_output_dir, local_work_dir):
     """Deploy Decon cluster (non-interactive)"""
     deploy_config = DeploymentConfig(
         cluster_name=name,
@@ -630,6 +643,7 @@ def deploy(name, owner, instances, instance_type, ssh_key, github_token, daemon_
         remote_file_input=remote_file_input,
         remote_report_output_dir=remote_report_output_dir,
         remote_cleaned_output_dir=remote_cleaned_output_dir,
+        local_work_dir=local_work_dir,
     )
 
     try:
