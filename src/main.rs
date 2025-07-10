@@ -584,6 +584,8 @@ struct ContaminationResult {
     training_overlap_text: Option<String>,
     #[serde(default)]
     eval_overlap_text: Option<String>,
+    #[serde(default)]
+    ngram_match_cnt: Option<usize>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1024,6 +1026,7 @@ fn filter_contamination_results(
                     contamination_end_idx: None,
                     training_overlap_text: None,
                     eval_overlap_text: None,
+                    ngram_match_cnt: None,
                 };
                 filtered.push(placeholder);
             }
@@ -1086,6 +1089,7 @@ fn filter_contamination_results(
                     contamination_end_idx: None,
                     training_overlap_text: None,
                     eval_overlap_text: None,
+                    ngram_match_cnt: None,
                 };
                 filtered.push(placeholder);
             }
@@ -1371,6 +1375,9 @@ fn display_contamination_case(
             println!("🎯 {}:   {:.3}", similarity_label, result.jaccard_similarity);
             if result.toxic_score > 0.0 {
                 println!("🧪 TOXIC SCORE:    {:.3}", result.toxic_score);
+            }
+            if let Some(ngram_match_cnt) = result.ngram_match_cnt {
+                println!("🔢 N-GRAM MATCHES: {}", ngram_match_cnt);
             }
             println!();
         }

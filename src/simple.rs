@@ -423,6 +423,7 @@ pub struct SimpleContaminationEntry {
     contamination_start_idx: Option<usize>, // Start index in token array
     contamination_end_idx: Option<usize>,   // End index in token array
     training_overlap_text: Option<String>,
+    ngram_match_cnt: usize, // Number of unique n-gram matches
 }
 
 #[derive(Clone)]
@@ -577,6 +578,7 @@ pub fn process_simple_training_file(
                             contamination_start_idx: Some(cluster.start_idx),
                             contamination_end_idx: Some(cluster.end_idx),
                             training_overlap_text,
+                            ngram_match_cnt: unique_matches,
                         };
 
                         cluster_results.push(entry);
@@ -1095,6 +1097,7 @@ pub fn save_contamination_results_toxic_format_with_filename_and_eval_text(
                 "eval_line": contamination_entry.eval_line,
                 "overlap_ratio": contamination_entry.overlap_ratio,
                 "toxic_score": contamination_entry.toxic_score,
+                "ngram_match_cnt": contamination_entry.ngram_match_cnt,
                 "method": "simple"
             });
             

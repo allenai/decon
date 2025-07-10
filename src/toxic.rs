@@ -1341,6 +1341,7 @@ pub struct ToxicContaminationEntry {
     contamination_start_idx: Option<usize>,
     contamination_end_idx: Option<usize>,
     training_overlap_text: Option<String>,
+    ngram_match_cnt: usize, // Number of unique bucket matches
 }
 
 #[derive(Clone)]
@@ -2111,6 +2112,7 @@ pub fn process_toxic_training_file(
                                 contamination_start_idx: Some(cluster.start_idx),
                                 contamination_end_idx: Some(cluster.end_idx),
                                 training_overlap_text,
+                                ngram_match_cnt: cluster.distinct_buckets.len(),
                             });
 
                         contaminated_lines += 1;
@@ -2397,6 +2399,7 @@ pub fn save_toxic_contamination_results_with_filename(
                 "eval_line": contamination_entry.eval_line,
                 "overlap_ratio": contamination_entry.overlap_ratio,
                 "toxic_score": contamination_entry.toxic_score,
+                "ngram_match_cnt": contamination_entry.ngram_match_cnt,
                 "method": "toxic"
             });
 
