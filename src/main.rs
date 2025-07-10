@@ -109,6 +109,9 @@ enum Commands {
         #[arg(long, help = "Enable debug mode")]
         debug: Option<bool>,
         
+        #[arg(long, help = "Tokenizer type: word, p50k, or cl100k")]
+        tokenizer: Option<String>,
+        
         // SIMPLE mode specific
         #[arg(long, help = "N-gram size for SIMPLE mode")]
         ngram_size: Option<usize>,
@@ -1624,7 +1627,7 @@ fn main() -> Result<(), Error> {
 
         Commands::Daemon {
             config, port, mode, content_key, local_input, reference_input,
-            report_output_dir, cleaned_output_dir, purify, debug,
+            report_output_dir, cleaned_output_dir, purify, debug, tokenizer,
             ngram_size, sample_every_m_tokens, max_consecutive_misses,
             num_bands, band_size, jaccard_similarity_threshold,
             toxic_embedding_path, toxic_hyperplanes, toxic_overlap_threshold,
@@ -1642,6 +1645,7 @@ fn main() -> Result<(), Error> {
             if let Some(cod) = cleaned_output_dir { loaded_config.cleaned_output_dir = Some(cod.clone()); }
             if let Some(p) = purify { loaded_config.purify = *p; }
             if let Some(d) = debug { loaded_config.debug = *d; }
+            if let Some(t) = tokenizer { loaded_config.tokenizer_str = t.clone(); }
             
             // SIMPLE mode overrides
             if let Some(ns) = ngram_size { loaded_config.ngram_size = *ns; }
