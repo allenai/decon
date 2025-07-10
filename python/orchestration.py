@@ -370,8 +370,9 @@ class ContaminationOrchestrator:
         # Parsed S3 URI
         return bucket, prefix
 
-    def _list_s3_files(self, s3_uri: str, suffixes: List[str] = None) -> List[str]:
-        """List all files in S3 location with given suffixes."""
+    def _list_s3_files(self, s3_uri: str, suffixes: List[str] = None) -> List[Tuple[str, int]]:
+        """List all files in S3 location with given suffixes.
+        Returns list of (key, size) tuples."""
         if suffixes is None:
             suffixes = ['.jsonl', '.jsonl.gz', '.jsonl.zst', '.jsonl.bz2', '.jsonl.xz']
 
@@ -385,6 +386,7 @@ class ContaminationOrchestrator:
 
         page_num = 0
         suffix_counts = {suffix: 0 for suffix in suffixes}
+        total_size = 0
 
         for page in pages:
             page_num += 1
@@ -395,16 +397,19 @@ class ContaminationOrchestrator:
             page_files = 0
             for obj in page['Contents']:
                 key = obj['Key']
+                size = obj.get('Size', 0)
                 for suffix in suffixes:
                     if key.endswith(suffix):
-                        files.append(key)
+                        files.append((key, size))
                         page_files += 1
                         suffix_counts[suffix] += 1
+                        total_size += size
                         break
 
             # Processing page
 
         # S3 listing complete
+        self.logger.info(f"Found {len(files)} files, total size: {total_size / (1024**3):.2f} GB")
 
         return files
 
@@ -424,7 +429,9 @@ class ContaminationOrchestrator:
         # Also check for cleaned files if cleaned directory is configured
         cleaned_files = []
         if self.config.remote_cleaned_output_dir:
-            cleaned_files = self._list_s3_files(self.config.remote_cleaned_output_dir, ['.clean.jsonl', '.clean.jsonl.gz', '.clean.jsonl.zst', '.clean.jsonl.bz2', '.clean.jsonl.xz'])
+            cleaned_file_tuples = self._list_s3_files(self.config.remote_cleaned_output_dir, ['.clean.jsonl', '.clean.jsonl.gz', '.clean.jsonl.zst', '.clean.jsonl.bz2', '.clean.jsonl.xz'])
+            # Extract just the keys, ignore sizes for processed file checking
+            cleaned_files = [key for key, size in cleaned_file_tuples]
             # Found cleaned files
 
         # Found clean markers
@@ -464,11 +471,11 @@ class ContaminationOrchestrator:
         return (hash_value % self.host_count) == self.host_index
 
     def _get_files_to_process(self) -> List[str]:
-        """Get list of files this host should process."""
+        """Get list of files this host should process, sorted by size descending."""
         # Determining files to process
 
-        # Get all training files
-        all_files = self._list_s3_files(self.config.remote_file_input)
+        # Get all training files with sizes
+        all_file_tuples = self._list_s3_files(self.config.remote_file_input)
         # Found training files
 
         # Get already processed files
@@ -478,10 +485,11 @@ class ContaminationOrchestrator:
         files_to_process = []
         skipped_processed = 0
         skipped_other_host = 0
+        total_size_to_process = 0
 
         # Filtering files
 
-        for i, s3_key in enumerate(all_files):
+        for i, (s3_key, size) in enumerate(all_file_tuples):
             filename = os.path.basename(s3_key)
 
             # Skip if already processed
@@ -494,16 +502,31 @@ class ContaminationOrchestrator:
                 skipped_other_host += 1
                 continue
 
-            files_to_process.append(s3_key)
+            files_to_process.append((s3_key, size))
+            total_size_to_process += size
 
             # Check debug limit
             if self.max_files_debug and len(files_to_process) >= self.max_files_debug:
                 self.logger.warning(f"DEBUG MODE: Limiting to {self.max_files_debug} files")
                 break
 
-        self.logger.warning(f"Files to process: {len(files_to_process)} (skipped: {skipped_processed} already processed, {skipped_other_host} for other hosts)")
+        # Sort by size descending (largest first)
+        files_to_process.sort(key=lambda x: x[1], reverse=True)
+        
+        # Log file size distribution
+        if files_to_process:
+            sizes = [size for _, size in files_to_process]
+            largest = max(sizes) / (1024**3)
+            smallest = min(sizes) / (1024**3)
+            total = total_size_to_process / (1024**3)
+            self.logger.warning(f"Files to process: {len(files_to_process)} (total: {total:.2f} GB, largest: {largest:.2f} GB, smallest: {smallest:.2f} GB)")
+            self.logger.warning(f"Skipped: {skipped_processed} already processed, {skipped_other_host} for other hosts")
+            self.logger.info("Files sorted by size (largest first) to optimize CPU utilization")
+        else:
+            self.logger.warning(f"Files to process: 0 (skipped: {skipped_processed} already processed, {skipped_other_host} for other hosts)")
 
-        return files_to_process
+        # Return just the keys (without sizes) for compatibility
+        return [s3_key for s3_key, size in files_to_process]
 
     def _create_s5cmd_file(self, s3_keys: List[str], command_file: Path) -> Path:
         """Create s5cmd command file for downloading files."""
