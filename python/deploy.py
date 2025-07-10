@@ -173,6 +173,10 @@ class DeploymentManager:
         daemon_cmd += f" --toxic-score-threshold {self.config.toxic_score_threshold}"
         daemon_cmd += f" --tokenizer {self.config.tokenizer_str}"
 
+        # Set output directories within the local work directory mount
+        daemon_cmd += f" --report-output-dir {self.config.local_work_dir}/results"
+        daemon_cmd += f" --cleaned-output-dir {self.config.local_work_dir}/cleaned"
+
         if self.config.daemon_port != 8080:
             daemon_cmd += f" --port {self.config.daemon_port}"
 
@@ -440,7 +444,7 @@ def wizard():
         
         # Ask for local work directory
         local_work_dir = click.prompt(
-            "Local working directory for downloads/processing",
+            "Local working directory (must be on large mount, daemon writes here too)",
             default="/mnt/decon-work"
         )
 
@@ -520,7 +524,9 @@ def wizard():
     print(f"    --ngram-size {ngram_size} --sample-every-m-tokens {sample_every_m_tokens} \\")
     print(f"    --toxic-overlap-threshold {toxic_overlap_threshold} \\")
     print(f"    --toxic-score-threshold {toxic_score_threshold} \\")
-    print(f"    --tokenizer {tokenizer_str}", end="")
+    print(f"    --tokenizer {tokenizer_str} \\")
+    print(f"    --report-output-dir {local_work_dir}/results \\")
+    print(f"    --cleaned-output-dir {local_work_dir}/cleaned", end="")
     if purify:
         print(" \\")
         print("    --purify true", end="")

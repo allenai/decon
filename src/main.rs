@@ -379,8 +379,9 @@ pub fn write_purified_file(
     cleaned_output_dir: &PathBuf,
     contaminated_lines: &std::collections::HashSet<usize>,
 ) -> Result<PathBuf, anyhow::Error> {
-    use std::fs::create_dir_all;
-    use std::io::{BufWriter, Write, BufRead};
+    use std::fs::{create_dir_all, File};
+    use std::io::{BufWriter, Write, BufRead, BufReader};
+    use flate2::read::GzDecoder;
     
     // Ensure output directory exists
     create_dir_all(cleaned_output_dir)?;
@@ -388,12 +389,19 @@ pub fn write_purified_file(
     let purified_filename = get_purified_filename(input_path);
     let purified_path = cleaned_output_dir.join(&purified_filename);
     
-    // Use read_pathbuf_to_mem to handle compressed files
-    let data = read_pathbuf_to_mem(input_path)?;
-    let mut output_file = BufWriter::new(std::fs::File::create(&purified_path)?);
+    // Open input file with streaming reader
+    let file = File::open(input_path)?;
+    let reader: Box<dyn BufRead> = if input_path.extension().and_then(|s| s.to_str()) == Some("gz") {
+        Box::new(BufReader::new(GzDecoder::new(file)))
+    } else {
+        Box::new(BufReader::new(file))
+    };
+    
+    // Create output file
+    let mut output_file = BufWriter::new(File::create(&purified_path)?);
     
     let mut removed_count = 0;
-    for (line_num, line) in data.lines().enumerate() {
+    for (line_num, line) in reader.lines().enumerate() {
         if !contaminated_lines.contains(&line_num) {
             writeln!(output_file, "{}", line?)?;
         } else {

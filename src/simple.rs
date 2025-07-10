@@ -3,10 +3,12 @@ use dashmap::DashMap;
 use rayon::prelude::*;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
-use std::fs::{create_dir_all, File};
+use std::fs::{create_dir_all, File, OpenOptions};
 use std::io::{BufWriter, Write, BufRead};
 use std::panic::catch_unwind;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Instant;
 
 use mj_io::{expand_dirs, read_pathbuf_to_mem, write_mem_to_pathbuf, build_pbar};
@@ -58,7 +60,7 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
 
     use std::sync::atomic::AtomicU64;
     let next_ngram_id = AtomicU64::new(0);
-    
+
     // Initialize tokenizer
     let tokenizer = OmniTokenizer::new(&config.tokenizer_str)?;
 
@@ -127,12 +129,12 @@ fn process_simple_reference_file(
 
         // Clean text for both tokenizer types
         let cleaned = clean_text(&line_text, &config.punctuation_chars);
-        
+
         // Store eval text snippet (first 1000 words)
         let snippet_words: Vec<&str> = cleaned.split_whitespace().take(1000).collect();
         let text_snippet = snippet_words.join(" ");
         eval_text_snippets.insert((eval_name.clone(), line_num), text_snippet);
-        
+
         // Use preprocess_text to get token IDs
         let word_tokens = if config.tokenizer_str == "word" {
             // For word mode, build vocabulary from reference set
@@ -228,7 +230,7 @@ fn hash_ngram(tokens: &[usize]) -> u64 {
 
 fn get_or_create_ngram_id(ngram_tokens: &[usize], ngram_to_id: &NgramToIdMap, next_id: &std::sync::atomic::AtomicU64, id_to_ngram_tokens: &IdToNgramTokens) -> u64 {
     use std::sync::atomic::Ordering;
-    
+
     let ngram_hash = hash_ngram(ngram_tokens);
 
     if let Some(existing_id) = ngram_to_id.get(&ngram_hash) {
@@ -277,22 +279,39 @@ fn detect_simple_contamination(
     // println!("Found {} training files to process", training_files.len()); //debug
     let pbar = build_pbar(training_files.len(), "Training files");
 
-    // Results accumulator
-    let contamination_results = DashMap::new();
-    let total_lines_processed = std::sync::atomic::AtomicUsize::new(0);
+    // Create output directory and results file for streaming output
+    create_dir_all(&config.report_output_dir)?;
+    let results_filename = get_results_filename("simple");
+    let results_path = config.report_output_dir.join(&results_filename);
+
+    let results_file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&results_path)?;
+    let results_writer = Arc::new(Mutex::new(BufWriter::new(results_file)));
+
+    // Track statistics
+    let total_contaminations = Arc::new(AtomicU32::new(0));
+    let total_lines_processed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+    // Keep track of contaminated files for purification (if needed)
+    let contaminated_files = Arc::new(DashMap::new());
 
     let processing_start = Instant::now();
     training_files.par_iter().for_each(|file_path| {
-        match process_simple_training_file(
+        match process_simple_training_file_streaming(
             file_path,
             config,
             ngram_to_id,
             id_to_docs,
             eval_documents,
-            &contamination_results,
             tokenizer,
             id_to_ngram_tokens,
-            eval_text_snippets
+            eval_text_snippets,
+            &results_writer,
+            &total_contaminations,
+            &contaminated_files
         ) {
             Ok(lines_processed) => {
                 total_lines_processed.fetch_add(lines_processed, std::sync::atomic::Ordering::SeqCst);
@@ -305,12 +324,15 @@ fn detect_simple_contamination(
     });
     let processing_time = processing_start.elapsed();
 
-    // Count total contaminations
-    let total_contaminations: usize = contamination_results.iter()
-        .map(|entry| entry.value().len())
-        .sum();
+    // Flush and close the results file
+    {
+        let mut writer = results_writer.lock().unwrap();
+        writer.flush()?;
+    }
 
+    let total_contaminations_count = total_contaminations.load(Ordering::Relaxed) as usize;
     let lines_processed = total_lines_processed.load(std::sync::atomic::Ordering::SeqCst);
+
     if lines_processed > 0 {
         let total_micros = processing_time.as_micros() as f64;
         let micros_per_line = total_micros / lines_processed as f64;
@@ -324,16 +346,24 @@ fn detect_simple_contamination(
         }
     }
 
-    // Save results
-    save_contamination_results_toxic_format_with_eval_text(config, &contamination_results, eval_text_snippets)?;
+    if total_contaminations_count > 0 {
+        println!("\n=== SIMPLE CONTAMINATION SUMMARY ===");
+        println!("Found {} contamination instances across {} files",
+                total_contaminations_count, contaminated_files.len());
+        println!("Results saved to: {:?}", results_path);
+    } else {
+        println!("\n=== NO CONTAMINATION DETECTED ===");
+        println!("No contamination found in training data");
+        println!("Empty results file saved to: {:?}", results_path);
+    }
 
     // Create purified files if requested
     if config.purify {
-        create_purified_files(config, &contamination_results, &training_files)?;
+        create_purified_files_streaming(config, &contaminated_files, &training_files)?;
     }
 
     // println!("Contamination detection completed. Results saved."); //debug
-    Ok(total_contaminations)
+    Ok(total_contaminations_count)
 }
 
 pub type ContaminationResults = DashMap<String, Vec<SimpleContaminationEntry>>;
@@ -351,11 +381,11 @@ fn extract_overlap_with_context(
         // Only iterate through the words we need
         let context_start = start_idx.saturating_sub(context_words);
         let needed_end = end_idx + context_words;
-        
+
         let mut word_iter = cleaned_text.split_whitespace();
         let mut current_idx = 0;
         let mut words_buffer = Vec::new();
-        
+
         // Skip to context_start
         while current_idx < context_start {
             if word_iter.next().is_none() {
@@ -363,7 +393,7 @@ fn extract_overlap_with_context(
             }
             current_idx += 1;
         }
-        
+
         // Collect only the words we need
         while current_idx < needed_end {
             if let Some(word) = word_iter.next() {
@@ -373,39 +403,39 @@ fn extract_overlap_with_context(
                 break;
             }
         }
-        
+
         // Check if we have enough words
         let relative_start = start_idx - context_start;
         let relative_end = end_idx - context_start;
         if relative_end > words_buffer.len() || relative_start >= relative_end {
             return None;
         }
-        
+
         // Build the output with highlighted contamination
         let mut result = String::new();
-        
+
         // Add leading context
         if relative_start > 0 {
             result.push_str("... ");
             result.push_str(&words_buffer[0..relative_start].join(" "));
             result.push(' ');
         }
-        
+
         // Add contaminated section with highlighting
         result.push_str("【");
         result.push_str(&words_buffer[relative_start..relative_end].join(" "));
         result.push_str("】");
-        
+
         // Add trailing context
         if relative_end < words_buffer.len() {
             result.push(' ');
             result.push_str(&words_buffer[relative_end..].join(" "));
             result.push_str(" ...");
         }
-        
+
         return Some(result);
     }
-    
+
     // For other tokenizers, just return the segment without fancy formatting
     // since we'd need the actual tokenizer instance to decode properly
     None
@@ -514,22 +544,22 @@ pub fn process_simple_training_file(
                         println!("\nWARNING: Overlap ratio > 1.0 detected!");
                         println!("  Training file: {}", file_name);
                         println!("  Eval: {}:{}", eval_name, eval_line);
-                        println!("  unique_matches={}, unique_ngrams={}, ratio={:.3}", 
+                        println!("  unique_matches={}, unique_ngrams={}, ratio={:.3}",
                                  unique_matches, unique_ngrams, overlap_ratio);
                         println!("  Cluster indices: start={}, end={}", cluster.start_idx, cluster.end_idx);
-                        
+
                         // Print first 10 matched ngram IDs for debugging
                         let id_vec: Vec<_> = matched_ngram_ids.iter().take(10).collect();
                         println!("  First 10 matched ngram IDs: {:?}", id_vec);
                         if matched_ngram_ids.len() > 10 {
                             println!("  ... and {} more", matched_ngram_ids.len() - 10);
                         }
-                        
+
                         // Try to understand what's happening
                         println!("  This means we found {} unique n-grams in the training cluster", unique_matches);
                         println!("  But the eval document only has {} unique n-grams total", unique_ngrams);
                         println!("  This should be impossible - investigating...");
-                        
+
                         // Additional validation
                         // Check if any of the matched ngram IDs are NOT in the eval document's ngrams
                         let mut invalid_matches = 0;
@@ -567,7 +597,7 @@ pub fn process_simple_training_file(
                             &config.tokenizer_str,
                             10 // context words
                         );
-                        
+
                         let entry = SimpleContaminationEntry {
                             training_line: line_num,
                             eval_name: eval_name.clone(),
@@ -603,6 +633,172 @@ pub fn process_simple_training_file(
     }
 
     // println!("Finished processing {}: {} lines", file_name, lines_processed); //debug
+    Ok(lines_processed)
+}
+
+// Streaming version that writes results in batches
+pub fn process_simple_training_file_streaming(
+    file_path: &PathBuf,
+    config: &Config,
+    ngram_to_id: &NgramToIdMap,
+    id_to_docs: &IdToDocsMap,
+    eval_documents: &EvalDocuments,
+    tokenizer: &OmniTokenizer,
+    id_to_ngram_tokens: &IdToNgramTokens,
+    eval_text_snippets: &EvalTextSnippets,
+    results_writer: &Arc<Mutex<BufWriter<File>>>,
+    total_contaminations: &Arc<AtomicU32>,
+    contaminated_files: &Arc<DashMap<String, HashSet<usize>>>
+) -> Result<usize, Error> {
+    let data = read_pathbuf_to_mem(file_path)?;
+
+    let file_name = if file_path.extension().and_then(|s| s.to_str()) == Some("gz") {
+        file_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown")
+            .to_string()
+    } else {
+        file_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown")
+            .to_string()
+    };
+
+    let mut lines_processed = 0;
+    let min_word_count = config.ngram_size * 2;
+    let mut contaminated_lines = HashSet::new();
+
+    // Batch results before writing
+    const BATCH_SIZE: usize = 100;
+    let mut results_batch = Vec::with_capacity(BATCH_SIZE);
+
+    for (line_num, line) in data.lines().enumerate() {
+        let line = line?;
+        let json_obj: Value = serde_json::from_str(&line)?;
+        let line_text = get_nested_json_val(&json_obj, &config.content_key.to_string())?;
+
+        // Clean text once and get token IDs
+        let cleaned_text = clean_text(&line_text, &config.punctuation_chars);
+        let Ok(word_tokens) = catch_unwind(|| tokenizer.encode(&cleaned_text)) else {
+            println!("Tokenization failed on {:?} | line {:?}", file_path, line_num);
+            continue;
+        };
+        let word_count = word_tokens.len();
+
+        // Skip entries with insufficient tokens
+        if word_count < min_word_count {
+            continue;
+        }
+
+        lines_processed += 1;
+
+        // Process n-grams with sampling
+        let clusters = process_ngrams_with_simple_sampling(
+            &word_tokens,
+            config,
+            ngram_to_id,
+            id_to_docs,
+            id_to_ngram_tokens
+        )?;
+
+        // Convert clusters to contamination entries and write immediately
+        for cluster in clusters {
+            for (doc_id, matched_ngram_ids) in cluster.document_matches {
+                if let Some(doc_info) = eval_documents.get(&doc_id) {
+                    let (eval_name, eval_line, _total_ngrams, unique_ngrams) = doc_info.value();
+                    let unique_matches = matched_ngram_ids.len();
+                    let overlap_ratio = if *unique_ngrams > 0 {
+                        unique_matches as f32 / *unique_ngrams as f32
+                    } else {
+                        0.0
+                    };
+
+                    // Calculate toxic score using IDF approach
+                    let toxic_score = calculate_simple_toxic_score(
+                        &cluster.matching_ngrams,
+                        ngram_to_id,
+                        id_to_docs,
+                        id_to_ngram_tokens
+                    );
+
+                    // Only record results that exceed both thresholds
+                    if overlap_ratio >= config.toxic_overlap_threshold && toxic_score >= config.toxic_score_threshold {
+                        // Extract the overlapping text with context
+                        let training_overlap_text = extract_overlap_with_context(
+                            &cleaned_text,
+                            cluster.start_idx,
+                            cluster.end_idx,
+                            &config.tokenizer_str,
+                            10 // context words
+                        );
+
+                        // Create JSON entry
+                        let mut result = json!({
+                            "training_file": file_name,
+                            "training_line": line_num,
+                            "eval_dataset": eval_name,
+                            "eval_line": eval_line,
+                            "overlap_ratio": overlap_ratio,
+                            "toxic_score": toxic_score,
+                            "ngram_match_cnt": unique_matches,
+                            "method": "simple"
+                        });
+
+                        // Add optional fields
+                        if let Some(start_idx) = Some(cluster.start_idx) {
+                            result["contamination_start_idx"] = json!(start_idx);
+                        }
+                        if let Some(end_idx) = Some(cluster.end_idx) {
+                            result["contamination_end_idx"] = json!(end_idx);
+                        }
+                        if let Some(ref overlap_text) = training_overlap_text {
+                            result["training_overlap_text"] = json!(overlap_text);
+                        }
+
+                        // Look up eval text snippet
+                        let eval_key = (eval_name.clone(), *eval_line);
+                        let eval_text = eval_text_snippets.get(&eval_key)
+                            .map(|entry| entry.value().clone())
+                            .unwrap_or_else(|| String::new());
+                        result["eval_overlap_text"] = json!(eval_text);
+
+                        // Add to batch
+                        results_batch.push(serde_json::to_string(&result)?);
+
+                        // Write batch if full
+                        if results_batch.len() >= BATCH_SIZE {
+                            let mut writer = results_writer.lock().unwrap();
+                            for result_str in results_batch.drain(..) {
+                                writeln!(writer, "{}", result_str)?;
+                            }
+                            writer.flush()?;
+                        }
+
+                        // Update statistics
+                        total_contaminations.fetch_add(1, Ordering::Relaxed);
+                        contaminated_lines.insert(line_num);
+                    }
+                }
+            }
+        }
+    }
+
+    // Write any remaining results in the batch
+    if !results_batch.is_empty() {
+        let mut writer = results_writer.lock().unwrap();
+        for result_str in results_batch {
+            writeln!(writer, "{}", result_str)?;
+        }
+        writer.flush()?;
+    }
+
+    // Store contaminated lines for this file if any were found
+    if !contaminated_lines.is_empty() {
+        contaminated_files.insert(file_name, contaminated_lines);
+    }
+
     Ok(lines_processed)
 }
 
@@ -696,12 +892,12 @@ fn check_ngram_for_match(
     } else {
         word_tokens[ngram_idx..ngram_idx + config.ngram_size].to_vec()
     };
-    
+
     // Skip n-grams containing unknown words (u32::MAX)
     if ngram_tokens.iter().any(|&token| token == u32::MAX as usize) {
         return None;
     }
-    
+
     let ngram_hash = hash_ngram(&ngram_tokens);
 
     // Look up n-gram ID
@@ -1053,6 +1249,7 @@ pub fn save_contamination_results_toxic_format(
     save_contamination_results_toxic_format_with_filename(config, contamination_results, None)
 }
 
+#[allow(dead_code)]
 pub fn save_contamination_results_toxic_format_with_eval_text(
     config: &Config,
     contamination_results: &ContaminationResults,
@@ -1100,7 +1297,7 @@ pub fn save_contamination_results_toxic_format_with_filename_and_eval_text(
                 "ngram_match_cnt": contamination_entry.ngram_match_cnt,
                 "method": "simple"
             });
-            
+
             // Add token indices if available
             if let Some(start_idx) = contamination_entry.contamination_start_idx {
                 result["contamination_start_idx"] = json!(start_idx);
@@ -1108,12 +1305,12 @@ pub fn save_contamination_results_toxic_format_with_filename_and_eval_text(
             if let Some(end_idx) = contamination_entry.contamination_end_idx {
                 result["contamination_end_idx"] = json!(end_idx);
             }
-            
+
             // Add overlapping text if available
             if let Some(ref overlap_text) = contamination_entry.training_overlap_text {
                 result["training_overlap_text"] = json!(overlap_text);
             }
-            
+
             // Look up eval text snippet
             let eval_key = (contamination_entry.eval_name.clone(), contamination_entry.eval_line);
             let eval_text = eval_text_snippets.get(&eval_key)
@@ -1149,16 +1346,17 @@ pub fn save_contamination_results_toxic_format_with_filename_and_eval_text(
 }
 
 // Create purified versions of training files with contaminated lines removed
+#[allow(dead_code)]
 fn create_purified_files(
     config: &Config,
     contamination_results: &ContaminationResults,
     training_files: &[PathBuf],
 ) -> Result<(), Error> {
     println!("\nCreating purified files...");
-    
+
     // Determine output directory for cleaned files
     let cleaned_dir = config.cleaned_output_dir.as_ref().unwrap_or(&config.report_output_dir);
-    
+
     // Process each training file that has contamination
     for file_path in training_files {
         // Match the same logic used in process_training_file
@@ -1175,23 +1373,23 @@ fn create_purified_files(
                 .unwrap_or("unknown")
                 .to_string()
         };
-        
+
         // Check if this file has any contamination
         if let Some(contaminations) = contamination_results.get(&file_name) {
             if contaminations.is_empty() {
                 continue;
             }
-            
+
             // Collect contaminated line numbers
             let mut contaminated_lines = HashSet::new();
             for entry in contaminations.iter() {
                 contaminated_lines.insert(entry.training_line);
             }
-            
+
             // Use the shared write_purified_file function
             write_purified_file(file_path, cleaned_dir, &contaminated_lines)?;
-            
-            println!("Created purified file for {} (removed {} lines)", 
+
+            println!("Created purified file for {} (removed {} lines)",
                      file_name, contaminated_lines.len());
         } else if config.produce_duplicate_clean_files_when_no_contamination {
             // No contamination found - create a clean copy if configured
@@ -1202,7 +1400,60 @@ fn create_purified_files(
             println!("No contamination found for {} - skipping clean file creation", file_name);
         }
     }
-    
+
+    println!("Purification complete.");
+    Ok(())
+}
+
+fn create_purified_files_streaming(
+    config: &Config,
+    contaminated_files: &Arc<DashMap<String, HashSet<usize>>>,
+    training_files: &[PathBuf],
+) -> Result<(), Error> {
+    println!("\nCreating purified files...");
+
+    // Determine output directory for cleaned files
+    let cleaned_dir = config.cleaned_output_dir.as_ref().unwrap_or(&config.report_output_dir);
+
+    // Process each training file that has contamination
+    for file_path in training_files {
+        // Match the same logic used in process_training_file
+        let file_name = if file_path.extension().and_then(|s| s.to_str()) == Some("gz") {
+            file_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string()
+        } else {
+            file_path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string()
+        };
+
+        // Check if this file has any contamination
+        if let Some(entry) = contaminated_files.get(&file_name) {
+            let contaminated_lines = entry.value();
+            if contaminated_lines.is_empty() {
+                continue;
+            }
+
+            // Use the shared write_purified_file function
+            write_purified_file(file_path, cleaned_dir, &contaminated_lines)?;
+
+            println!("Created purified file for {} (removed {} lines)",
+                     file_name, contaminated_lines.len());
+        } else if config.produce_duplicate_clean_files_when_no_contamination {
+            // No contamination found - create a clean copy if configured
+            let empty_set = HashSet::new();
+            write_purified_file(file_path, cleaned_dir, &empty_set)?;
+            println!("Created clean copy for {} (no contamination found)", file_name);
+        } else {
+            println!("No contamination found for {} - skipping clean file creation", file_name);
+        }
+    }
+
     println!("Purification complete.");
     Ok(())
 }

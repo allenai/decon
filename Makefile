@@ -48,7 +48,7 @@ toxic-review:
 	cargo run --release review --config examples/toxic.yaml --step
 
 simple-review:
-	cargo run --release review --config examples/toxic.yaml --step
+	cargo run --release review --config examples/simple.yaml --step
 
 minhash-review:
 	cargo run --release review --config examples/minhash.yaml --step
