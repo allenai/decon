@@ -15,7 +15,6 @@ import logging
 import subprocess
 import multiprocessing
 import threading
-import gzip
 import shutil
 from queue import Queue, Empty
 from pathlib import Path
@@ -677,12 +676,42 @@ class ContaminationOrchestrator:
         output_path = f"{input_path}.gz"
         
         try:
-            with open(input_path, 'rb') as f_in:
-                with gzip.open(output_path, 'wb', compresslevel=6) as f_out:
-                    shutil.copyfileobj(f_in, f_out)
+            # Get file size for logging
+            file_size = os.path.getsize(input_path)
+            file_size_mb = file_size / (1024 * 1024)
             
-            self.logger.info(f"Compressed {input_path} -> {output_path}")
+            self.logger.info(f"Starting gzip compression of {input_path} ({file_size_mb:.2f} MB)")
+            start_time = time.time()
+            
+            # Use system gzip command - this compresses in-place and adds .gz extension
+            cmd = ['gzip', '-6', '-k', input_path]  # -6 for compression level, -k to keep original
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            if result.returncode != 0:
+                # If -k flag not supported (older gzip), try without it
+                cmd = ['gzip', '-6', input_path]
+                result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                # Note: without -k, the original file is replaced with .gz version
+            
+            elapsed = time.time() - start_time
+            
+            # Check if compressed file exists
+            if os.path.exists(output_path):
+                compressed_size = os.path.getsize(output_path)
+                compressed_size_mb = compressed_size / (1024 * 1024)
+                compression_ratio = (1 - compressed_size / file_size) * 100 if file_size > 0 else 0
+                
+                self.logger.info(f"Completed gzip compression of {input_path} in {elapsed:.2f}s "
+                               f"({file_size_mb:.2f} MB -> {compressed_size_mb:.2f} MB, "
+                               f"{compression_ratio:.1f}% reduction)")
+            else:
+                self.logger.error(f"Gzip succeeded but output file {output_path} not found")
+                raise FileNotFoundError(f"Expected output file {output_path} not found after gzip")
+            
             return output_path
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Gzip command failed for {input_path}: {e.stderr}")
+            raise
         except Exception as e:
             self.logger.error(f"Failed to gzip {input_path}: {e}")
             raise
