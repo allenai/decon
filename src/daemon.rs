@@ -12,7 +12,7 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use uuid::Uuid;
 
-use crate::{Config, read_config, write_purified_file};
+use crate::{Config, write_purified_file};
 use std::collections::HashSet;
 
 // Job submission request
@@ -62,10 +62,9 @@ struct AppState {
     config: Config,
 }
 
-pub async fn run_daemon(config_path: PathBuf, port: u16) -> Result<()> {
-    // Load configuration
-    let config = read_config(&config_path)?;
-    println!("Loaded config with mode: {}", config.mode);
+pub async fn run_daemon(config: Config, port: u16) -> Result<()> {
+    // Configuration already loaded
+    println!("Running daemon with mode: {}", config.mode);
     
     // Initialize index based on mode
     println!("Building index...");

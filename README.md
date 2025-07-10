@@ -82,6 +82,15 @@ s5cmd cp -sp s3://bucket/path/to/training/* /mnt/raid0/training_data
 s5cmd cp -sp s3://bucket/path/to/eval/* /mnt/raid0/eval_data
 ```
 
+## Configuration
+
+See the [Configuration Guide](doc/configuration.md) for detailed information about all available options, including:
+- Detection mode parameters
+- Input/output settings
+- Performance tuning
+- Command-line overrides
+- Orchestrator settings
+
 ## Quick Start
 
 ### 1. Prepare Your Data
@@ -94,9 +103,7 @@ Organize your data into two directories:
 Use the `python/download_evals.py` script to download and normalize evaluation datasets based on an eval config. See `examples/decontamination/eval_datasets.yaml`.
 
 ### 2. Create Configuration
-Create a `config.yaml` file.
-
-See /examples/eval.
+Create a configuration file based on your needs. See the [Configuration Guide](doc/configuration.md) for all available options and the `examples/` directory for sample configurations.
 
 ### 3. Run Contamination Detection
 ```bash
@@ -113,82 +120,6 @@ cat /path/to/results/toxic_contamination_results.jsonl # TOXIC results
 cargo run --release review --config config.yaml
 ```
 
-## Configuration
-
-### Shared Parameters
-
-| Parameter | Description | Default | Notes |
-|-----------|-------------|---------|-------|
-| `mode` | Detection method | `minhash` | `minhash`, `toxic`, or `simple` |
-| `content_key` | JSON field containing text | `text` | Supports nested keys like `data.content` |
-| `local_input` | Training data directory | - | Path to training datasets |
-| `reference_input` | Evaluation data directory | - | Path to evaluation datasets |
-| `report_output_dir` | Results output directory | - | Where to save contamination results |
-| `ngram_size` | N-gram window size | 3 | Larger = more precise, smaller = more sensitive |
-| `purify` | Create cleaned files | `false` | Remove contaminated lines from training data |
-| `cleaned_output_dir` | Cleaned files directory | `report_output_dir` | Optional separate directory for purified files |
-
-### MinHash-Specific Parameters
-
-| Parameter | Description | Default | Notes |
-|-----------|-------------|---------|-------|
-| `jaccard_similarity_threshold` | Minimum similarity to report | 0.5 | Higher = stricter matching |
-| `num_bands` | Number of LSH bands | 7 | Fewer = more sensitive |
-| `band_size` | Hash functions per band | 8 | More = more precise |
-| `tokenizer_str` | Tokenization method | `uniseg` | `p50k`, `cl100k`, `uniseg`, or default |
-| `exact_override` | Force exact Jaccard computation | `false` | `true` for higher accuracy |
-
-### TOXIC-Specific Parameters
-
-| Parameter | Description | Default | Notes |
-|-----------|-------------|---------|-------|
-| `toxic_embedding_path` | Path to word vectors | - | FastText format (e.g., wiki-news-300d-1M.vec) |
-| `toxic_hyperplanes` | Number of LSH hyperplanes | 64 | More = more precise buckets |
-| `toxic_overlap_threshold` | Minimum overlap ratio | 0.3 | Lower = more sensitive |
-| `toxic_poison_scale` | Poison token amplification | 3.0 | Higher = more destructive to false matches |
-
-### SIMPLE-Specific Parameters
-
-| Parameter | Description | Default | Notes |
-|-----------|-------------|---------|-------|
-| `sample_every_m_tokens` | Sampling rate for training data | 50 | Lower = more thorough but slower |
-| `max_consecutive_misses` | Gap tolerance during expansion | 3 | Higher = more permissive clustering |
-| `toxic_overlap_threshold` | Minimum overlap ratio | 0.5 | Used for document-level filtering |
-| `toxic_score_threshold` | Minimum toxic score | 0.5 | IDF-based contamination score |
-
-### Performance Tuning
-
-**MinHash - For maximum sensitivity** (catch more near-duplicates):
-```yaml
-mode: minhash
-num_bands: 4                    # Fewer bands = more permissive
-jaccard_similarity_threshold: 0.7  # Lower threshold
-ngram_size: 3                   # Phrase-level matching
-```
-
-**MinHash - For maximum precision** (fewer false positives):
-```yaml
-mode: minhash
-num_bands: 14                   # More bands = stricter matching
-jaccard_similarity_threshold: 0.9  # Higher threshold
-ngram_size: 1                   # Word-level matching
-```
-
-**TOXIC - For maximum sensitivity** (catch paraphrases):
-```yaml
-mode: toxic
-ngram_size: 3                   # Shorter n-grams
-toxic_overlap_threshold: 0.2    # Lower threshold
-toxic_hyperplanes: 32           # Fewer hyperplanes
-```
-
-**TOXIC - For maximum precision** (reduce false positives):
-```yaml
-mode: toxic
-ngram_size: 5                   # Longer n-grams
-toxic_overlap_threshold: 0.4    # Higher threshold
-toxic_hyperplanes: 128          # More hyperplanes
-```
 
 ## Data Purification
 
@@ -216,21 +147,9 @@ When `purify: true` is set:
    - Skips lines flagged as contaminated
 3. Reports how many lines were removed from each file
 
-### Example
-
-```yaml
-# config.yaml
-mode: simple
-local_input: /data/training
-reference_input: /data/evaluation
-report_output_dir: /results/contamination
-cleaned_output_dir: /results/cleaned  # Optional: where purified files go when purify=true
-purify: true
-```
-
-Running this will:
-- Save contamination results to `/results/contamination/simple_contamination_results.jsonl`
-- For example: `train_001.jsonl` → `train_001.clean.jsonl` (with contaminated lines removed)
+When enabled, the tool will:
+- Save contamination results to your configured output directory
+- Create cleaned versions of training files (e.g., `train_001.jsonl` → `train_001.clean.jsonl`)
 
 ### Orchestration
 

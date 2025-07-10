@@ -1012,19 +1012,58 @@ def main():
 
     parser = argparse.ArgumentParser(description='Contamination detection orchestrator')
     parser.add_argument('--config', required=True, help='Path to configuration YAML file')
+    
+    # S3 path overrides
     parser.add_argument('--remote-file-input', help='S3 path for training data input (overrides config)')
     parser.add_argument('--remote-report-output-dir', help='S3 path for contamination reports (overrides config)')
     parser.add_argument('--remote-cleaned-output-dir', help='S3 path for cleaned files (overrides config)')
+    
+    # Daemon and local settings
+    parser.add_argument('--daemon-url', help='Daemon URL (overrides config)')
+    parser.add_argument('--local-work-dir', help='Local working directory (overrides config)')
+    
+    # Performance tuning
+    parser.add_argument('--max-concurrent-jobs', type=int, help='Maximum concurrent jobs (overrides config)')
+    parser.add_argument('--poll-interval', type=int, help='Poll interval in seconds (overrides config)')
+    parser.add_argument('--s5cmd-workers', type=int, help='Number of s5cmd workers (overrides config)')
+    
+    # Batch processing settings
+    parser.add_argument('--download-batch-size', type=int, help='Files per download batch (overrides config)')
+    parser.add_argument('--download-queue-max', type=int, help='Max files in download queue (overrides config)')
+    parser.add_argument('--upload-queue-max', type=int, help='Max files in upload queue (overrides config)')
+    parser.add_argument('--upload-batch-size', type=int, help='Jobs per upload batch (overrides config)')
+    parser.add_argument('--upload-batch-timeout', type=int, help='Upload batch timeout in seconds (overrides config)')
+    
+    # Other settings
+    parser.add_argument('--cleanup-delay', type=int, help='Cleanup delay in seconds (overrides config)')
+    
     args = parser.parse_args()
 
     # Prepare CLI overrides
     cli_overrides = {}
-    if args.remote_file_input:
-        cli_overrides['remote_file_input'] = args.remote_file_input
-    if args.remote_report_output_dir:
-        cli_overrides['remote_report_output_dir'] = args.remote_report_output_dir
-    if args.remote_cleaned_output_dir:
-        cli_overrides['remote_cleaned_output_dir'] = args.remote_cleaned_output_dir
+    
+    # Map command-line arguments to config fields
+    arg_mapping = {
+        'remote_file_input': args.remote_file_input,
+        'remote_report_output_dir': args.remote_report_output_dir,
+        'remote_cleaned_output_dir': args.remote_cleaned_output_dir,
+        'daemon_url': args.daemon_url,
+        'local_work_dir': args.local_work_dir,
+        'max_concurrent_jobs': args.max_concurrent_jobs,
+        'poll_interval': args.poll_interval,
+        's5cmd_workers': args.s5cmd_workers,
+        'download_batch_size': args.download_batch_size,
+        'download_queue_max': args.download_queue_max,
+        'upload_queue_max': args.upload_queue_max,
+        'upload_batch_size': args.upload_batch_size,
+        'upload_batch_timeout': args.upload_batch_timeout,
+        'cleanup_delay': args.cleanup_delay,
+    }
+    
+    # Only add non-None values to overrides
+    for key, value in arg_mapping.items():
+        if value is not None:
+            cli_overrides[key] = value
 
     # Load configuration
     try:
