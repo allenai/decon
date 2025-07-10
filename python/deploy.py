@@ -548,9 +548,11 @@ def wizard():
     print("\n" + "━" * 80)
     print("📝 USEFUL COMMANDS".center(80))
     print("━" * 80)
-    print(f"\n  Check status:  make deploy-status NAME={cluster_name}")
-    print(f"  View logs:     make deploy-logs NAME={cluster_name} LOG=daemon")
-    print(f"  Terminate:     make deploy-terminate NAME={cluster_name}\n")
+    print(f"\n  Check status:       make deploy-status NAME={cluster_name}")
+    print(f"  View daemon logs:   make deploy-logs NAME={cluster_name} LOG=daemon")
+    print(f"  View orchestrator:  make deploy-logs NAME={cluster_name} LOG=orchestrator")
+    print(f"  Terminate:          make deploy-terminate NAME={cluster_name}")
+    print("\n⚠️  Remember to terminate your cluster when done to avoid unnecessary charges\n")
 
     # Ask if user wants to execute the commands
     if click.confirm("\nWould you like me to run these commands?", default=False):
