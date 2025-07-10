@@ -28,6 +28,12 @@ help:
 	@echo "                        REMOTE_CLEANED_OUTPUT_DIR=<s3://bucket/path> - Override cleaned files location"
 	@echo "  orchestrate-test  - Test orchestration with example config"
 	@echo "  orchestrate-debug - Test with MAX_FILES_DEBUG=5 for development"
+	@echo ""
+	@echo "Deployment targets (requires poormanray):"
+	@echo "  deploy-wizard     - Interactive deployment wizard for setting up Decon on EC2"
+	@echo "  deploy-status     - Check status of a deployment (usage: make deploy-status NAME=<cluster-name>)"
+	@echo "  deploy-logs       - View deployment logs (usage: make deploy-logs NAME=<cluster-name> [LOG=daemon|orchestrator])"
+	@echo "  deploy-terminate  - Terminate a deployment (usage: make deploy-terminate NAME=<cluster-name>)"
 
 minhash:
 	cargo run --release detect --config examples/minhash.yaml
@@ -124,3 +130,31 @@ orchestrate:
 orchestrate-debug:
 	@echo "Testing orchestration in debug mode (max 5 files)"
 	MAX_FILES_DEBUG=100 python python/orchestration.py --config examples/orchestration.yaml
+
+# Deployment targets for managing remote clusters
+deploy-wizard:
+	@echo "Starting Decon deployment wizard..."
+	python python/deploy.py wizard
+
+deploy-status:
+	@if [ -z "$(NAME)" ]; then \
+		echo "Error: NAME parameter required. Usage: make deploy-status NAME=<cluster-name>"; \
+		exit 1; \
+	fi
+	@python python/deploy.py status --name $(NAME)
+
+deploy-logs:
+	@if [ -z "$(NAME)" ]; then \
+		echo "Error: NAME parameter required. Usage: make deploy-logs NAME=<cluster-name> [LOG=daemon|orchestrator]"; \
+		exit 1; \
+	fi
+	@LOG_TYPE=$${LOG:-daemon}; \
+	python python/deploy.py logs --name $(NAME) --log-type $$LOG_TYPE
+
+deploy-terminate:
+	@if [ -z "$(NAME)" ]; then \
+		echo "Error: NAME parameter required. Usage: make deploy-terminate NAME=<cluster-name>"; \
+		exit 1; \
+	fi
+	@echo "⚠️  WARNING: This will terminate all instances in cluster '$(NAME)'"
+	@python python/deploy.py terminate --name $(NAME)

@@ -193,6 +193,29 @@ The orchestrator will show progress and the daemon provides health/status endpoi
 - `GET /health` - Check daemon health
 - `GET /status/:job_id` - Get job results
 
+### Deployment
+
+For automated deployment on EC2 clusters, see the [Deployment Guide](doc/deployment.md). The deployment tools provide:
+- Interactive wizard for easy cluster setup
+- Automated instance provisioning and configuration
+- One-command deployment of daemon and orchestrator
+- Cluster management utilities (status, logs, termination)
+
+Quick start:
+```bash
+# Interactive deployment wizard
+make deploy-wizard
+
+# Check deployment status
+make deploy-status NAME=my-cluster
+
+# View logs
+make deploy-logs NAME=my-cluster LOG=daemon
+
+# Terminate cluster
+make deploy-terminate NAME=my-cluster
+```
+
 #### API Response Example
 ```json
 {

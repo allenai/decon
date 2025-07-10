@@ -270,9 +270,25 @@ class ContaminationOrchestrator:
 
         self.logger.warning("Starting contamination detection orchestration")
 
-        # Validate daemon is running
-        if not self._check_daemon_health():
-            self.logger.error("Daemon is not running. Please start the daemon with: make daemon")
+        # Wait for daemon to be ready (up to 5 minutes)
+        daemon_ready = False
+        max_wait_time = 300  # 5 minutes
+        wait_interval = 10   # Check every 10 seconds
+        start_wait = time.time()
+        
+        self.logger.info("Waiting for daemon to be ready...")
+        while time.time() - start_wait < max_wait_time:
+            if self._check_daemon_health():
+                daemon_ready = True
+                self.logger.info("Daemon is ready!")
+                break
+            
+            elapsed = int(time.time() - start_wait)
+            self.logger.info(f"Daemon not ready yet, waiting... ({elapsed}s / {max_wait_time}s)")
+            time.sleep(wait_interval)
+        
+        if not daemon_ready:
+            self.logger.error(f"Daemon did not become ready after {max_wait_time} seconds. Please ensure the daemon is running.")
             sys.exit(1)
 
         # Setup working directories
