@@ -29,18 +29,17 @@ make deploy-wizard
 See the [Configuration Guide](doc/configuration.md) for customizing detection parameters.
 
 
-### 💻 Local Development
+### Running with CLI
 
-For development or processing smaller datasets locally:
+For those that prefer explicitness, directness, and less abstraction, you can run the tool directly.
 
 ```bash
 # Clone and build
 git clone https://github.com/allenai/decon
 cd decon
-cargo build --release
 
-# Download evaluation datasets
-make evals
+# Download evaluation datasets. The cli will look for these in the configured reference (evals) directory. Recommend to leave the default.
+make evals-s3
 
 # Run contamination detection
 make simple

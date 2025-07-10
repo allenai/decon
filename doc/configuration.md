@@ -47,9 +47,6 @@ cleaned_output_dir: /path/to/cleaned
 
 # Create cleaned versions of files with contaminated lines removed
 purify: false
-
-# Create clean file copies even when no contamination is found
-produce_duplicate_clean_files_when_no_contamination: false
 ```
 
 #### Text Processing

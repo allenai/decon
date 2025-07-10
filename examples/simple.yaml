@@ -1,12 +1,11 @@
 mode: simple
 
 content_key: text
-local_input: /home/robert/Downloads/input-full
+local_input: fixtures/local_input
 reference_input: fixtures/reference
 report_output_dir: fixtures/output
 cleaned_output_dir: fixtures/cleaned  # Optional: separate directory for purified files
 purify: false  # Enable creation of cleaned files
-produce_duplicate_clean_files_when_no_contamination: false  # When true creates a full copy of dataset without contamination. Expensive, lots of uploading.
 
 ngram_size: 4
 max_consecutive_misses: 6

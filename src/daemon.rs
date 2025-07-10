@@ -358,9 +358,6 @@ fn process_single_file(
                 if !contaminated_lines.is_empty() {
                     println!("Creating purified file (removing {} contaminated lines)", contaminated_lines.len());
                     Some(write_purified_file(file_path, cleaned_dir, &contaminated_lines)?)
-                } else if config.produce_duplicate_clean_files_when_no_contamination {
-                    println!("Creating clean copy (no contamination found)");
-                    Some(write_purified_file(file_path, cleaned_dir, &contaminated_lines)?)
                 } else {
                     println!("No contamination found - skipping clean file creation");
                     None
@@ -427,9 +424,6 @@ fn process_single_file(
                 
                 if !contaminated_lines.is_empty() {
                     println!("Creating purified file (removing {} contaminated lines)", contaminated_lines.len());
-                    Some(write_purified_file(file_path, cleaned_dir, &contaminated_lines)?)
-                } else if config.produce_duplicate_clean_files_when_no_contamination {
-                    println!("Creating clean copy (no contamination found)");
                     Some(write_purified_file(file_path, cleaned_dir, &contaminated_lines)?)
                 } else {
                     println!("No contamination found - skipping clean file creation");
@@ -508,9 +502,6 @@ fn process_single_file(
                 
                 if !contaminated_lines.is_empty() {
                     println!("Creating purified file (removing {} contaminated lines)", contaminated_lines.len());
-                    Some(write_purified_file(file_path, cleaned_dir, &contaminated_lines)?)
-                } else if config.produce_duplicate_clean_files_when_no_contamination {
-                    println!("Creating clean copy (no contamination found)");
                     Some(write_purified_file(file_path, cleaned_dir, &contaminated_lines)?)
                 } else {
                     println!("No contamination found - skipping clean file creation");
