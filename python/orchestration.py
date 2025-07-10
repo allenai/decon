@@ -15,6 +15,8 @@ import logging
 import subprocess
 import multiprocessing
 import threading
+import gzip
+import shutil
 from queue import Queue, Empty
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Tuple
@@ -319,6 +321,9 @@ class ContaminationOrchestrator:
         
         # Release lock file
         self._release_lock()
+        
+        # Final exit message - very clear and unique for polling
+        self.logger.warning("WORK COMPLETE EXITING")
 
     def _check_daemon_health(self) -> bool:
         """Check if the daemon is running and healthy."""
@@ -644,6 +649,21 @@ class ContaminationOrchestrator:
             f.write(f"{filename}\n")
 
 
+    def _gzip_file(self, input_path: str) -> str:
+        """Compress a file with gzip and return the path to the compressed file."""
+        output_path = f"{input_path}.gz"
+        
+        try:
+            with open(input_path, 'rb') as f_in:
+                with gzip.open(output_path, 'wb', compresslevel=6) as f_out:
+                    shutil.copyfileobj(f_in, f_out)
+            
+            self.logger.info(f"Compressed {input_path} -> {output_path}")
+            return output_path
+        except Exception as e:
+            self.logger.error(f"Failed to gzip {input_path}: {e}")
+            raise
+
     def _upload_file(self, local_path: str, s3_base: str, key_suffix: str):
         """Upload a single file to S3 using s5cmd."""
         bucket, prefix = self._parse_s3_uri(s3_base)
@@ -734,6 +754,10 @@ class ContaminationOrchestrator:
 
         if job.purified_path and os.path.exists(job.purified_path):
             files_to_remove.append(job.purified_path)
+            # Also check for compressed version we might have created
+            compressed_path = f"{job.purified_path}.gz"
+            if os.path.exists(compressed_path):
+                files_to_remove.append(compressed_path)
 
         for file_path in files_to_remove:
             try:
@@ -949,12 +973,25 @@ class ContaminationOrchestrator:
 
             # Always check for cleaned file and upload if it exists
             if cleaned_path:
-                # Use the original filename from the daemon
-                cleaned_filename = os.path.basename(cleaned_path)
-                cleaned_output_dir = self.config.remote_cleaned_output_dir or self.config.remote_report_output_dir
-                upload_commands.append((cleaned_path, cleaned_output_dir, cleaned_filename))
-                self.stats_cleaned_files_uploaded += 1
-                # Will upload cleaned file
+                # Compress the cleaned file before uploading
+                try:
+                    # Check if the file is already compressed
+                    if not cleaned_path.endswith('.gz'):
+                        compressed_path = self._gzip_file(cleaned_path)
+                        cleaned_filename = os.path.basename(compressed_path)
+                        upload_path = compressed_path
+                    else:
+                        # Already compressed
+                        cleaned_filename = os.path.basename(cleaned_path)
+                        upload_path = cleaned_path
+                    
+                    cleaned_output_dir = self.config.remote_cleaned_output_dir or self.config.remote_report_output_dir
+                    upload_commands.append((upload_path, cleaned_output_dir, cleaned_filename))
+                    self.stats_cleaned_files_uploaded += 1
+                    # Will upload cleaned file
+                except Exception as e:
+                    self.logger.error(f"Failed to prepare cleaned file for upload: {e}")
+                    # Continue without uploading the cleaned file
 
         elif job.status == 'failed':
             self.logger.error(f"Job failed for {basename}: {job.error}")

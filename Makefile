@@ -34,6 +34,7 @@ help:
 	@echo "  deploy-status     - Check status of a deployment (usage: make deploy-status NAME=<cluster-name>)"
 	@echo "  deploy-logs       - View deployment logs (usage: make deploy-logs NAME=<cluster-name> [LOG=daemon|orchestrator])"
 	@echo "  deploy-terminate  - Terminate a deployment (usage: make deploy-terminate NAME=<cluster-name>)"
+	@echo "  polling-auto-terminate - Monitor orchestrator logs and auto-terminate when complete (usage: make polling-auto-terminate NAME=<cluster-name>)"
 
 minhash:
 	cargo run --release detect --config examples/minhash.yaml
@@ -158,3 +159,10 @@ deploy-terminate:
 	fi
 	@echo "⚠️  WARNING: This will terminate all instances in cluster '$(NAME)'"
 	@python python/deploy.py terminate --name $(NAME)
+
+polling-auto-terminate:
+	@if [ -z "$(NAME)" ]; then \
+		echo "Error: NAME parameter required. Usage: make polling-auto-terminate NAME=<cluster-name>"; \
+		exit 1; \
+	fi
+	@python python/deploy.py polling-auto-terminate --name $(NAME)

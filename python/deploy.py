@@ -227,7 +227,7 @@ class DeploymentManager:
 
         if self.config.remote_cleaned_output_dir:
             orchestrator_cmd += f" --remote-cleaned-output-dir {self.config.remote_cleaned_output_dir}"
-        
+
         # Add local work directory
         orchestrator_cmd += f" --local-work-dir {self.config.local_work_dir}"
 
@@ -404,7 +404,7 @@ def wizard():
     # Other options
     debug = False  # Debug mode hardcoded to false
     purify = click.confirm("Enable data purification (create full copy of dataset with contaminated documents removed)?", default=False)
-    
+
     remote_cleaned_output_dir = None
     if purify:
         # Ask for cleaned dataset destination immediately after purification question
@@ -418,7 +418,7 @@ def wizard():
                 break
             else:
                 print("❌ Error: Cleaned dataset destination must start with 's3://'. Please try again.")
-    
+
     daemon_port = 8080  # Daemon port hardcoded to default
 
     # Orchestrator configuration
@@ -433,20 +433,16 @@ def wizard():
     )
 
     remote_report_output_dir = None
-    local_work_dir = "/mnt/decon-work"
-
+    
     if remote_file_input:
         default_report_path = f"s3://ai2-decon-reports/{cluster_name}"
         remote_report_output_dir = click.prompt(
             "S3 path for contamination reports",
             default=default_report_path
         )
-        
-        # Ask for local work directory
-        local_work_dir = click.prompt(
-            "Local working directory (must be on large mount, daemon writes here too)",
-            default="/mnt/decon-work"
-        )
+
+    # Force local work directory to /mnt/decon-work
+    local_work_dir = "/mnt/decon-work"
 
     # Create configuration
     deploy_config = DeploymentConfig(
@@ -491,15 +487,13 @@ def wizard():
             print(f"  Cleaned: {deploy_config.remote_cleaned_output_dir}")
         print(f"  Work dir: {deploy_config.local_work_dir}")
 
-    # Generate deployment commands
     print("\n")
     print("━" * 80)
     print("🚀 ✨ DEPLOYMENT COMMANDS ✨ 🚀".center(80))
     print("━" * 80)
     print("\nCopy and run these commands to deploy your cluster:\n")
 
-    # Create cluster command
-    print("▶ " + "─" * 40 + " CREATE CLUSTER " + "─" * 22 + " ◀")
+    print("\033[1m1. Create cluster\033[0m")
     print("\npoormanray create \\")
     print(f"  --name {cluster_name} \\")
     print(f"  --owner {owner} \\")
@@ -507,15 +501,13 @@ def wizard():
     print(f"  --instance-type {instance_type} \\")
     print("  --region us-east-1 \n")
 
-    # Setup decon command
-    print("▶ " + "─" * 42 + " SETUP DECON " + "─" * 23 + " ◀")
+    print("\033[1m2. Install dependencies and setup environment\033[0m")
     print("\npoormanray setup-decon \\")
     print(f"  --name {cluster_name} \\")
     print(f"  --ssh-key-path {ssh_key} \\")
     print(f"  --github-token {github_token} \n")
 
-    # Start daemon command
-    print("▶ " + "─" * 41 + " START DETECTION SERVER AND BUILD INDEX" + "─" * 23 + " ◀")
+    print("\033[1m3. Launch decontamination server that builds reference index and receives work.\033[0m")
     print("\npoormanray run \\")
     print(f"  --name {cluster_name} \\")
     print("  --command \"cd decon && nohup cargo run --release -- daemon \\")
@@ -535,21 +527,19 @@ def wizard():
     print(f"  --ssh-key-path {ssh_key} \\")
     print("  --detach\n")
 
-    # Start orchestrator command (if configured)
-    if remote_file_input:
-        print("▶ " + "─" * 38 + " START ORCHESTRATOR (orchestration waits for daemon index construction)" + "─" * 20 + " ◀")
-        print("\npoormanray run \\")
-        print(f"  --name {cluster_name} \\")
-        print("  --command \"cd decon && nohup python python/orchestration.py \\")
-        print("    --config examples/orchestration.yaml \\")
-        print(f"    --remote-file-input {remote_file_input} \\")
-        print(f"    --remote-report-output-dir {remote_report_output_dir} \\")
-        if remote_cleaned_output_dir:
-            print(f"    --remote-cleaned-output-dir {remote_cleaned_output_dir} \\")
-        print(f"    --local-work-dir {local_work_dir} \\")
-        print("    > orchestrator.log 2>&1 & disown\" \\")
-        print(f"  --ssh-key-path {ssh_key} \\")
-        print("  --detach\n")
+    print("\033[1m4. Launch orchestrator which downloads files, submits to daemon, and uploads results.\033[0m")
+    print("\npoormanray run \\")
+    print(f"  --name {cluster_name} \\")
+    print("  --command \"cd decon && nohup python python/orchestration.py \\")
+    print("    --config examples/orchestration.yaml \\")
+    print(f"    --remote-file-input {remote_file_input} \\")
+    print(f"    --remote-report-output-dir {remote_report_output_dir} \\")
+    if remote_cleaned_output_dir:
+        print(f"    --remote-cleaned-output-dir {remote_cleaned_output_dir} \\")
+    print(f"    --local-work-dir {local_work_dir} \\")
+    print("    > orchestrator.log 2>&1 & disown\" \\")
+    print(f"  --ssh-key-path {ssh_key} \\")
+    print("  --detach\n")
 
     print("\n" + "━" * 80)
     print("📝 USEFUL COMMANDS".center(80))
@@ -557,47 +547,10 @@ def wizard():
     print(f"\n  Check status:       make deploy-status NAME={cluster_name}")
     print(f"  View daemon logs:   make deploy-logs NAME={cluster_name} LOG=daemon")
     print(f"  View orchestrator:  make deploy-logs NAME={cluster_name} LOG=orchestrator")
-    print(f"  Terminate:          make deploy-terminate NAME={cluster_name}")
-    print("\n⚠️  Remember to terminate your cluster when done to avoid unnecessary charges\n")
-
-    # Ask if user wants to execute the commands
-    if click.confirm("\nWould you like me to run these commands?", default=False):
-        try:
-            manager = DeploymentManager(deploy_config)
-
-            print("\n🚀 Executing deployment commands...\n")
-
-            # Create cluster
-            if not manager.create_cluster():
-                print("\n❌ Deployment failed at: Create cluster")
-                return
-
-            # Setup decon
-            if not manager.setup_decon():
-                print("\n❌ Deployment failed at: Setup Decon")
-                return
-
-            # Start daemon
-            if not manager.start_daemon():
-                print("\n❌ Deployment failed at: Start daemon")
-                return
-
-            # Start orchestrator if configured
-            if remote_file_input:
-                if not manager.start_orchestrator():
-                    print("\n❌ Deployment failed at: Start orchestrator")
-                    return
-
-            print("\n✅ Deployment completed successfully!")
-
-            # Check status
-            status = manager.check_status()
-            print("\n📊 Deployment Status:")
-            print(status["instances"])
-
-        except PoorManRayError as e:
-            print(f"\n❌ {e}")
-            sys.exit(1)
+    print(f"  Auto-terminate:     make polling-auto-terminate NAME={cluster_name}")
+    print(f"  Manual terminate:   make deploy-terminate NAME={cluster_name}")
+    print("\n💡 Tip: Use polling-auto-terminate to automatically shut down the cluster when work completes")
+    print("⚠️  Remember to terminate your cluster when done to avoid unnecessary charges\n")
 
 
 @cli.command()
@@ -734,6 +687,101 @@ def terminate(name):
     except PoorManRayError as e:
         print(f"❌ {e}")
         sys.exit(1)
+
+
+@cli.command(name="polling-auto-terminate")
+@click.option("--name", required=True, help="Cluster name")
+@click.option("--poll-interval", default=60, help="Poll interval in seconds (default: 60)")
+@click.option("--ssh-key", default="~/.ssh/id_rsa", help="Path to SSH private key")
+def polling_auto_terminate(name, poll_interval, ssh_key):
+    """Monitor orchestrator logs and auto-terminate when complete"""
+    print("=====================================")
+    print("Polling Auto-Terminate Monitor")
+    print("=====================================")
+    print(f"Cluster: {name}")
+    print(f"Poll interval: {poll_interval}s")
+    print(f"Monitoring for: WORK COMPLETE EXITING")
+    print(f"Started at: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print("=====================================\n")
+
+    deploy_config = DeploymentConfig(
+        cluster_name=name,
+        ssh_key_path=ssh_key
+    )
+
+    try:
+        manager = DeploymentManager(deploy_config)
+        
+        # Track consecutive failures
+        consecutive_failures = 0
+        max_failures = 5
+        
+        while True:
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Checking orchestrator logs...")
+            
+            try:
+                # Get orchestrator logs
+                logs = manager.view_logs("orchestrator")
+                
+                # Check for completion marker
+                if "WORK COMPLETE EXITING" in logs:
+                    print("\n=====================================")
+                    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] DETECTED: WORK COMPLETE EXITING")
+                    print("=====================================")
+                    print("Work is complete! Initiating cluster termination...")
+                    print()
+                    
+                    # Small delay to ensure everything is properly flushed
+                    time.sleep(5)
+                    
+                    # Terminate the cluster (without confirmation prompt)
+                    print(f"Executing cluster termination for '{name}'")
+                    if manager.terminate_cluster():
+                        print("\n=====================================")
+                        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] SUCCESS: Cluster terminated")
+                        print("=====================================")
+                        sys.exit(0)
+                    else:
+                        print("\n=====================================")
+                        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ERROR: Failed to terminate cluster")
+                        print("=====================================")
+                        print(f"Please manually run: poormanray terminate --name {name}")
+                        sys.exit(1)
+                else:
+                    # Reset failure counter on successful log retrieval
+                    consecutive_failures = 0
+                    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Work still in progress...")
+                    
+            except subprocess.CalledProcessError as e:
+                consecutive_failures += 1
+                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] WARNING: Failed to retrieve logs (attempt {consecutive_failures}/{max_failures})")
+                
+                if consecutive_failures >= max_failures:
+                    print("\n=====================================")
+                    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ERROR: Too many consecutive failures")
+                    print("=====================================")
+                    print(f"Unable to retrieve logs after {max_failures} attempts.")
+                    print("The cluster may have already been terminated or there may be a connection issue.")
+                    print(f"Please check manually with: poormanray list --name {name}")
+                    sys.exit(1)
+            
+            except Exception as e:
+                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ERROR: Unexpected error: {e}")
+                consecutive_failures += 1
+                
+                if consecutive_failures >= max_failures:
+                    print("Too many errors, exiting...")
+                    sys.exit(1)
+            
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Sleeping for {poll_interval}s...\n")
+            time.sleep(poll_interval)
+            
+    except PoorManRayError as e:
+        print(f"❌ {e}")
+        sys.exit(1)
+    except KeyboardInterrupt:
+        print("\n\nMonitoring cancelled by user")
+        sys.exit(0)
 
 
 # Low-level API functions for programmatic use (e.g., MCP server)

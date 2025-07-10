@@ -45,25 +45,8 @@ The wizard will guide you through:
 - S3 report output path
 - S3 cleaned files path (if purification enabled)
 
-The wizard provides helpful descriptions for each option and sensible defaults that you can accept by pressing Enter.
+The wizard outputs a set of poormanray commands to decontaminate with poormanray, which you can use as a reference in the future and forget about the wizard if you don't like software terms from the 90s.
 
-### Manual Deployment Steps
-
-If you prefer to run commands manually:
-
-```bash
-# 1. Create cluster
-poormanray create --name my-decon --number 2 --instance-type i4i.2xlarge
-
-# 2. Setup Decon
-poormanray setup-decon --name my-decon --ssh-key-path ~/.ssh/id_rsa --github-token YOUR_TOKEN --detach
-
-# 3. Start daemon
-poormanray run --name my-decon --command "cd decon; nohup make daemon > daemon.log 2>&1 & disown" --ssh-key-path ~/.ssh/id_rsa --detach
-
-# 4. Start orchestrator
-poormanray run --name my-decon --command "cd decon; nohup make orchestrate > orchestrator.log 2>&1 & disown" --ssh-key-path ~/.ssh/id_rsa --detach
-```
 
 ## Managing Deployments
 
@@ -92,80 +75,34 @@ python python/deploy.py logs --name my-decon --log-type daemon --follow
 
 ### Terminate Cluster
 
+#### Manual Termination
+
 ```bash
 # Terminate all instances
 make deploy-terminate NAME=my-decon
 ```
 
-## Advanced Usage
+#### Automatic Termination (Recommended)
 
-### Non-Interactive Deployment
-
-Basic deployment with defaults:
-```bash
-python python/deploy.py deploy \
-  --name my-decon \
-  --instances 3 \
-  --instance-type i4i.2xlarge \
-  --ssh-key ~/.ssh/id_rsa \
-  --github-token YOUR_TOKEN
-```
-
-Full deployment with custom configuration:
-```bash
-python python/deploy.py deploy \
-  --name my-decon \
-  --instances 3 \
-  --github-token YOUR_TOKEN \
-  --mode simple \
-  --ngram-size 15 \
-  --sample-every-m-tokens 5 \
-  --tokenizer word \
-  --purify \
-  --remote-file-input s3://bucket/training-data \
-  --remote-report-output-dir s3://bucket/reports \
-  --remote-cleaned-output-dir s3://bucket/cleaned
-```
-
-### Custom Configuration
-
-You can override daemon settings during deployment:
+To avoid unnecessary charges, use the auto-terminate feature that monitors the orchestrator and automatically shuts down the cluster when work completes:
 
 ```bash
-python python/deploy.py deploy \
-  --name my-decon \
-  --daemon-port 9090 \
-  --instances 2
+# Start monitoring and auto-terminate when done
+make polling-auto-terminate NAME=my-decon
 ```
 
-### Programmatic API
+This command will:
+- Poll the orchestrator logs every 60 seconds
+- Look for the completion marker "WORK COMPLETE EXITING"
+- Automatically terminate the cluster when detected
+- Handle connection failures gracefully (up to 5 consecutive failures)
 
-For integration with other tools (e.g., MCP servers):
-
-```python
-from deploy import create_deployment_manager, DeploymentStage
-
-# Create manager
-manager = create_deployment_manager(
-    cluster_name="my-decon",
-    instance_count=2,
-    instance_type="i4i.2xlarge",
-    github_token="YOUR_TOKEN"
-)
-
-# Execute individual stages
-manager.create_cluster()
-manager.setup_decon()
-manager.start_daemon()
-manager.start_orchestrator()
-
-# Check status
-status = manager.check_status()
-print(status)
-
-# Clean up
-manager.terminate_cluster()
+You can customize the polling interval:
+```bash
+python python/deploy.py polling-auto-terminate --name my-decon --poll-interval 30
 ```
+
+**Best Practice**: Start the auto-terminate monitor in a separate terminal after launching your orchestrator. This ensures your cluster is automatically cleaned up when processing completes, preventing runaway costs from forgotten clusters.
 
 ## Deployment Architecture
 
@@ -184,6 +121,48 @@ When you deploy Decon:
 4. **Services Started**:
    - **Daemon**: HTTP server for processing contamination detection jobs
    - **Orchestrator**: Manages S3 file downloads, job distribution, and result uploads
+
+### Data Flow Architecture
+
+```
+┌─────────────────┐
+│   S3 Input      │
+│ Training Data   │
+│ (JSONL files)   │
+└────────┬────────┘
+         │
+         │ Download
+         ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      EC2 Instance(s)                        │
+│                                                             │
+│  ┌──────────────┐         ┌────────────────────────────┐  │
+│  │ Orchestrator │ ────────▶│        Daemon              │  │
+│  │              │  Submit  │                            │  │
+│  │ • Downloads  │  Jobs    │  • Loads reference data   │  │
+│  │ • Distributes│          │  • Processes files        │  │
+│  │ • Uploads    │◀──────── │  • Detects contamination │  │
+│  │              │  Results │  • Creates cleaned files  │  │
+│  └──────┬───────┘         └────────────────────────────┘  │
+│         │                                                   │
+└─────────┼───────────────────────────────────────────────────┘
+          │
+          │ Upload
+          ▼
+    ┌─────────────┐       ┌──────────────────┐
+    │ S3 Reports  │       │ S3 Cleaned Files │
+    │   Output    │       │    (Optional)    │
+    │ (JSONL)     │       │ (JSONL.gz)       │
+    └─────────────┘       └──────────────────┘
+
+Key Components:
+• S3 Input: Your training data files (supports .jsonl, .jsonl.gz, etc.)
+• Orchestrator: Python process that coordinates the workflow
+• Daemon: Rust HTTP server that performs the actual contamination detection
+• S3 Reports: Contamination detection results
+• S3 Cleaned: Purified datasets with contaminated lines removed (if --purify enabled)
+
+Note: Multiple EC2 instances can run in parallel, each processing different files.
 
 ## Troubleshooting
 

@@ -19,7 +19,8 @@
       "Bash(git add:*)",
       "Bash(cat:*)",
       "Bash(git mv:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(chmod:*)"
     ],
     "deny": []
   }
