@@ -32,7 +32,12 @@ mod daemon;
 =================================================================*/
 
 #[derive(Parser)]
-#[clap(author, version, about, long_about = None)]
+#[clap(
+    author, 
+    version, 
+    about = "Decon - A contamination detection tool for machine learning datasets",
+    long_about = "Decon identifies when training data contains text from evaluation datasets.\n\nSupports three detection algorithms:\n- SIMPLE: N-gram matching with sampling and cluster expansion\n- MinHash: Near-duplicate detection using locality-sensitive hashing\n- TOXIC: Semantic similarity using word embeddings\n\nConfiguration options can be specified in a YAML file and overridden via command-line flags."
+)]
 struct ArgParser {
     #[clap(subcommand)]
     command: Commands,
@@ -44,8 +49,75 @@ struct ArgParser {
 #[derive(Subcommand, Debug)]
 enum Commands {
     Detect {
-        #[arg(required=true, long)]
-        config: PathBuf
+        #[arg(required=true, long, help = "Path to YAML configuration file")]
+        config: PathBuf,
+        
+        // Common config overrides
+        #[arg(long, help = "Detection mode: simple, minhash, or toxic")]
+        mode: Option<String>,
+        
+        #[arg(long, help = "JSON field containing text content")]
+        content_key: Option<String>,
+        
+        #[arg(long, help = "Directory containing training data")]
+        local_input: Option<PathBuf>,
+        
+        #[arg(long, help = "Directory containing evaluation/reference data")]
+        reference_input: Option<PathBuf>,
+        
+        #[arg(long, help = "Output directory for contamination reports")]
+        report_output_dir: Option<PathBuf>,
+        
+        #[arg(long, help = "Output directory for cleaned files")]
+        cleaned_output_dir: Option<PathBuf>,
+        
+        #[arg(long, help = "Enable creation of cleaned files")]
+        purify: Option<bool>,
+        
+        #[arg(long, help = "Enable debug mode")]
+        debug: Option<bool>,
+        
+        #[arg(long, help = "Tokenizer type: word, p50k, or cl100k")]
+        tokenizer: Option<String>,
+        
+        // SIMPLE mode specific
+        #[arg(long, help = "N-gram size for SIMPLE mode")]
+        ngram_size: Option<usize>,
+        
+        #[arg(long, help = "Sample every M tokens for SIMPLE mode")]
+        sample_every_m_tokens: Option<usize>,
+        
+        #[arg(long, help = "Max consecutive misses before stopping cluster expansion")]
+        max_consecutive_misses: Option<usize>,
+        
+        // MinHash mode specific
+        #[arg(long, help = "Number of bands for MinHash LSH")]
+        num_bands: Option<usize>,
+        
+        #[arg(long, help = "Size of each band for MinHash LSH")]
+        band_size: Option<usize>,
+        
+        #[arg(long, help = "Jaccard similarity threshold for MinHash")]
+        jaccard_similarity_threshold: Option<f32>,
+        
+        // TOXIC mode specific
+        #[arg(long, help = "Path to word embeddings file for TOXIC mode")]
+        toxic_embedding_path: Option<PathBuf>,
+        
+        #[arg(long, help = "Number of hyperplanes for TOXIC LSH")]
+        toxic_hyperplanes: Option<usize>,
+        
+        #[arg(long, help = "Overlap ratio threshold for TOXIC mode")]
+        toxic_overlap_threshold: Option<f32>,
+        
+        #[arg(long, help = "Toxic score threshold for TOXIC mode")]
+        toxic_score_threshold: Option<f32>,
+        
+        #[arg(long, help = "Scale factor for poison tokens in TOXIC mode")]
+        toxic_poison_scale: Option<f32>,
+        
+        #[arg(long, help = "Skip buckets with more than this many entries (-1 to disable)")]
+        skip_hot_bucket_threshold: Option<i32>,
     },
 
     Review {
@@ -603,9 +675,7 @@ macro_rules! debug_println {
 =                         CONTAMINATION DETECTION                =
 =================================================================*/
 
-fn contamination_detect(config: &PathBuf) -> Result<(), Error> {
-    let config_obj = read_config(config)?;
-
+fn contamination_detect_with_config(config_obj: &Config) -> Result<(), Error> {
     match config_obj.mode.as_str() {
         "minhash" => {
             println!("Using MinHash contamination detection...");
@@ -1624,8 +1694,47 @@ fn main() -> Result<(), Error> {
     }
 
     let result = match &args.command {
-        Commands::Detect {config} => {
-            contamination_detect(config)
+        Commands::Detect {
+            config, mode, content_key, local_input, reference_input,
+            report_output_dir, cleaned_output_dir, purify, debug, tokenizer,
+            ngram_size, sample_every_m_tokens, max_consecutive_misses,
+            num_bands, band_size, jaccard_similarity_threshold,
+            toxic_embedding_path, toxic_hyperplanes, toxic_overlap_threshold,
+            toxic_score_threshold, toxic_poison_scale, skip_hot_bucket_threshold
+        } => {
+            // Load config from file
+            let mut loaded_config = read_config(config)?;
+            
+            // Apply command-line overrides
+            if let Some(m) = mode { loaded_config.mode = m.clone(); }
+            if let Some(ck) = content_key { loaded_config.content_key = ck.clone(); }
+            if let Some(li) = local_input { loaded_config.local_input = li.clone(); }
+            if let Some(ri) = reference_input { loaded_config.reference_input = ri.clone(); }
+            if let Some(rod) = report_output_dir { loaded_config.report_output_dir = rod.clone(); }
+            if let Some(cod) = cleaned_output_dir { loaded_config.cleaned_output_dir = Some(cod.clone()); }
+            if let Some(p) = purify { loaded_config.purify = *p; }
+            if let Some(d) = debug { loaded_config.debug = *d; }
+            if let Some(t) = tokenizer { loaded_config.tokenizer_str = t.clone(); }
+            
+            // SIMPLE mode overrides
+            if let Some(ns) = ngram_size { loaded_config.ngram_size = *ns; }
+            if let Some(semt) = sample_every_m_tokens { loaded_config.sample_every_m_tokens = *semt; }
+            if let Some(mcm) = max_consecutive_misses { loaded_config.max_consecutive_misses = *mcm; }
+            
+            // MinHash mode overrides
+            if let Some(nb) = num_bands { loaded_config.num_bands = *nb; }
+            if let Some(bs) = band_size { loaded_config.band_size = *bs; }
+            if let Some(jst) = jaccard_similarity_threshold { loaded_config.jaccard_similarity_threshold = *jst; }
+            
+            // TOXIC mode overrides
+            if let Some(tep) = toxic_embedding_path { loaded_config.toxic_embedding_path = tep.clone(); }
+            if let Some(th) = toxic_hyperplanes { loaded_config.toxic_hyperplanes = *th; }
+            if let Some(tot) = toxic_overlap_threshold { loaded_config.toxic_overlap_threshold = *tot; }
+            if let Some(tst) = toxic_score_threshold { loaded_config.toxic_score_threshold = *tst; }
+            if let Some(tps) = toxic_poison_scale { loaded_config.toxic_poison_scale = *tps; }
+            if let Some(shbt) = skip_hot_bucket_threshold { loaded_config.skip_hot_bucket_threshold = *shbt; }
+            
+            contamination_detect_with_config(&loaded_config)
         }
 
         Commands::Review {config, results_file, step, stats, fp, fn_, tp, tn, full} => {
