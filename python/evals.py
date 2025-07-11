@@ -103,6 +103,46 @@ EVAL_CONFIG = {
             }
         },
 
+        'basic_skills_common_knowledge': {
+            'hf_path': 'allenai/basic-skills',
+            'hf_config': 'common_knowledge',
+            'splits': ['validation'],
+            'transform': {
+                'text_field': 'question',
+                'answer_field': 'answer'
+            }
+        },
+
+        'basic_skills_logical_reasoning': {
+            'hf_path': 'allenai/basic-skills',
+            'hf_config': 'logical_reasoning',
+            'splits': ['validation'],
+            'transform': {
+                'text_field': 'question',
+                'answer_field': 'answer'
+            }
+        },
+
+        'basic_skills_pattern': {
+            'hf_path': 'allenai/basic-skills',
+            'hf_config': 'pattern',
+            'splits': ['validation'],
+            'transform': {
+                'text_field': 'question',
+                'answer_field': 'answer'
+            }
+        },
+
+        'basic_skills_string_operations': {
+            'hf_path': 'allenai/basic-skills',
+            'hf_config': 'string_operations',
+            'splits': ['validation'],
+            'transform': {
+                'text_field': 'question',
+                'answer_field': 'answer'
+            }
+        },
+
         'coqa_mc': {
             'hf_path': 'allenai/coqa_mc',
             'splits': ['validation'],
@@ -200,6 +240,16 @@ EVAL_CONFIG = {
             }
         },
 
+        'zebra_logic_mc': {
+            'hf_path': 'allenai/ZebraLogicBench-private',
+            'hf_config': 'mc_mode',
+            'splits': ['test'],
+            'transform': {
+                'text_field': 'puzzle',
+                'answer_field': 'solution'
+            }
+        },
+
         'gsm_symbolic': {
             'hf_path': 'apple/GSM-Symbolic',
             'splits': ['test'],
@@ -281,6 +331,66 @@ EVAL_CONFIG = {
         'hendrycks_math_algebra': {
             'hf_path': 'EleutherAI/hendrycks_math',
             'hf_config': 'algebra',
+            'splits': ['train', 'test'],
+            'transform': {
+                'text_field': 'problem',
+                'answer_field': 'solution'
+            }
+        },
+
+        'hendrycks_math_counting_and_probability': {
+            'hf_path': 'EleutherAI/hendrycks_math',
+            'hf_config': 'counting_and_probability',
+            'splits': ['train', 'test'],
+            'transform': {
+                'text_field': 'problem',
+                'answer_field': 'solution'
+            }
+        },
+
+        'hendrycks_math_geometry': {
+            'hf_path': 'EleutherAI/hendrycks_math',
+            'hf_config': 'geometry',
+            'splits': ['train', 'test'],
+            'transform': {
+                'text_field': 'problem',
+                'answer_field': 'solution'
+            }
+        },
+
+        'hendrycks_math_intermediate_algebra': {
+            'hf_path': 'EleutherAI/hendrycks_math',
+            'hf_config': 'intermediate_algebra',
+            'splits': ['train', 'test'],
+            'transform': {
+                'text_field': 'problem',
+                'answer_field': 'solution'
+            }
+        },
+
+        'hendrycks_math_number_theory': {
+            'hf_path': 'EleutherAI/hendrycks_math',
+            'hf_config': 'number_theory',
+            'splits': ['train', 'test'],
+            'transform': {
+                'text_field': 'problem',
+                'answer_field': 'solution'
+            }
+        },
+
+        'hendrycks_math_prealgebra': {
+            'hf_path': 'EleutherAI/hendrycks_math',
+            'hf_config': 'prealgebra',
+            'splits': ['train', 'test'],
+            'transform': {
+                'text_field': 'problem',
+                'answer_field': 'solution'
+            }
+        },
+
+        'hendrycks_math_precalculus': {
+            'hf_path': 'EleutherAI/hendrycks_math',
+            'hf_config': 'precalculus',
             'splits': ['train', 'test'],
             'transform': {
                 'text_field': 'problem',
@@ -382,12 +492,33 @@ EVAL_CONFIG = {
             }
         },
 
-        'humaneval_infilling': {
+        'humaneval_infilling_multiline': {
             'hf_path': 'loubnabnl/humaneval_infilling',
+            'hf_config': 'HumanEval-MultiLineInfilling',
             'splits': ['test'],
             'transform': {
                 'text_field': 'prompt',
-                'answer': 'canonical_solution'
+                'answer_field': 'canonical_solution'
+            }
+        },
+
+        'humaneval_infilling_singleline': {
+            'hf_path': 'loubnabnl/humaneval_infilling',
+            'hf_config': 'HumanEval-SingleLineInfilling',
+            'splits': ['test'],
+            'transform': {
+                'text_field': 'prompt',
+                'answer_field': 'canonical_solution'
+            }
+        },
+
+        'humaneval_infilling_randomspan': {
+            'hf_path': 'loubnabnl/humaneval_infilling',
+            'hf_config': 'HumanEval-RandomSpanInfilling',
+            'splits': ['test'],
+            'transform': {
+                'text_field': 'prompt',
+                'answer_field': 'canonical_solution'
             }
         },
 
@@ -412,6 +543,56 @@ EVAL_CONFIG = {
             }
         },
 
+        'bbh_causal_judgement': {
+            'hf_path': 'lukaemon/bbh',
+            'hf_config': 'causal_judgement',
+            'splits': ['test'],
+            'transform': {
+                'text_field': 'input',
+                'answer_field': 'target'
+            }
+        },
+
+        'bbh_date_understanding': {
+            'hf_path': 'lukaemon/bbh',
+            'hf_config': 'date_understanding',
+            'splits': ['test'],
+            'transform': {
+                'text_field': 'input',
+                'answer_field': 'target'
+            }
+        },
+
+        'bbh_disambiguation_qa': {
+            'hf_path': 'lukaemon/bbh',
+            'hf_config': 'disambiguation_qa',
+            'splits': ['test'],
+            'transform': {
+                'text_field': 'input',
+                'answer_field': 'target'
+            }
+        },
+
+        'bbh_formal_fallacies': {
+            'hf_path': 'lukaemon/bbh',
+            'hf_config': 'formal_fallacies',
+            'splits': ['test'],
+            'transform': {
+                'text_field': 'input',
+                'answer_field': 'target'
+            }
+        },
+
+        'bbh_logical_deduction_three_objects': {
+            'hf_path': 'lukaemon/bbh',
+            'hf_config': 'logical_deduction_three_objects',
+            'splits': ['test'],
+            'transform': {
+                'text_field': 'input',
+                'answer_field': 'target'
+            }
+        },
+
         'trivia_qa': {
             'hf_path': 'mandarjoshi/trivia_qa',
             'hf_config': 'rc',
@@ -424,7 +605,42 @@ EVAL_CONFIG = {
 
         'multipl_e_humaneval_python': {
             'hf_path': 'nuprl/MultiPL-E',
+            'hf_config': 'humaneval-python',
+            'splits': ['test'],
+            'transform': 'auto'
+        },
+
+        'multipl_e_humaneval_js': {
+            'hf_path': 'nuprl/MultiPL-E',
             'hf_config': 'humaneval-js',
+            'splits': ['test'],
+            'transform': 'auto'
+        },
+
+        'multipl_e_humaneval_java': {
+            'hf_path': 'nuprl/MultiPL-E',
+            'hf_config': 'humaneval-java',
+            'splits': ['test'],
+            'transform': 'auto'
+        },
+
+        'multipl_e_humaneval_go': {
+            'hf_path': 'nuprl/MultiPL-E',
+            'hf_config': 'humaneval-go',
+            'splits': ['test'],
+            'transform': 'auto'
+        },
+
+        'multipl_e_humaneval_cpp': {
+            'hf_path': 'nuprl/MultiPL-E',
+            'hf_config': 'humaneval-cpp',
+            'splits': ['test'],
+            'transform': 'auto'
+        },
+
+        'multipl_e_mbpp_python': {
+            'hf_path': 'nuprl/MultiPL-E',
+            'hf_config': 'mbpp-python',
             'splits': ['test'],
             'transform': 'auto'
         },
@@ -465,7 +681,7 @@ EVAL_CONFIG = {
         },
 
         'squad': {
-            'hf_path': 'rajpurkar/squad',
+            'hf_path': 'squad',
             'splits': ['train', 'validation'],
             'transform': {
                 'text_field': 'question',
@@ -573,7 +789,7 @@ EVAL_CONFIG = {
         },
 
         'commonsense_qa': {
-            'hf_path': 'tau/commonsense_qa',
+            'hf_path': 'commonsense_qa',
             'splits': ['train', 'validation', 'test'],
             'transform': {
                 'text_field': 'question',
@@ -582,7 +798,7 @@ EVAL_CONFIG = {
         },
 
         'hellaswag': {
-            'hf_path': 'Rowan/hellaswag',
+            'hf_path': 'hellaswag',
             'splits': ['train', 'test', 'validation'],
             'transform': {
                 'text_field': 'ctx',
@@ -591,7 +807,7 @@ EVAL_CONFIG = {
         },
 
         'piqa': {
-            'hf_path': 'ybisk/piqa',
+            'hf_path': 'piqa',
             'splits': ['train', 'test', 'validation'],
             'transform': {
                 'text_field': 'goal',
