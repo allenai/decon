@@ -656,7 +656,7 @@ EVAL_CONFIG = {
 
         'lab_bench_protocolqa': {
             'hf_path': 'futurehouse/lab-bench',
-            'hf_config': 'ProtocolQA', 
+            'hf_config': 'ProtocolQA',
             'splits': ['train'],
             'transform': {
                 'text_field': 'question',
@@ -1116,7 +1116,7 @@ def download_all_evals():
 def list_evals():
     """List all available eval datasets"""
     print(f"Available eval datasets ({len(EVAL_CONFIG['evals'])} total):\n")
-    
+
     for eval_name in sorted(EVAL_CONFIG['evals'].keys()):
         print(f"  - {eval_name}")
 
@@ -1126,26 +1126,26 @@ def main():
     parser = argparse.ArgumentParser(
         description="Manage HuggingFace eval datasets for contamination detection"
     )
-    
+
     parser.add_argument(
         "--download",
         action="store_true",
         help="Download all evaluation datasets"
     )
-    
+
     parser.add_argument(
         "--list",
         action="store_true",
         help="List all available evaluation datasets"
     )
-    
+
     args = parser.parse_args()
-    
+
     # If no arguments provided, show help
     if not any(vars(args).values()):
         parser.print_help()
         return
-    
+
     if args.list:
         list_evals()
     elif args.download:

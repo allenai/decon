@@ -8,191 +8,166 @@ from datasets import load_dataset, get_dataset_config_names, DatasetInfo
 from huggingface_hub import dataset_info
 import sys
 
-EVAL_PATHS = [
-    "AI-MO/aimo-validation-aime",
-    "ai2_arc",
-    "akariasai/PopQA",
-    "allenai/basic-skills",
-    "allenai/coqa_mc",
-    "allenai/drop_mc",
-    "allenai/jeopardy_mc",
-    "allenai/multilingual_mbpp",
-    "allenai/nq_open_mc",
-    "allenai/omega-compositional",
-    "allenai/omega-explorative",
-    "allenai/omega-transformative",
-    "allenai/paloma",
-    "allenai/qasper-yesno",
-    "allenai/sciriff-yesno",
-    "allenai/SimpleToM",
-    "allenai/squad_mc",
-    "allenai/ZebraLogicBench-private",
-    "aps/super_glue",
-    "apple/GSM-Symbolic",
-    "bigcode/bigcodebench",
-    "bigcode/bigcodebench-hard",
-    "cais/mmlu",
-    "commonsense_qa",
-    "cosmos_qa",
-    "cruxeval-org/cruxeval",
-    "davidheineman/deepseek-leetcode",
-    "davidheineman/medqa-en",
-    "EleutherAI/coqa",
-    "EleutherAI/drop",
-    "EleutherAI/hendrycks_math",
-    "EleutherAI/lambada_openai",
-    "evalplus/humanevalplus",
-    "evalplus/mbppplus",
-    "google-research-datasets/mbpp",
-    "google-research-datasets/nq_open",
-    "google-research-datasets/tydiqa",
-    "gsm8k",
-    "hellaswag",
-    "HuggingFaceH4/ifeval",
-    "HuggingFaceH4/MATH-500",
-    "Idavidrein/gpqa",
-    "LEXam-Benchmark/LEXam",
-    "lighteval/SimpleQA",
-    "livecodebench/code_generation_lite",
-    "loubnabnl/humaneval_infilling",
-    "lucasmccabe/logiqa",
-    "lukaemon/bbh",
-    "mandarjoshi/trivia_qa",
-    "nuprl/MultiPL-E",
-    "openai_humaneval",
-    "openai/mrcr",
-    "openbookqa",
-    "openlifescienceai/medmcqa",
-    "piqa",
-    "qintongli/GSM-Plus",
-    "rajpurkar/squad",
-    "rajpurkar/squad_v2",
-    "sarahwie/copycolors_mcqa",
-    "sciq",
-    "social_i_qa",
-    "soldni/jeopardy",
-    "tatsu-lab/alpaca_eval",
-    "tau/zero_scrolls",
-    "truthful_qa",
-    "wckwan/MT-Eval",
-    "winogrande",
-    "xlangai/DS-1000",
-    "HuggingFaceH4/ultrachat_200k",
-    "allenai/WildChat",
-    "futurehouse/lab-bench"
-]
+# Mapping from TARGET_EVAL_DATASETS patterns to EVAL_PATHS entries
+TARGET_TO_EVAL_MAPPING = {
+    # ARC variants
+    "arc_*:mc::xlarge": "ai2_arc",
+    "arc_*:bpb::full": "ai2_arc",
+    "arc_*:rc::olmes:full": "ai2_arc",
+    
+    # MMLU variants
+    "mmlu_*:mc::olmes": "cais/mmlu",
+    "mmlu_*:cot::hamish_zs_reasoning": "cais/mmlu",
+    "mmlu_*:bpb": "cais/mmlu",
+    "mmlu_*:rc::olmes": "cais/mmlu",
+    
+    # CommonsenseQA variants
+    "csqa:mc::xlarge": "commonsense_qa",
+    "csqa:bpb::olmes:full": "commonsense_qa",
+    "csqa:rc::olmes:full": "commonsense_qa",
+    
+    # PIQA variants
+    "piqa:mc::xlarge": "piqa",
+    "piqa:bpb::olmes:full": "piqa",
+    "piqa:rc::olmes:full": "piqa",
+    
+    # SocialIQA variants
+    "socialiqa:mc::xlarge": "social_i_qa",
+    "socialiqa:bpb::olmes:full": "social_i_qa",
+    "socialiqa:rc::olmes:full": "social_i_qa",
+    
+    # DROP variants
+    "drop:mc::gen2mc": "allenai/drop_mc",
+    "drop::xlarge": "EleutherAI/drop",
+    "drop:bpb::gen2mc": "allenai/drop_mc",
+    "drop:rc::gen2mc": "allenai/drop_mc",
+    
+    # Jeopardy variants
+    "jeopardy:mc::gen2mc": "allenai/jeopardy_mc",
+    "jeopardy::xlarge": "soldni/jeopardy",
+    "jeopardy:bpb::gen2mc": "allenai/jeopardy_mc",
+    "jeopardy:rc::gen2mc": "allenai/jeopardy_mc",
+    
+    # Natural Questions variants
+    "naturalqs:mc::gen2mc": "allenai/nq_open_mc",
+    "naturalqs::xlarge": "google-research-datasets/nq_open",
+    "naturalqs:bpb::gen2mc": "allenai/nq_open_mc",
+    "naturalqs:rc::gen2mc": "allenai/nq_open_mc",
+    
+    # SQuAD variants
+    "squad:mc::gen2mc": "allenai/squad_mc",
+    "squad::xlarge": "rajpurkar/squad",
+    "squad:bpb::gen2mc": "allenai/squad_mc",
+    "squad:rc::gen2mc": "allenai/squad_mc",
+    
+    # CoQA variants
+    "coqa:mc::gen2mc": "allenai/coqa_mc",
+    "coqa::xlarge": "EleutherAI/coqa",
+    "coqa:bpb::gen2mc": "allenai/coqa_mc",
+    "coqa:rc::gen2mc": "allenai/coqa_mc",
+    
+    # Basic Skills variants
+    "basic_skills_*:mc::olmes": "allenai/basic-skills",
+    "basic_skills_*:rc::olmes": "allenai/basic-skills",
+    "basic_skills:bpb::olmes": "allenai/basic-skills",
+    
+    # Medical datasets
+    "medmcqa:mc::none": "openlifescienceai/medmcqa",
+    "medmcqa:bpb::none": "openlifescienceai/medmcqa",
+    "medmcqa:rc::none": "openlifescienceai/medmcqa",
+    "medqa_en:mc::none": "davidheineman/medqa-en",
+    "medqa_en:bpb::none": "davidheineman/medqa-en",
+    "medqa_en:rc::none": "davidheineman/medqa-en",
+    
+    # Science datasets
+    "sciq:mc::xlarge": "sciq",
+    "sciq:bpb::olmo3": "sciq",
+    "sciq:rc::olmo3": "sciq",
+    
+    # HellaSwag variants
+    "hellaswag:rc::xlarge": "hellaswag",
+    "hellaswag:bpb::olmes:full": "hellaswag",
+    "hellaswag:rc::olmes:full": "hellaswag",
+    
+    # Winogrande variants
+    "winogrande:rc::xlarge": "winogrande",
+    "winogrande:bpb::olmes:full": "winogrande",
+    "winogrande:rc::olmes:full": "winogrande",
+    
+    # Lambda variants
+    "lambada": "EleutherAI/lambada_openai",
+    "lambada:bpb": "EleutherAI/lambada_openai",
+    
+    # GSM8K variants
+    "gsm8k::olmes": "gsm8k",
+    "gsm8k::zs_cot_latex": "gsm8k",
+    
+    # GSM Symbolic
+    "gsm_symbolic*::olmo3": "apple/GSM-Symbolic",
+    
+    # Math datasets
+    "minerva_math_*::olmes": "EleutherAI/hendrycks_math",
+    "minerva_math_*::hamish_zs_reasoning": "EleutherAI/hendrycks_math",
+    "minerva_math_500::hamish_zs_reasoning": "HuggingFaceH4/MATH-500",
+    "minerva_*:bpb::olmes": "EleutherAI/hendrycks_math",
+    "aime::hamish_zs_reasoning": "AI-MO/aimo-validation-aime",
+    
+    # Code datasets
+    "bigcodebench:3shot::olmo3": "bigcode/bigcodebench",
+    "codex_humaneval:3shot::olmo3": "openai_humaneval",
+    "codex_humaneval:3shot:bpb::none": "openai_humaneval",
+    "codex_humanevalfim_single:temp0.2": "loubnabnl/humaneval_infilling",
+    "codex_humanevalfim_multi:temp0.2": "loubnabnl/humaneval_infilling",
+    "codex_humanevalfim_random:temp0.2": "loubnabnl/humaneval_infilling",
+    "codex_humanevalplus:0-shot-chat::tulu-thinker": "evalplus/humanevalplus",
+    "deepseek_leetcode::olmo3": "davidheineman/deepseek-leetcode",
+    "ds1000:3shot::olmo3": "xlangai/DS-1000",
+    "mbpp:3shot::olmo3": "google-research-datasets/mbpp",
+    "mbpp:3shot:bpb::none": "google-research-datasets/mbpp",
+    "mbppplus:0-shot-chat::tulu-thinker": "evalplus/mbppplus",
+    "multipl_e_humaneval:*::olmo3": "nuprl/MultiPL-E",
+    "multipl_e_mbpp:*::olmo3": "nuprl/MultiPL-E",
+    "mt_mbpp_v2fix:*": "google-research-datasets/mbpp",
+    "livecodebench_codegeneration::tulu-thinker": "livecodebench/code_generation_lite",
+    
+    # Evaluation datasets
+    "alpaca_eval_v3::hamish_zs_reasoning": "tatsu-lab/alpaca_eval",
+    "styled_alpacaeval::tulu-thinker": "tatsu-lab/alpaca_eval",
+    "multiturn_alpacaeval_*::tulu": "tatsu-lab/alpaca_eval",
+    "ifeval::hamish_zs_reasoning": "HuggingFaceH4/ifeval",
+    "ifeval_ood::tulu-thinker": "HuggingFaceH4/ifeval",
+    "ifeval_mt_*::tulu": "HuggingFaceH4/ifeval",
+    
+    # Logic and reasoning datasets
+    "zebralogic::hamish_zs_reasoning": "allenai/ZebraLogicBench-private",
+    "popqa::hamish_zs_reasoning": "akariasai/PopQA",
+    "styled_popqa::tulu-thinker": "akariasai/PopQA",
+    "bbh_*:cot::hamish_zs_reasoning": "lukaemon/bbh",
+    "gpqa:0shot_cot::hamish_zs_reasoning": "Idavidrein/gpqa",
+    "agi_eval_*:0shot_cot::hamish_zs_reasoning": None,  # Local files
+    
+    # Omega datasets
+    "omega_*:0-shot-chat": ["allenai/omega-compositional", "allenai/omega-explorative", "allenai/omega-transformative"],
+    
+    # Other datasets
+    "simpleqa::tulu-thinker": "lighteval/SimpleQA",
+    "styled_math500::tulu-thinker": "HuggingFaceH4/MATH-500",
+    "qasper_yesno:bpb::olmes": "allenai/qasper-yesno",
+    "qasper_yesno:rc::olmes": "allenai/qasper-yesno",
+    "sciriff_yesno:bpb::olmes": "allenai/sciriff-yesno",
+    "sciriff_yesno:rc::olmes": "allenai/sciriff-yesno",
+    
+    # LAB-Bench datasets
+    "lab_bench_dbqa:bpb": "futurehouse/lab-bench",
+    "lab_bench_dbqa": "futurehouse/lab-bench",
+    "lab_bench_protocolqa:bpb": "futurehouse/lab-bench",
+    "lab_bench_protocolqa": "futurehouse/lab-bench",
+    
+    # Chat datasets
+    "ultrachat_masked_ppl": "HuggingFaceH4/ultrachat_200k",
+    "wildchat_masked_ppl": "allenai/WildChat",
+}
 
-# Target evaluation datasets to ensure coverage
-# Format: dataset_name:variant::source
-TARGET_EVAL_DATASETS = [
-    "arc_*:mc::xlarge",
-    "mmlu_*:mc::olmes",
-    "csqa:mc::xlarge",
-    "piqa:mc::xlarge",
-    "socialiqa:mc::xlarge",
-    "drop:mc::gen2mc",
-    "jeopardy:mc::gen2mc",
-    "naturalqs:mc::gen2mc",
-    "squad:mc::gen2mc",
-    "coqa:mc::gen2mc",
-    "basic_skills_*:mc::olmes",
-    "medmcqa:mc::none",
-    "medqa_en:mc::none",
-    "sciq:mc::xlarge",
-    "hellaswag:rc::xlarge",
-    "winogrande:rc::xlarge",
-    "lambada",
-    "basic_skills_*:rc::olmes",
-    "drop::xlarge",
-    "jeopardy::xlarge",
-    "naturalqs::xlarge",
-    "squad::xlarge",
-    "coqa::xlarge",
-    "gsm8k::olmes",
-    "gsm_symbolic*::olmo3",
-    "minerva_math_*::olmes",
-    "bigcodebench:3shot::olmo3",
-    "codex_humaneval:3shot::olmo3",
-    "deepseek_leetcode::olmo3",
-    "ds1000:3shot::olmo3",
-    "mbpp:3shot::olmo3",
-    "multipl_e_humaneval:*::olmo3",
-    "multipl_e_mbpp:*::olmo3",
-    "codex_humanevalfim_single:temp0.2",
-    "codex_humanevalfim_multi:temp0.2",
-    "codex_humanevalfim_random:temp0.2",
-    "alpaca_eval_v3::hamish_zs_reasoning",
-    "ifeval::hamish_zs_reasoning",
-    "gsm8k::zs_cot_latex",
-    "minerva_math_*::hamish_zs_reasoning",
-    "minerva_math_500::hamish_zs_reasoning",
-    "aime::hamish_zs_reasoning",
-    "codex_humanevalplus:0-shot-chat::tulu-thinker",
-    "mbppplus:0-shot-chat::tulu-thinker",
-    "livecodebench_codegeneration::tulu-thinker",
-    "zebralogic::hamish_zs_reasoning",
-    "popqa::hamish_zs_reasoning",
-    "bbh_*:cot::hamish_zs_reasoning",
-    "gpqa:0shot_cot::hamish_zs_reasoning",
-    "agi_eval_*:0shot_cot::hamish_zs_reasoning",
-    "mmlu_*:cot::hamish_zs_reasoning",
-    "ifeval_ood::tulu-thinker",
-    "ifeval_mt_*::tulu",
-    "styled_alpacaeval::tulu-thinker",
-    "multiturn_alpacaeval_*::tulu",
-    "omega_*:0-shot-chat",
-    "simpleqa::tulu-thinker",
-    "styled_math500::tulu-thinker",
-    "styled_popqa::tulu-thinker",
-    "minerva_*:bpb::olmes",
-    "codex_humaneval:3shot:bpb::none",
-    "mbpp:3shot:bpb::none",
-    "mt_mbpp_v2fix:*",
-    "arc_*:bpb::full",
-    "mmlu_*:bpb",
-    "csqa:bpb::olmes:full",
-    "hellaswag:bpb::olmes:full",
-    "winogrande:bpb::olmes:full",
-    "socialiqa:bpb::olmes:full",
-    "piqa:bpb::olmes:full",
-    "coqa:bpb::gen2mc",
-    "drop:bpb::gen2mc",
-    "jeopardy:bpb::gen2mc",
-    "naturalqs:bpb::gen2mc",
-    "squad:bpb::gen2mc",
-    "sciq:bpb::olmo3",
-    "qasper_yesno:bpb::olmes",
-    "basic_skills:bpb::olmes",
-    "lab_bench_dbqa:bpb",
-    "lab_bench_protocolqa:bpb",
-    "lambada:bpb",
-    "medmcqa:bpb::none",
-    "medqa_en:bpb::none",
-    "sciriff_yesno:bpb::olmes",
-    "arc_*:rc::olmes:full",
-    "mmlu_*:rc::olmes",
-    "csqa:rc::olmes:full",
-    "hellaswag:rc::olmes:full",
-    "winogrande:rc::olmes:full",
-    "socialiqa:rc::olmes:full",
-    "piqa:rc::olmes:full",
-    "coqa:rc::gen2mc",
-    "drop:rc::gen2mc",
-    "jeopardy:rc::gen2mc",
-    "naturalqs:rc::gen2mc",
-    "squad:rc::gen2mc",
-    "sciq:rc::olmo3",
-    "qasper_yesno:rc::olmes",
-    "basic_skills_*:rc::olmes",
-    "lab_bench_dbqa",
-    "lab_bench_protocolqa",
-    "lambada",
-    "medmcqa:rc::none",
-    "medqa_en:rc::none",
-    "sciriff_yesno:rc::olmes",
-    "ultrachat_masked_ppl",
-    "wildchat_masked_ppl"
-]
 
 def get_fully_qualified_name(path):
     """Get the fully qualified dataset name from HuggingFace."""
@@ -391,15 +366,72 @@ def display_dataset_result(result, dataset_num=None, total_datasets=None):
     print()
 
 
+def get_unique_eval_paths():
+    """Get unique evaluation paths from TARGET_TO_EVAL_MAPPING."""
+    unique_paths = set()
+    
+    for eval_path in TARGET_TO_EVAL_MAPPING.values():
+        if eval_path is None:
+            continue  # Skip unmapped entries (local files)
+        elif isinstance(eval_path, list):
+            unique_paths.update(eval_path)
+        else:
+            unique_paths.add(eval_path)
+    
+    return sorted(list(unique_paths))
+
+
 def examine_all_datasets():
-    """Examine all datasets in EVAL_PATHS."""
+    """Examine all datasets from TARGET_TO_EVAL_MAPPING."""
     print("=" * 80)
     print("DATASET EXAMINATION RESULTS")
     print("=" * 80)
     
-    for i, path in enumerate(EVAL_PATHS, 1):
+    unique_paths = get_unique_eval_paths()
+    
+    for i, path in enumerate(unique_paths, 1):
         result = examine_dataset(path)
-        display_dataset_result(result, i, len(EVAL_PATHS))
+        display_dataset_result(result, i, len(unique_paths))
+
+
+def analyze_mapping_coverage():
+    """Analyze the coverage of TARGET_TO_EVAL_MAPPING."""
+    print("=" * 80)
+    print("TARGET TO EVAL MAPPING ANALYSIS")
+    print("=" * 80)
+    
+    # Group by unique EVAL_PATHS values
+    eval_path_usage = {}
+    unmapped_count = 0
+    
+    for target, eval_path in TARGET_TO_EVAL_MAPPING.items():
+        if eval_path is None:
+            unmapped_count += 1
+        elif isinstance(eval_path, list):
+            for path in eval_path:
+                if path not in eval_path_usage:
+                    eval_path_usage[path] = []
+                eval_path_usage[path].append(target)
+        else:
+            if eval_path not in eval_path_usage:
+                eval_path_usage[eval_path] = []
+            eval_path_usage[eval_path].append(target)
+    
+    # Display mapping statistics
+    print(f"\nTotal mappings: {len(TARGET_TO_EVAL_MAPPING)}")
+    print(f"Unmapped entries (local files): {unmapped_count}")
+    print(f"Unique HuggingFace datasets: {len(eval_path_usage)}")
+    
+    # Show most used datasets
+    print("\nMost frequently used datasets:")
+    sorted_usage = sorted(eval_path_usage.items(), key=lambda x: len(x[1]), reverse=True)
+    for eval_path, targets in sorted_usage[:10]:
+        print(f"  {eval_path}: {len(targets)} variants")
+    
+    # Show all unique paths
+    print(f"\nAll unique dataset paths ({len(eval_path_usage)}):")
+    for path in sorted(eval_path_usage.keys()):
+        print(f"  - {path}")
 
 
 def main():
@@ -420,9 +452,17 @@ def main():
         help="Examine all configurations even if a default exists"
     )
     
+    parser.add_argument(
+        "--mapping",
+        action="store_true",
+        help="Analyze the TARGET_TO_EVAL_MAPPING coverage"
+    )
+    
     args = parser.parse_args()
     
-    if args.ds:
+    if args.mapping:
+        analyze_mapping_coverage()
+    elif args.ds:
         # Examine a single dataset
         print(f"Examining single dataset: {args.ds}")
         result = examine_dataset(args.ds)
@@ -431,9 +471,10 @@ def main():
         # Examine all datasets
         examine_all_datasets()
     
-    print("=" * 80)
-    print("EXAMINATION COMPLETE")
-    print("=" * 80)
+    if not args.mapping:
+        print("=" * 80)
+        print("EXAMINATION COMPLETE")
+        print("=" * 80)
 
 if __name__ == "__main__":
     main()
