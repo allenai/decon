@@ -4,6 +4,7 @@ fixtures/output/*.*
 fixtures/embeddings/*.*
 fixtures/reference/*.*
 fixtures/cleaned/*.*
+fixtures/local_input/*.*
 tests/output
 test_daemon.sh
 test_multi_thread.sh

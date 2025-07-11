@@ -38,18 +38,25 @@ For those that prefer explicitness, directness, and less abstraction, you can ru
 git clone https://github.com/allenai/decon
 cd decon
 
-# Download evaluation datasets. The cli will look for these in the configured reference (evals) directory. Recommend to leave the default.
-make evals-s3
+# Download evaluation datasets. The cli will look for these in the configured reference (evals) directory. Below shows the defaults (recommended).
+s5cmd sync s3://decon-evals/* fixtures/reference
 
-# Run contamination detection
-make simple
+# Download your data set to the directory of your choice. NOTE: you will probably want a different location, this is just the default.
+s5cmd sync s3://your-data-set-prefix fixtures/local
 
-# Download your dataset and configure examples/simple.yaml with the source of training data to decontaminate
+# Run contamination detection.
+cargo run --release detect --config examples/simple.yaml
 
-# Review results interactively
-make simple-review
+# For full set of options, help is available.
+# Note that the options mix all the different modes (I'll clean this up eventually)
+# Also note that each has a sensible default. Performance and outcomes may vary wildly depending on options.
+cargo run --release detect --help
+
+# Review results interactively.
+cargo run --release review --config examples/simple.yaml --step
 ```
 
+If you want to manually run the orchestrator to manage downloading, uploading, and running against a persistent server with the index, please study the configuration flag outputs from `make deploy-wizard` or please write the author and express a desire for this feature. Author anticipates CLI focused users would prefer to manage non-contamination details on their own.
 
 ## Detection Methods
 
