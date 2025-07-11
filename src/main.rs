@@ -175,6 +175,24 @@ enum Commands {
             help = "Display eval dataset statistics with horizontal bar chart"
         )]
         stats: bool,
+
+        #[arg(
+            long,
+            help = "Minimum overlap ratio to include in results (filters by jaccard_similarity/overlap_ratio)"
+        )]
+        min_overlap_ratio: Option<f32>,
+
+        #[arg(
+            long,
+            help = "Minimum IDF score to include in results (filters by toxic_score)"
+        )]
+        min_idf_score: Option<f32>,
+
+        #[arg(
+            long,
+            help = "Minimum n-gram match count to include in results (filters by ngram_match_cnt)"
+        )]
+        min_length: Option<usize>,
     },
 
     Daemon {
@@ -865,6 +883,9 @@ fn main() -> Result<(), Error> {
             tp,
             tn,
             stats,
+            min_overlap_ratio,
+            min_idf_score,
+            min_length,
         } => review::review_contamination(
             config.as_ref(),
             results_file.as_ref(),
@@ -876,6 +897,9 @@ fn main() -> Result<(), Error> {
             *tp,
             *tn,
             *stats,
+            *min_overlap_ratio,
+            *min_idf_score,
+            *min_length,
         ),
 
         Commands::Daemon {

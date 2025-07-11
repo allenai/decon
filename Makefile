@@ -51,7 +51,17 @@ review:
 		exit 1; \
 	fi
 	@DIR=$(filter-out $@,$(MAKECMDGOALS)); \
-	cargo run --release -- review --step --dir $$DIR
+	FILTER_ARGS=""; \
+	if [ -n "$(MIN_OVERLAP_RATIO)" ]; then \
+		FILTER_ARGS="$$FILTER_ARGS --min-overlap-ratio $(MIN_OVERLAP_RATIO)"; \
+	fi; \
+	if [ -n "$(MIN_IDF_SCORE)" ]; then \
+		FILTER_ARGS="$$FILTER_ARGS --min-idf-score $(MIN_IDF_SCORE)"; \
+	fi; \
+	if [ -n "$(MIN_LENGTH)" ]; then \
+		FILTER_ARGS="$$FILTER_ARGS --min-length $(MIN_LENGTH)"; \
+	fi; \
+	cargo run --release -- review --step --dir $$DIR $$FILTER_ARGS
 
 stats:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
@@ -59,7 +69,17 @@ stats:
 		exit 1; \
 	fi
 	@DIR=$(filter-out $@,$(MAKECMDGOALS)); \
-	cargo run --release -- review --stats --dir $$DIR
+	FILTER_ARGS=""; \
+	if [ -n "$(MIN_OVERLAP_RATIO)" ]; then \
+		FILTER_ARGS="$$FILTER_ARGS --min-overlap-ratio $(MIN_OVERLAP_RATIO)"; \
+	fi; \
+	if [ -n "$(MIN_IDF_SCORE)" ]; then \
+		FILTER_ARGS="$$FILTER_ARGS --min-idf-score $(MIN_IDF_SCORE)"; \
+	fi; \
+	if [ -n "$(MIN_LENGTH)" ]; then \
+		FILTER_ARGS="$$FILTER_ARGS --min-length $(MIN_LENGTH)"; \
+	fi; \
+	cargo run --release -- review --stats --dir $$DIR $$FILTER_ARGS
 
 fn:
 	cargo run -- review --config examples/simple.yaml --fn

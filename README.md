@@ -59,17 +59,17 @@ If you want to manually run the orchestrator to manage downloading, uploading, a
 
 ## Reviewing Results
 
-Let's say you've got an s3 bucket which contains report output files.
+Let's say you've got an s3 bucket which contains report output files. Basic convenient review follows.
 
 ```
-s5cmd sync s3://ai2-decon-reports/big-reasoning-traces/* /my-directory
+s5cmd sync s3://ai2-decon-reports/big-reasoning-traces/* /my-results-directory
 
 # To review individual matches.
 cd decon
-make review /my-directory
+make review /my-results-directory
 
 # To see statistics by eval
-make stats /my-directory
+make stats /my-results-directory
 
 ```
 
@@ -78,6 +78,14 @@ make stats /my-directory
 With a batch of results, you might want to experiment with alternative thresholds.
 
 Filtering options are available.
+
+```
+# Stats with all three filters combined
+cargo run --release -- review --stats --dir /my-results-directory --min-overlap-ratio 0.3 --min-idf-score 1.5 --min-length 8
+
+# Stats with aggressive filtering (high thresholds)
+cargo run --release -- review --step --dir /my-results-directory --min-overlap-ratio 0.9
+```
 
 
 

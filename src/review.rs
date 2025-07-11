@@ -124,6 +124,9 @@ pub fn review_contamination(
     tp: bool,
     tn: bool,
     stats: bool,
+    min_overlap_ratio: Option<f32>,
+    min_idf_score: Option<f32>,
+    min_length: Option<usize>,
 ) -> Result<(), Error> {
     println!("=== CONTAMINATION REVIEW ===");
 
@@ -136,14 +139,43 @@ pub fn review_contamination(
         }
 
         // Load all result files from directory
-        let all_results = load_contamination_results_from_directory(dir_path)?;
+        let mut all_results = load_contamination_results_from_directory(dir_path)?;
 
         if all_results.is_empty() {
             println!("No contamination results found in directory: {:?}", dir_path);
             return Ok(());
         }
 
-        println!("Found {} total contamination instances from directory\n", all_results.len());
+        let original_count = all_results.len();
+
+        // Apply filters if specified
+        all_results = filter_contamination_results_by_thresholds(
+            all_results,
+            min_overlap_ratio,
+            min_idf_score,
+            min_length,
+        );
+
+        if all_results.is_empty() {
+            println!("No contamination results matched the filter criteria.");
+            println!("Original count: {}", original_count);
+            if min_overlap_ratio.is_some() {
+                println!("  - Minimum overlap ratio: {:.3}", min_overlap_ratio.unwrap());
+            }
+            if min_idf_score.is_some() {
+                println!("  - Minimum IDF score: {:.3}", min_idf_score.unwrap());
+            }
+            if min_length.is_some() {
+                println!("  - Minimum n-gram matches: {}", min_length.unwrap());
+            }
+            return Ok(());
+        }
+
+        println!("Found {} contamination instances from directory", all_results.len());
+        if original_count != all_results.len() {
+            println!("({} filtered out by threshold criteria)", original_count - all_results.len());
+        }
+        println!();
 
         if stats {
             // Display eval dataset statistics with bar chart
@@ -154,7 +186,7 @@ pub fn review_contamination(
         // For step-by-step review with directory
         if step {
             println!("=== REVIEWING ALL CONTAMINATION CASES ===\n");
-            
+
             // Review each contamination case
             for (idx, result) in all_results.iter().enumerate() {
                 if idx > 0 {
@@ -209,17 +241,46 @@ pub fn review_contamination(
 
     // Load contamination results
     println!("Loading contamination results from: {:?}", results_path);
-    let contamination_results = load_contamination_results(&results_path)?;
+    let mut contamination_results = load_contamination_results(&results_path)?;
 
     if contamination_results.is_empty() {
         println!("No contamination found in results file.");
         return Ok(());
     }
 
+    let original_count = contamination_results.len();
+
+    // Apply filters if specified
+    contamination_results = filter_contamination_results_by_thresholds(
+        contamination_results,
+        min_overlap_ratio,
+        min_idf_score,
+        min_length,
+    );
+
+    if contamination_results.is_empty() {
+        println!("No contamination results matched the filter criteria.");
+        println!("Original count: {}", original_count);
+        if min_overlap_ratio.is_some() {
+            println!("  - Minimum overlap ratio: {:.3}", min_overlap_ratio.unwrap());
+        }
+        if min_idf_score.is_some() {
+            println!("  - Minimum IDF score: {:.3}", min_idf_score.unwrap());
+        }
+        if min_length.is_some() {
+            println!("  - Minimum n-gram matches: {}", min_length.unwrap());
+        }
+        return Ok(());
+    }
+
     println!(
-        "Found {} contamination instances to review\n",
+        "Found {} contamination instances to review",
         contamination_results.len()
     );
+    if original_count != contamination_results.len() {
+        println!("({} filtered out by threshold criteria)", original_count - contamination_results.len());
+    }
+    println!();
 
     if stats {
         // Display eval dataset statistics with bar chart
@@ -566,6 +627,43 @@ fn load_contamination_results(results_path: &PathBuf) -> Result<Vec<Contaminatio
     Ok(results)
 }
 
+fn filter_contamination_results_by_thresholds(
+    results: Vec<ContaminationResult>,
+    min_overlap_ratio: Option<f32>,
+    min_idf_score: Option<f32>,
+    min_length: Option<usize>,
+) -> Vec<ContaminationResult> {
+    results.into_iter().filter(|result| {
+        // Check overlap ratio (jaccard_similarity)
+        if let Some(min_ratio) = min_overlap_ratio {
+            if result.jaccard_similarity < min_ratio {
+                return false;
+            }
+        }
+
+        // Check IDF score (toxic_score)
+        if let Some(min_idf) = min_idf_score {
+            if result.toxic_score < min_idf {
+                return false;
+            }
+        }
+
+        // Check n-gram match count
+        if let Some(min_len) = min_length {
+            if let Some(match_cnt) = result.ngram_match_cnt {
+                if match_cnt < min_len {
+                    return false;
+                }
+            } else {
+                // If ngram_match_cnt is not present, filter out
+                return false;
+            }
+        }
+
+        true
+    }).collect()
+}
+
 fn load_contamination_results_from_directory(dir_path: &PathBuf) -> Result<Vec<ContaminationResult>, Error> {
     let mut all_results = Vec::new();
 
@@ -575,11 +673,8 @@ fn load_contamination_results_from_directory(dir_path: &PathBuf) -> Result<Vec<C
     println!("Processing {} JSONL files from directory...", jsonl_files.len());
 
     for file_path in jsonl_files {
-        println!("Processing: {:?}", file_path);
-
         match load_contamination_results(&file_path) {
             Ok(results) => {
-                println!("  Found {} contamination instances", results.len());
                 all_results.extend(results);
             }
             Err(e) => {
@@ -627,7 +722,7 @@ fn display_contamination_case_internal(
                 similarity_label, result.jaccard_similarity
             );
             if result.toxic_score > 0.0 {
-                println!("🧪 TOXIC SCORE:    {:.3}", result.toxic_score);
+                println!("🧪 IDF SUM:    {:.3}", result.toxic_score);
             }
             if let Some(ngram_match_cnt) = result.ngram_match_cnt {
                 println!("🔢 N-GRAM MATCHES: {}", ngram_match_cnt);
