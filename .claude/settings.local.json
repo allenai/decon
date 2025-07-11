@@ -25,7 +25,9 @@
       "Bash(if [ -d \"fixtures/reference-dedupe\" ])",
       "Bash(then mv fixtures/reference-dedupe fixtures/reference-refined)",
       "Bash(else echo \"Directory doesn''t exist yet\")",
-      "Bash(fi)"
+      "Bash(fi)",
+      "Bash(timeout 180 cargo run --release refine-references --dry-run)",
+      "Bash(timeout 300 cargo run --release refine-references --dry-run)"
     ],
     "deny": []
   }
