@@ -847,19 +847,19 @@ EVAL_CONFIG = {
             }
         },
 
-        'ultrachat_200k': {
-            'hf_path': 'HuggingFaceH4/ultrachat_200k',
-            'splits': ['train_sft', 'test_sft', 'train_gen', 'test_gen'],
-            'transform': 'auto'  # Will use auto extraction to handle the messages field
-        },
+        # 'ultrachat_200k': {
+        #     'hf_path': 'HuggingFaceH4/ultrachat_200k',
+        #     'splits': ['train_sft', 'test_sft', 'train_gen', 'test_gen'],
+        #     'transform': 'auto'  # Will use auto extraction to handle the messages field
+        # },
 
-        'wildchat': {
-            'hf_path': 'allenai/WildChat',
-            'splits': ['train'],  # Only has train split
-            'transform': {
-                'text_field': 'text',
-            }
-        },
+        # 'wildchat': {
+        #     'hf_path': 'allenai/WildChat',
+        #     'splits': ['train'],  # Only has train split
+        #     'transform': {
+        #         'text_field': 'text',
+        #     }
+        # },
 
         'lab_bench_dbqa': {
             'hf_path': 'futurehouse/lab-bench',

@@ -1,4 +1,4 @@
-.PHONY: help detect review stats simple evals evals-s3 embeddings
+.PHONY: help detect review stats simple evals evals-s3 embeddings refine
 
 help:
 	@echo "Available targets:"
@@ -10,6 +10,7 @@ help:
 	@echo "  tn         - Run review mode to show True Negatives"
 	@echo "  fp         - Run review mode to show False Positives"
 	@echo "  fn         - Run review mode to show False Negatives"
+	@echo "  refine     - Run reference data refinement in dry-run mode (removes duplicates and filters)"
 	@echo "  evals      - Download evaluation datasets using Python script"
 	@echo "  evals-s3   - Download evaluation datasets from S3 bucket decon-evals"
 	@echo "  embeddings - Download and prepare word embeddings using Python script"
@@ -112,6 +113,9 @@ evals-s3:
 
 embeddings:
 	python python/prepare_embeddings.py
+
+refine:
+	cargo run --release refine-references --dry-run
 
 daemon:
 	cargo run --release daemon --config examples/simple.yaml --port 8080

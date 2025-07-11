@@ -540,16 +540,16 @@ fn write_refined_file(
     output_dir: &Path,
     lines_to_keep: &HashMap<String, HashSet<usize>>,
 ) -> Result<(), Error> {
+    const CHUNK_SIZE_BYTES: usize = 50 * 1024 * 1024; // 50MB
+    
     let filename = input_path
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("unknown");
-
-    let output_path = output_dir.join(filename);
-
+    
     // Get the set of line numbers to keep for this file
     let keep_lines = lines_to_keep.get(filename);
-
+    
     // Open input file
     let input_file = File::open(input_path)?;
     let reader: Box<dyn BufRead> = if input_path.extension().and_then(|s| s.to_str()) == Some("gz") {
@@ -557,46 +557,104 @@ fn write_refined_file(
     } else {
         Box::new(BufReader::new(input_file))
     };
-
-    // Open output file with same compression as input
-    let output_file = File::create(&output_path)?;
-    let mut writer: Box<dyn Write> = if input_path.extension().and_then(|s| s.to_str()) == Some("gz") {
-        Box::new(BufWriter::new(GzEncoder::new(
-            output_file,
-            Compression::default(),
-        )))
+    
+    // Prepare for chunked output
+    let base_name = input_path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown");
+    let extension = if input_path.extension().and_then(|s| s.to_str()) == Some("gz") {
+        ".jsonl.gz"
     } else {
-        Box::new(BufWriter::new(output_file))
+        ".jsonl"
     };
-
-    // Copy only the lines we want to keep
+    
+    let mut chunk_number = 0;
+    let mut current_chunk_size = 0;
+    let mut writer: Option<Box<dyn Write>> = None;
     let mut kept_count = 0;
     let mut total_count = 0;
-
+    let mut lines_buffer = Vec::new();
+    let mut chunk_files = Vec::new();
+    
     for (line_num, line) in reader.lines().enumerate() {
         total_count += 1;
         let line = line?;
-
+        
         // Keep line if it's in our keep set
         if keep_lines.map_or(false, |set| set.contains(&line_num)) {
-            writeln!(writer, "{}", line)?;
+            let line_bytes = line.as_bytes().len() + 1; // +1 for newline
+            
+            // Check if we need to start a new chunk
+            if current_chunk_size + line_bytes > CHUNK_SIZE_BYTES || writer.is_none() {
+                // Flush current writer if exists
+                if let Some(mut w) = writer.take() {
+                    for buffered_line in lines_buffer.drain(..) {
+                        writeln!(w, "{}", buffered_line)?;
+                    }
+                    w.flush()?;
+                }
+                
+                // Create new chunk file
+                chunk_number += 1;
+                let chunk_filename = format!("{}-{}{}", base_name, chunk_number, extension);
+                chunk_files.push(chunk_filename.clone());
+                
+                let output_path = output_dir.join(&chunk_filename);
+                let output_file = File::create(&output_path)?;
+                
+                writer = Some(if extension == ".jsonl.gz" {
+                    Box::new(BufWriter::new(GzEncoder::new(
+                        output_file,
+                        Compression::default(),
+                    )))
+                } else {
+                    Box::new(BufWriter::new(output_file))
+                });
+                
+                current_chunk_size = 0;
+            }
+            
+            lines_buffer.push(line);
+            current_chunk_size += line_bytes;
             kept_count += 1;
+            
+            // Write buffer if it gets large (to avoid excessive memory usage)
+            if lines_buffer.len() >= 10000 {
+                if let Some(ref mut w) = writer {
+                    for buffered_line in lines_buffer.drain(..) {
+                        writeln!(w, "{}", buffered_line)?;
+                    }
+                }
+            }
         }
     }
-
-    writer.flush()?;
-
+    
+    // Flush remaining lines
+    if let Some(mut w) = writer {
+        for buffered_line in lines_buffer {
+            writeln!(w, "{}", buffered_line)?;
+        }
+        w.flush()?;
+    }
+    
     let removed_total = total_count - kept_count;
-    if removed_total > 0 {
+    if chunk_number > 0 {
         println!(
-            "  {} -> {} ({} kept, {} removed)",
+            "  {} -> {} chunks ({} kept, {} removed)",
             filename,
-            output_path.display(),
+            chunk_number,
             kept_count,
             removed_total
         );
+        for chunk_file in chunk_files {
+            println!("    - {}", chunk_file);
+        }
+    } else if removed_total > 0 {
+        println!(
+            "  {} -> (no output - all {} lines removed)",
+            filename,
+            total_count
+        );
     }
-
+    
     Ok(())
 }
 
