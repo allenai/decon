@@ -375,6 +375,10 @@ pub struct Config {
     // Purify option - create cleaned files with contaminated lines removed
     #[serde(default)]
     pub purify: bool,
+    
+    // Minimum word count for eval file indexing in SIMPLE mode
+    #[serde(default = "default_eval_min_word_count")]
+    pub eval_min_word_count: usize,
 }
 
 fn default_mode() -> String {
@@ -449,6 +453,10 @@ fn default_worker_threads() -> usize {
     std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4) // Default to 4 if unable to detect CPU cores
+}
+
+fn default_eval_min_word_count() -> usize {
+    10 // Default minimum word count for eval file indexing
 }
 
 pub fn read_config(config_path: &PathBuf) -> Result<Config, Error> {

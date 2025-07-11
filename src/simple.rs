@@ -156,7 +156,7 @@ fn process_simple_reference_file(
 
     let mut _lines_processed = 0;
     let mut _skipped_entries = 0;
-    let min_word_count = config.ngram_size * 2;
+    let min_word_count = config.eval_min_word_count;
 
     for (line_num, line) in data.lines().enumerate() {
         let line = line?;
@@ -616,7 +616,7 @@ pub fn process_simple_training_file(
     // println!("Processing training file: {}", file_name); //debug
 
     let mut lines_processed = 0;
-    let min_word_count = config.ngram_size * 2;
+    let min_word_count = config.ngram_size * 2; // Keep original for training data
 
     for (line_num, line) in data.lines().enumerate() {
         let line = line?;
@@ -812,7 +812,7 @@ pub fn process_simple_training_file_streaming(
     };
 
     let mut lines_processed = 0;
-    let min_word_count = config.ngram_size * 2;
+    let min_word_count = config.ngram_size * 2; // Keep original for training data
     let mut contaminated_lines = HashSet::new();
 
     // Batch results before writing
