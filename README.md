@@ -1,12 +1,12 @@
 # Contamination Detection
 
-Contamination detection tools for training datasets. Identifies when training data contains text that appears in evaluation datasets using multiple detection approaches. Supports both exact matching and semantic similarity detection.
+Contamination detection tools for training datasets. Identifies when training data contains text that appears in evaluation datasets using multiple detection approaches.
 
 ## Overview
 
 This tool provides three **prototype-grade** complementary detection approaches to efficiently identify contamination.
 
-You can use this tool to produce **report files** which highlight potential contamination and a **clean copy** of a dataset.
+You can use this tool to produce **report files** which highlight potential contamination and a **clean copy** of your dataset.
 
 A typical workflow is to run the tool to [generate reports](#-running-decontamination-on-aws-with-poormanray) then [review the reports](#reviewing-results) to determine appropriate thresholds for your contamination preferences.
 
@@ -14,7 +14,7 @@ A typical workflow is to run the tool to [generate reports](#-running-decontamin
 
 ### 🚀 Running Decontamination on AWS with poormanray
 
-The fastest way to run large-scale decontamination is using our automated deployment wizard which generates `poormanray` commands:
+The fastest way to run large-scale decontamination is using the deployment wizard which generates `poormanray` commands:
 
 ```bash
 # Clone the repository
@@ -39,7 +39,8 @@ cd decon
 # Download evaluation datasets. The cli will look for these in the configured reference (evals) directory. Below shows the defaults (recommended).
 s5cmd sync s3://decon-evals/* fixtures/reference
 
-# Download your data set to the directory of your choice. NOTE: you will probably want a different location, this is just the default.
+# Download your data set to the directory of your choice.
+# NOTE: you will probably want a different location, this is just the default.
 s5cmd sync s3://your-data-set-prefix fixtures/local_input
 
 # Run contamination detection.
@@ -51,7 +52,7 @@ cargo run --release detect --config examples/simple.yaml
 cargo run --release detect --help
 ```
 
-If you want to manually run the orchestrator to manage downloading, uploading, and running against a persistent server with the index, please study the configuration flag outputs from `make deploy-wizard` or please write the author and express a desire for this feature. Author anticipates CLI focused users would prefer to manage non-contamination details on their own.
+If you want to manually run the orchestrator to manage downloading, uploading, and running against a persistent server with the index, please study the configuration flag outputs from `make deploy-wizard`. Author anticipates CLI focused users would prefer to manage non-contamination details on their own.
 
 ## Reviewing Results
 
