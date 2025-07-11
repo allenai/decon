@@ -127,6 +127,7 @@ pub fn review_contamination(
     min_overlap_ratio: Option<f32>,
     min_idf_score: Option<f32>,
     min_length: Option<usize>,
+    eval_filter: Option<&str>,
 ) -> Result<(), Error> {
     println!("=== CONTAMINATION REVIEW ===");
 
@@ -154,6 +155,7 @@ pub fn review_contamination(
             min_overlap_ratio,
             min_idf_score,
             min_length,
+            eval_filter,
         );
 
         if all_results.is_empty() {
@@ -167,6 +169,9 @@ pub fn review_contamination(
             }
             if min_length.is_some() {
                 println!("  - Minimum n-gram matches: {}", min_length.unwrap());
+            }
+            if eval_filter.is_some() {
+                println!("  - Eval dataset filter: {}", eval_filter.unwrap());
             }
             return Ok(());
         }
@@ -256,6 +261,7 @@ pub fn review_contamination(
         min_overlap_ratio,
         min_idf_score,
         min_length,
+        eval_filter,
     );
 
     if contamination_results.is_empty() {
@@ -269,6 +275,9 @@ pub fn review_contamination(
         }
         if min_length.is_some() {
             println!("  - Minimum n-gram matches: {}", min_length.unwrap());
+        }
+        if eval_filter.is_some() {
+            println!("  - Eval dataset filter: {}", eval_filter.unwrap());
         }
         return Ok(());
     }
@@ -632,8 +641,25 @@ fn filter_contamination_results_by_thresholds(
     min_overlap_ratio: Option<f32>,
     min_idf_score: Option<f32>,
     min_length: Option<usize>,
+    eval_filter: Option<&str>,
 ) -> Vec<ContaminationResult> {
     results.into_iter().filter(|result| {
+        // Check eval dataset filter (strip suffix after last underscore)
+        if let Some(eval_name) = eval_filter {
+            // Strip the split suffix (everything after last underscore) from result's eval_dataset
+            let parts: Vec<&str> = result.eval_dataset.split('_').collect();
+            let eval_suite = if parts.len() > 1 {
+                parts[..parts.len() - 1].join("_")
+            } else {
+                result.eval_dataset.clone()
+            };
+            
+            // Check if it matches the filter
+            if eval_suite != eval_name {
+                return false;
+            }
+        }
+        
         // Check overlap ratio (jaccard_similarity)
         if let Some(min_ratio) = min_overlap_ratio {
             if result.jaccard_similarity < min_ratio {

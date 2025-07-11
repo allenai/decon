@@ -193,6 +193,12 @@ enum Commands {
             help = "Minimum n-gram match count to include in results (filters by ngram_match_cnt)"
         )]
         min_length: Option<usize>,
+
+        #[arg(
+            long,
+            help = "Filter by evaluation dataset name (strips suffix after last underscore)"
+        )]
+        eval: Option<String>,
     },
 
     Daemon {
@@ -886,6 +892,7 @@ fn main() -> Result<(), Error> {
             min_overlap_ratio,
             min_idf_score,
             min_length,
+            eval,
         } => review::review_contamination(
             config.as_ref(),
             results_file.as_ref(),
@@ -900,6 +907,7 @@ fn main() -> Result<(), Error> {
             *min_overlap_ratio,
             *min_idf_score,
             *min_length,
+            eval.as_deref(),
         ),
 
         Commands::Daemon {

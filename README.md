@@ -27,7 +27,6 @@ make deploy-wizard
 
 See the [Configuration Guide](doc/configuration.md) for customizing detection parameters.
 
-
 ### Running with CLI
 
 For those that prefer explicitness, directness, and less abstraction, you can run the tool directly.
@@ -82,9 +81,11 @@ cargo run --release -- review --stats --dir /my-results-directory --min-overlap-
 
 # Stats with aggressive filtering (high thresholds)
 cargo run --release -- review --step --dir /my-results-directory --min-overlap-ratio 0.9
+
+# Restrict to a specific eval
+cargo run --release -- review --eval mmlu --min-overlap-ratio 0.99  --step --dir /my-results-directory
+
 ```
-
-
 
 ## Detection Methods
 
@@ -105,10 +106,8 @@ Semantic contamination detection using word embeddings and poison tokens.
 - WIP
 - Not yet satisfied with collision behavior
 
-
 **Use SIMPLE as it is tested and complete**
 
 ## Configuration
 
-See the [Configuration Guide](doc/configuration.md) for detailed information about all available options, including:
-
+See the [Configuration Guide](doc/configuration.md) for detailed information about all available options.

@@ -61,6 +61,9 @@ review:
 	if [ -n "$(MIN_LENGTH)" ]; then \
 		FILTER_ARGS="$$FILTER_ARGS --min-length $(MIN_LENGTH)"; \
 	fi; \
+	if [ -n "$(EVAL)" ]; then \
+		FILTER_ARGS="$$FILTER_ARGS --eval $(EVAL)"; \
+	fi; \
 	cargo run --release -- review --step --dir $$DIR $$FILTER_ARGS
 
 stats:
@@ -78,6 +81,9 @@ stats:
 	fi; \
 	if [ -n "$(MIN_LENGTH)" ]; then \
 		FILTER_ARGS="$$FILTER_ARGS --min-length $(MIN_LENGTH)"; \
+	fi; \
+	if [ -n "$(EVAL)" ]; then \
+		FILTER_ARGS="$$FILTER_ARGS --eval $(EVAL)"; \
 	fi; \
 	cargo run --release -- review --stats --dir $$DIR $$FILTER_ARGS
 
