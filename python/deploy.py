@@ -433,7 +433,7 @@ def wizard():
     )
 
     remote_report_output_dir = None
-    
+
     if remote_file_input:
         default_report_path = f"s3://ai2-decon-reports/{cluster_name}"
         remote_report_output_dir = click.prompt(
@@ -711,18 +711,18 @@ def polling_auto_terminate(name, poll_interval, ssh_key):
 
     try:
         manager = DeploymentManager(deploy_config)
-        
+
         # Track consecutive failures
         consecutive_failures = 0
         max_failures = 5
-        
+
         while True:
             print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Checking orchestrator logs...")
-            
+
             try:
                 # Get orchestrator logs
                 logs = manager.view_logs("orchestrator")
-                
+
                 # Check for completion marker
                 if "WORK COMPLETE EXITING" in logs:
                     print("\n=====================================")
@@ -730,10 +730,10 @@ def polling_auto_terminate(name, poll_interval, ssh_key):
                     print("=====================================")
                     print("Work is complete! Initiating cluster termination...")
                     print()
-                    
+
                     # Small delay to ensure everything is properly flushed
                     time.sleep(5)
-                    
+
                     # Terminate the cluster (without confirmation prompt)
                     print(f"Executing cluster termination for '{name}'")
                     if manager.terminate_cluster():
@@ -751,11 +751,11 @@ def polling_auto_terminate(name, poll_interval, ssh_key):
                     # Reset failure counter on successful log retrieval
                     consecutive_failures = 0
                     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Work still in progress...")
-                    
+
             except subprocess.CalledProcessError as e:
                 consecutive_failures += 1
                 print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] WARNING: Failed to retrieve logs (attempt {consecutive_failures}/{max_failures})")
-                
+
                 if consecutive_failures >= max_failures:
                     print("\n=====================================")
                     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ERROR: Too many consecutive failures")
@@ -764,18 +764,18 @@ def polling_auto_terminate(name, poll_interval, ssh_key):
                     print("The cluster may have already been terminated or there may be a connection issue.")
                     print(f"Please check manually with: poormanray list --name {name}")
                     sys.exit(1)
-            
+
             except Exception as e:
                 print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ERROR: Unexpected error: {e}")
                 consecutive_failures += 1
-                
+
                 if consecutive_failures >= max_failures:
                     print("Too many errors, exiting...")
                     sys.exit(1)
-            
+
             print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Sleeping for {poll_interval}s...\n")
             time.sleep(poll_interval)
-            
+
     except PoorManRayError as e:
         print(f"❌ {e}")
         sys.exit(1)
@@ -789,7 +789,7 @@ def polling_auto_terminate(name, poll_interval, ssh_key):
 def create_deployment_manager(
     cluster_name: str,
     instance_count: int = 2,
-    instance_type: str = "i4i.2xlarge",
+    instance_type: str = "i4i.4xlarge",
     ssh_key_path: str = "~/.ssh/id_rsa",
     github_token: Optional[str] = None,
     **kwargs
