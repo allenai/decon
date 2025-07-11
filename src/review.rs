@@ -1,5 +1,6 @@
 use anyhow::{Error, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::io::{self, BufRead};
 use std::path::PathBuf;
 
@@ -116,11 +117,12 @@ pub fn review_contamination(
     config: &PathBuf,
     results_file: Option<&PathBuf>,
     step: bool,
-    stats: bool,
+    metric: bool,
     fp: bool,
     fn_: bool,
     tp: bool,
     tn: bool,
+    stats: bool,
 ) -> Result<(), Error> {
     println!("=== CONTAMINATION REVIEW ===");
 
@@ -154,10 +156,16 @@ pub fn review_contamination(
         contamination_results.len()
     );
 
-    // Load ground truth if available
+    if stats {
+        // Display eval dataset statistics with bar chart
+        display_eval_dataset_stats(&contamination_results)?;
+        return Ok(());
+    }
+
+    // Load ground truth if available (only needed for metric and filtering)
     let ground_truth = load_ground_truth(&config_obj.local_input)?;
 
-    if stats {
+    if metric {
         // Calculate and display statistics
         calculate_and_display_stats(&contamination_results, &ground_truth)?;
         return Ok(());
@@ -641,5 +649,67 @@ fn display_contamination_case(
         }
     }
 
+    Ok(())
+}
+
+fn display_eval_dataset_stats(contamination_results: &[ContaminationResult]) -> Result<(), Error> {
+    // Count occurrences of each eval dataset
+    let mut eval_counts: HashMap<String, usize> = HashMap::new();
+    
+    for result in contamination_results {
+        // Strip the split suffix (everything after last underscore) to get the eval suite
+        let parts: Vec<&str> = result.eval_dataset.split('_').collect();
+        if parts.len() > 1 {
+            // Join all parts except the last one
+            let eval_suite = parts[..parts.len() - 1].join("_");
+            *eval_counts.entry(eval_suite).or_insert(0) += 1;
+        } else {
+            // If no underscore, use the full name
+            *eval_counts.entry(result.eval_dataset.clone()).or_insert(0) += 1;
+        }
+    }
+    
+    // Sort by count (descending)
+    let mut sorted_counts: Vec<(String, usize)> = eval_counts.into_iter().collect();
+    sorted_counts.sort_by(|a, b| b.1.cmp(&a.1));
+    
+    println!("=== EVAL DATASET STATISTICS ===");
+    println!();
+    println!("Total contamination incidents: {:?}", contamination_results.len());
+    println!("Unique eval suites: {}", sorted_counts.len());
+    println!();
+    println!("Counts by eval suite:");
+    println!();
+    
+    // Find the maximum count for scaling the bar chart
+    let max_count = sorted_counts.first().map(|(_, count)| *count).unwrap_or(0);
+    let bar_width = 50; // Width of the bar chart in characters
+    
+    // Display each eval suite with a horizontal bar chart
+    for (suite, count) in &sorted_counts {
+        // Calculate bar length proportional to count
+        let bar_length = if max_count > 0 {
+            ((*count as f64 / max_count as f64) * bar_width as f64) as usize
+        } else {
+            0
+        };
+        
+        // Create the bar using Unicode block characters
+        let bar = "█".repeat(bar_length);
+        let empty = " ".repeat(bar_width - bar_length);
+        
+        // Format the output with aligned columns
+        println!(
+            "  {:<30} {:>8} │{}{}│",
+            suite,
+            count,
+            bar,
+            empty
+        );
+    }
+    
+    println!();
+    println!("=== END STATISTICS ===");
+    
     Ok(())
 }

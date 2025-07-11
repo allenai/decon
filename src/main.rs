@@ -141,7 +141,7 @@ enum Commands {
             long,
             help = "Calculate and display TP/FP/Accuracy statistics based on ground truth annotations"
         )]
-        stats: bool,
+        metric: bool,
 
         #[arg(
             long,
@@ -166,6 +166,12 @@ enum Commands {
             help = "Show only true negatives (correctly identified as clean - requires ground truth)"
         )]
         tn: bool,
+
+        #[arg(
+            long,
+            help = "Display eval dataset statistics with horizontal bar chart"
+        )]
+        stats: bool,
     },
 
     Daemon {
@@ -849,20 +855,22 @@ fn main() -> Result<(), Error> {
             config,
             results_file,
             step,
-            stats,
+            metric,
             fp,
             fn_,
             tp,
             tn,
+            stats,
         } => review::review_contamination(
             config,
             results_file.as_ref(),
             *step,
-            *stats,
+            *metric,
             *fp,
             *fn_,
             *tp,
             *tn,
+            *stats,
         ),
 
         Commands::Daemon {
