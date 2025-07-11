@@ -104,7 +104,7 @@ tn:
 
 
 evals:
-	python python/download_evals.py
+	python python/evals.py --download
 
 evals-s3:
 	mkdir -p fixtures/reference

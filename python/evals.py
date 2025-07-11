@@ -3,8 +3,9 @@
 Download and transform HuggingFace eval datasets for contamination detection.
 """
 
+import argparse
 import json
-from datasets import load_dataset
+from datasets import load_dataset, Dataset
 from pathlib import Path
 import os
 
@@ -628,6 +629,150 @@ EVAL_CONFIG = {
                 'text_field': 'question',
                 'answer_field': 'best_answer'
             }
+        },
+
+        'ultrachat_200k': {
+            'hf_path': 'HuggingFaceH4/ultrachat_200k',
+            'splits': ['train_sft', 'test_sft', 'train_gen', 'test_gen'],
+            'transform': 'auto'  # Will use auto extraction to handle the messages field
+        },
+
+        'wildchat': {
+            'hf_path': 'allenai/WildChat',
+            'splits': ['train'],  # Only has train split
+            'transform': 'auto'  # Will use auto extraction to handle conversation field
+        },
+
+        'lab_bench_dbqa': {
+            'hf_path': 'futurehouse/lab-bench',
+            'hf_config': 'DbQA',
+            'splits': ['train'],
+            'transform': {
+                'text_field': 'question',
+                'answer_field': 'ideal',
+                'choices_field': 'distractors'
+            }
+        },
+
+        'lab_bench_protocolqa': {
+            'hf_path': 'futurehouse/lab-bench',
+            'hf_config': 'ProtocolQA', 
+            'splits': ['train'],
+            'transform': {
+                'text_field': 'question',
+                'answer_field': 'ideal',
+                'choices_field': 'distractors'
+            }
+        },
+
+        # AGIEval English datasets (loaded from local files)
+        'agi_eval_aqua_rat': {
+            'local_path': 'fixtures/reference-static/aqua-rat.jsonl',
+            'splits': ['train'],
+            'transform': {
+                'text_field': 'question',
+                'context_field': 'passage',
+                'answer_field': 'label',
+                'choices_field': 'options'
+            }
+        },
+
+        'agi_eval_gaokao_english': {
+            'local_path': 'fixtures/reference-static/gaokao-english.jsonl',
+            'splits': ['train'],
+            'transform': {
+                'text_field': 'question',
+                'context_field': 'passage',
+                'answer_field': 'label',
+                'choices_field': 'options'
+            }
+        },
+
+        'agi_eval_logiqa_en': {
+            'local_path': 'fixtures/reference-static/logiqa-en.jsonl',
+            'splits': ['train'],
+            'transform': {
+                'text_field': 'question',
+                'context_field': 'passage',
+                'answer_field': 'label',
+                'choices_field': 'options'
+            }
+        },
+
+        'agi_eval_lsat_ar': {
+            'local_path': 'fixtures/reference-static/lsat-ar.jsonl',
+            'splits': ['train'],
+            'transform': {
+                'text_field': 'question',
+                'context_field': 'passage',
+                'answer_field': 'label',
+                'choices_field': 'options'
+            }
+        },
+
+        'agi_eval_lsat_lr': {
+            'local_path': 'fixtures/reference-static/lsat-lr.jsonl',
+            'splits': ['train'],
+            'transform': {
+                'text_field': 'question',
+                'context_field': 'passage',
+                'answer_field': 'label',
+                'choices_field': 'options'
+            }
+        },
+
+        'agi_eval_lsat_rc': {
+            'local_path': 'fixtures/reference-static/lsat-rc.jsonl',
+            'splits': ['train'],
+            'transform': {
+                'text_field': 'question',
+                'context_field': 'passage',
+                'answer_field': 'label',
+                'choices_field': 'options'
+            }
+        },
+
+        'agi_eval_math': {
+            'local_path': 'fixtures/reference-static/math.jsonl',
+            'splits': ['train'],
+            'transform': {
+                'text_field': 'question',
+                'context_field': 'passage',
+                'answer_field': 'label'
+            }
+        },
+
+        'agi_eval_sat_en': {
+            'local_path': 'fixtures/reference-static/sat-en.jsonl',
+            'splits': ['train'],
+            'transform': {
+                'text_field': 'question',
+                'context_field': 'passage',
+                'answer_field': 'label',
+                'choices_field': 'options'
+            }
+        },
+
+        'agi_eval_sat_en_without_passage': {
+            'local_path': 'fixtures/reference-static/sat-en-without-passage.jsonl',
+            'splits': ['train'],
+            'transform': {
+                'text_field': 'question',
+                'context_field': 'passage',
+                'answer_field': 'label',
+                'choices_field': 'options'
+            }
+        },
+
+        'agi_eval_sat_math': {
+            'local_path': 'fixtures/reference-static/sat-math.jsonl',
+            'splits': ['train'],
+            'transform': {
+                'text_field': 'question',
+                'context_field': 'passage',
+                'answer_field': 'label',
+                'choices_field': 'options'
+            }
         }
     }
 }
@@ -669,6 +814,15 @@ def split_document(text, threshold):
         chunks.append(current_chunk.strip())
 
     return chunks
+
+
+def load_local_jsonl(file_path):
+    """Load a local JSONL file as a HuggingFace Dataset."""
+    data = []
+    with open(file_path, 'r') as f:
+        for line in f:
+            data.append(json.loads(line.strip()))
+    return Dataset.from_list(data)
 
 
 def auto_extract(example):
@@ -716,11 +870,22 @@ def auto_extract(example):
 def download_and_transform_eval(eval_name, eval_config, global_config, document_id_counter):
     """Download HF dataset and transform to our JSONL format"""
 
-    print(f"Loading {eval_name} from {eval_config['hf_path']}...")
+    if 'local_path' in eval_config:
+        print(f"Loading {eval_name} from local file: {eval_config['local_path']}...")
+    else:
+        print(f"Loading {eval_name} from {eval_config['hf_path']}...")
 
-    # Load dataset from HuggingFace
+    # Load dataset from HuggingFace or local file
     try:
-        if 'hf_config' in eval_config:
+        if 'local_path' in eval_config:
+            # Load from local JSONL file
+            local_file = Path(eval_config['local_path'])
+            if not local_file.exists():
+                print(f"Error: Local file not found: {local_file}")
+                return
+            # Create a dataset dict with a single 'train' split
+            dataset = {'train': load_local_jsonl(local_file)}
+        elif 'hf_config' in eval_config:
             dataset = load_dataset(eval_config['hf_path'], eval_config['hf_config'])
         else:
             dataset = load_dataset(eval_config['hf_path'])
@@ -934,9 +1099,8 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
         else:
             print(f"Saved {len(dataset[split])} examples to {output_file}")
 
-def main():
-    """Main function to process all eval datasets"""
-
+def download_all_evals():
+    """Download all eval datasets"""
     print(f"Processing {len(EVAL_CONFIG['evals'])} eval datasets...")
 
     # Initialize global document ID counter (using list for mutable reference)
@@ -947,6 +1111,46 @@ def main():
         download_and_transform_eval(eval_name, eval_config, EVAL_CONFIG, document_id_counter)
 
     print(f"Done! Generated {document_id_counter[0] - 1} total document IDs.")
+
+
+def list_evals():
+    """List all available eval datasets"""
+    print(f"Available eval datasets ({len(EVAL_CONFIG['evals'])} total):\n")
+    
+    for eval_name in sorted(EVAL_CONFIG['evals'].keys()):
+        print(f"  - {eval_name}")
+
+
+def main():
+    """Main function with CLI"""
+    parser = argparse.ArgumentParser(
+        description="Manage HuggingFace eval datasets for contamination detection"
+    )
+    
+    parser.add_argument(
+        "--download",
+        action="store_true",
+        help="Download all evaluation datasets"
+    )
+    
+    parser.add_argument(
+        "--list",
+        action="store_true",
+        help="List all available evaluation datasets"
+    )
+    
+    args = parser.parse_args()
+    
+    # If no arguments provided, show help
+    if not any(vars(args).values()):
+        parser.print_help()
+        return
+    
+    if args.list:
+        list_evals()
+    elif args.download:
+        download_all_evals()
+
 
 if __name__ == "__main__":
     main()

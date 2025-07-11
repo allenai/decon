@@ -3,6 +3,7 @@
 Script to examine HuggingFace datasets and identify their splits and fields.
 """
 
+import argparse
 from datasets import load_dataset, get_dataset_config_names, DatasetInfo
 from huggingface_hub import dataset_info
 import sys
@@ -26,9 +27,11 @@ EVAL_PATHS = [
     "allenai/SimpleToM",
     "allenai/squad_mc",
     "allenai/ZebraLogicBench-private",
+    "aps/super_glue",
     "apple/GSM-Symbolic",
     "bigcode/bigcodebench",
     "bigcode/bigcodebench-hard",
+    "cais/mmlu",
     "commonsense_qa",
     "cosmos_qa",
     "cruxeval-org/cruxeval",
@@ -68,13 +71,127 @@ EVAL_PATHS = [
     "sciq",
     "social_i_qa",
     "soldni/jeopardy",
-    "super_glue",
     "tatsu-lab/alpaca_eval",
     "tau/zero_scrolls",
     "truthful_qa",
     "wckwan/MT-Eval",
     "winogrande",
-    "xlangai/DS-1000"
+    "xlangai/DS-1000",
+    "HuggingFaceH4/ultrachat_200k",
+    "allenai/WildChat",
+    "futurehouse/lab-bench"
+]
+
+# Target evaluation datasets to ensure coverage
+# Format: dataset_name:variant::source
+TARGET_EVAL_DATASETS = [
+    "arc_*:mc::xlarge",
+    "mmlu_*:mc::olmes",
+    "csqa:mc::xlarge",
+    "piqa:mc::xlarge",
+    "socialiqa:mc::xlarge",
+    "drop:mc::gen2mc",
+    "jeopardy:mc::gen2mc",
+    "naturalqs:mc::gen2mc",
+    "squad:mc::gen2mc",
+    "coqa:mc::gen2mc",
+    "basic_skills_*:mc::olmes",
+    "medmcqa:mc::none",
+    "medqa_en:mc::none",
+    "sciq:mc::xlarge",
+    "hellaswag:rc::xlarge",
+    "winogrande:rc::xlarge",
+    "lambada",
+    "basic_skills_*:rc::olmes",
+    "drop::xlarge",
+    "jeopardy::xlarge",
+    "naturalqs::xlarge",
+    "squad::xlarge",
+    "coqa::xlarge",
+    "gsm8k::olmes",
+    "gsm_symbolic*::olmo3",
+    "minerva_math_*::olmes",
+    "bigcodebench:3shot::olmo3",
+    "codex_humaneval:3shot::olmo3",
+    "deepseek_leetcode::olmo3",
+    "ds1000:3shot::olmo3",
+    "mbpp:3shot::olmo3",
+    "multipl_e_humaneval:*::olmo3",
+    "multipl_e_mbpp:*::olmo3",
+    "codex_humanevalfim_single:temp0.2",
+    "codex_humanevalfim_multi:temp0.2",
+    "codex_humanevalfim_random:temp0.2",
+    "alpaca_eval_v3::hamish_zs_reasoning",
+    "ifeval::hamish_zs_reasoning",
+    "gsm8k::zs_cot_latex",
+    "minerva_math_*::hamish_zs_reasoning",
+    "minerva_math_500::hamish_zs_reasoning",
+    "aime::hamish_zs_reasoning",
+    "codex_humanevalplus:0-shot-chat::tulu-thinker",
+    "mbppplus:0-shot-chat::tulu-thinker",
+    "livecodebench_codegeneration::tulu-thinker",
+    "zebralogic::hamish_zs_reasoning",
+    "popqa::hamish_zs_reasoning",
+    "bbh_*:cot::hamish_zs_reasoning",
+    "gpqa:0shot_cot::hamish_zs_reasoning",
+    "agi_eval_*:0shot_cot::hamish_zs_reasoning",
+    "mmlu_*:cot::hamish_zs_reasoning",
+    "ifeval_ood::tulu-thinker",
+    "ifeval_mt_*::tulu",
+    "styled_alpacaeval::tulu-thinker",
+    "multiturn_alpacaeval_*::tulu",
+    "omega_*:0-shot-chat",
+    "simpleqa::tulu-thinker",
+    "styled_math500::tulu-thinker",
+    "styled_popqa::tulu-thinker",
+    "minerva_*:bpb::olmes",
+    "codex_humaneval:3shot:bpb::none",
+    "mbpp:3shot:bpb::none",
+    "mt_mbpp_v2fix:*",
+    "arc_*:bpb::full",
+    "mmlu_*:bpb",
+    "csqa:bpb::olmes:full",
+    "hellaswag:bpb::olmes:full",
+    "winogrande:bpb::olmes:full",
+    "socialiqa:bpb::olmes:full",
+    "piqa:bpb::olmes:full",
+    "coqa:bpb::gen2mc",
+    "drop:bpb::gen2mc",
+    "jeopardy:bpb::gen2mc",
+    "naturalqs:bpb::gen2mc",
+    "squad:bpb::gen2mc",
+    "sciq:bpb::olmo3",
+    "qasper_yesno:bpb::olmes",
+    "basic_skills:bpb::olmes",
+    "lab_bench_dbqa:bpb",
+    "lab_bench_protocolqa:bpb",
+    "lambada:bpb",
+    "medmcqa:bpb::none",
+    "medqa_en:bpb::none",
+    "sciriff_yesno:bpb::olmes",
+    "arc_*:rc::olmes:full",
+    "mmlu_*:rc::olmes",
+    "csqa:rc::olmes:full",
+    "hellaswag:rc::olmes:full",
+    "winogrande:rc::olmes:full",
+    "socialiqa:rc::olmes:full",
+    "piqa:rc::olmes:full",
+    "coqa:rc::gen2mc",
+    "drop:rc::gen2mc",
+    "jeopardy:rc::gen2mc",
+    "naturalqs:rc::gen2mc",
+    "squad:rc::gen2mc",
+    "sciq:rc::olmo3",
+    "qasper_yesno:rc::olmes",
+    "basic_skills_*:rc::olmes",
+    "lab_bench_dbqa",
+    "lab_bench_protocolqa",
+    "lambada",
+    "medmcqa:rc::none",
+    "medqa_en:rc::none",
+    "sciriff_yesno:rc::olmes",
+    "ultrachat_masked_ppl",
+    "wildchat_masked_ppl"
 ]
 
 def get_fully_qualified_name(path):
@@ -224,57 +341,97 @@ def examine_dataset(path):
                 "error": str(e)
             }
 
-def main():
-    """Main function to examine all datasets."""
+def display_dataset_result(result, dataset_num=None, total_datasets=None):
+    """Display examination result for a single dataset with improved formatting."""
+    if dataset_num and total_datasets:
+        print(f"\n[{dataset_num:2d}/{total_datasets}] Dataset: {result['original_path']}")
+    else:
+        print(f"\nDataset: {result['original_path']}")
+    print("=" * 80)
+    
+    if result["status"] == "success":
+        print(f"✓ Status: SUCCESS")
+        print(f"  HuggingFace Path: {result['path']}")
+        if result["path"] != result["original_path"]:
+            print(f"  (resolved from: {result['original_path']})")
+        
+        print(f"\n  Available Configurations: {len(result['configs'])}")
+        
+        for config_idx, (config_name, splits) in enumerate(result["configs"].items(), 1):
+            print(f"\n  [{config_idx}] Configuration: '{config_name}'")
+            print("  " + "-" * 60)
+            
+            if isinstance(splits, dict):
+                for split_name, split_data in splits.items():
+                    if isinstance(split_data, dict) and "fields" in split_data:
+                        fields = split_data["fields"]
+                        sample = split_data["sample"]
+                        all_splits = split_data.get("all_splits", [split_name])
+                        
+                        print(f"      Available splits: {', '.join(all_splits)}")
+                        print(f"      Example from split '{split_name}':")
+                        print(f"      Fields ({len(fields)}): {', '.join(fields)}")
+                        print(f"\n      Sample data:")
+                        
+                        # Display sample data in a more readable format
+                        for field, value in sample.items():
+                            value_str = str(value)
+                            if len(value_str) > 100:
+                                value_str = value_str[:100] + "..."
+                            print(f"        • {field}: {value_str}")
+                    else:
+                        print(f"      Error in split '{split_name}': {split_data}")
+            else:
+                print(f"      Error: {splits}")
+    else:
+        print(f"✗ Status: ERROR")
+        print(f"  Attempted path: {result['path']}")
+        print(f"  Error: {result['error']}")
+    
+    print()
+
+
+def examine_all_datasets():
+    """Examine all datasets in EVAL_PATHS."""
     print("=" * 80)
     print("DATASET EXAMINATION RESULTS")
     print("=" * 80)
-
+    
     for i, path in enumerate(EVAL_PATHS, 1):
-        print(f"\n[{i:2d}/{len(EVAL_PATHS)}] Examining: {path}")
-        print("-" * 60)
-
         result = examine_dataset(path)
+        display_dataset_result(result, i, len(EVAL_PATHS))
 
-        if result["status"] == "success":
-            print(f"✓ Dataset: {result['path']}")
-            if result["path"] != result["original_path"]:
-                print(f"  (resolved from: {result['original_path']})")
 
-            total_configs = len(result["configs"])
-            print(f"  Configs found: {total_configs}")
-
-            for config_name, splits in result["configs"].items():
-                if isinstance(splits, dict):
-                    # We're only showing one split now
-                    split_count = len(splits)
-                    if split_count > 0:
-                        split_name = list(splits.keys())[0]
-                        split_data = splits[split_name]
-                        
-                        if isinstance(split_data, dict) and "fields" in split_data:
-                            fields = split_data["fields"]
-                            sample = split_data["sample"]
-                            all_splits = split_data.get("all_splits", [split_name])
-                            
-                            print(f"    Config '{config_name}': Available splits: {', '.join(all_splits)}")
-                            print(f"      Showing split '{split_name}': {len(fields)} fields")
-                            print(f"        Fields: {', '.join(fields)}")
-                            print(f"        Sample data:")
-                            for field, value in sample.items():
-                                print(f"          {field}: {value}")
-                        else:
-                            print(f"      {split_name}: {split_data}")
-                    else:
-                        print(f"    Config '{config_name}': No splits found")
-                else:
-                    print(f"    Config '{config_name}': {splits}")
-        else:
-            print(f"✗ UNKNOWN: {result['original_path']}")
-            print(f"  Attempted path: {result['path']}")
-            print(f"  Error: {result['error']}")
-
-    print("\n" + "=" * 80)
+def main():
+    """Main function with CLI support."""
+    parser = argparse.ArgumentParser(
+        description="Examine HuggingFace datasets to identify their splits and fields"
+    )
+    
+    parser.add_argument(
+        "--ds",
+        type=str,
+        help="Examine a specific dataset by name or HuggingFace path"
+    )
+    
+    parser.add_argument(
+        "--all-configs",
+        action="store_true",
+        help="Examine all configurations even if a default exists"
+    )
+    
+    args = parser.parse_args()
+    
+    if args.ds:
+        # Examine a single dataset
+        print(f"Examining single dataset: {args.ds}")
+        result = examine_dataset(args.ds)
+        display_dataset_result(result)
+    else:
+        # Examine all datasets
+        examine_all_datasets()
+    
+    print("=" * 80)
     print("EXAMINATION COMPLETE")
     print("=" * 80)
 
