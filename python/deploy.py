@@ -789,7 +789,7 @@ def polling_auto_terminate(name, poll_interval, ssh_key):
 def create_deployment_manager(
     cluster_name: str,
     instance_count: int = 2,
-    instance_type: str = "i4i.4xlarge",
+    instance_type: str = "i4i.2xlarge",
     ssh_key_path: str = "~/.ssh/id_rsa",
     github_token: Optional[str] = None,
     **kwargs

@@ -24,7 +24,8 @@ use crate::{clean_text, get_nested_json_val, OmniTokenizer};
 use crate::minhash::{_expand_band_seeds};
 
 // Constants for filtering
-const MIN_LENGTH: usize = 15; // Minimum word count for text entries
+const MIN_LENGTH: usize = 10; // Minimum word count for text entries
+const MIN_UNIQUE_WORDS: usize = 4; // Minimum unique word count for text entries
 
 // Constants for MinHash deduplication
 const MINHASH_NUM_BANDS: usize = 7;
@@ -146,6 +147,7 @@ struct DuplicateStats {
 struct FilterStats {
     total_lines_before_filters: usize,
     lines_removed_min_length: usize,
+    lines_removed_min_unique_words: usize,
     total_lines_after_filters: usize,
 }
 
@@ -363,6 +365,7 @@ fn display_filter_stats(stats: &FilterStats) {
     println!("Lines after deduplication: {}", stats.total_lines_before_filters);
     println!("Lines removed by filters:");
     println!("  - min_length (<{} words): {}", MIN_LENGTH, stats.lines_removed_min_length);
+    println!("  - min_unique_words (<{} unique): {}", MIN_UNIQUE_WORDS, stats.lines_removed_min_unique_words);
     println!("Lines after all filters: {}", stats.total_lines_after_filters);
 
     let filter_reduction = stats.total_lines_before_filters - stats.total_lines_after_filters;
@@ -399,6 +402,7 @@ fn apply_filters(
     let filtered_lines: Arc<DashMap<String, HashSet<usize>>> = Arc::new(DashMap::new());
     let total_lines_before = Arc::new(AtomicUsize::new(0));
     let lines_removed_min_length = Arc::new(AtomicUsize::new(0));
+    let lines_removed_min_unique_words = Arc::new(AtomicUsize::new(0));
     let total_lines_after = Arc::new(AtomicUsize::new(0));
 
     let pbar = build_pbar(reference_files.len(), "Filtering files");
@@ -410,6 +414,7 @@ fn apply_filters(
             &filtered_lines,
             &total_lines_before,
             &lines_removed_min_length,
+            &lines_removed_min_unique_words,
             &total_lines_after,
         ) {
             eprintln!("Error filtering file {:?}: {:?}", file_path, e);
@@ -428,6 +433,7 @@ fn apply_filters(
     let stats = FilterStats {
         total_lines_before_filters: total_lines_before.load(Ordering::Relaxed),
         lines_removed_min_length: lines_removed_min_length.load(Ordering::Relaxed),
+        lines_removed_min_unique_words: lines_removed_min_unique_words.load(Ordering::Relaxed),
         total_lines_after_filters: total_lines_after.load(Ordering::Relaxed),
     };
 
@@ -440,6 +446,7 @@ fn filter_file(
     filtered_lines: &Arc<DashMap<String, HashSet<usize>>>,
     total_lines_before: &Arc<AtomicUsize>,
     lines_removed_min_length: &Arc<AtomicUsize>,
+    lines_removed_min_unique_words: &Arc<AtomicUsize>,
     total_lines_after: &Arc<AtomicUsize>,
 ) -> Result<(), Error> {
     let filename = file_path
@@ -473,9 +480,17 @@ fn filter_file(
             if let Ok(json_obj) = serde_json::from_str::<Value>(&line) {
                 if let Ok(text) = get_text_from_json(&json_obj) {
                     // Apply minimum length filter (count words)
-                    let word_count = text.split_whitespace().count();
+                    let words: Vec<&str> = text.split_whitespace().collect();
+                    let word_count = words.len();
                     if word_count < MIN_LENGTH {
                         lines_removed_min_length.fetch_add(1, Ordering::Relaxed);
+                        continue;
+                    }
+
+                    // Apply minimum unique words filter
+                    let unique_words: HashSet<&str> = words.into_iter().collect();
+                    if unique_words.len() < MIN_UNIQUE_WORDS {
+                        lines_removed_min_unique_words.fetch_add(1, Ordering::Relaxed);
                         continue;
                     }
                 }
@@ -541,15 +556,15 @@ fn write_refined_file(
     lines_to_keep: &HashMap<String, HashSet<usize>>,
 ) -> Result<(), Error> {
     const CHUNK_SIZE_BYTES: usize = 50 * 1024 * 1024; // 50MB
-    
+
     let filename = input_path
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("unknown");
-    
+
     // Get the set of line numbers to keep for this file
     let keep_lines = lines_to_keep.get(filename);
-    
+
     // Open input file
     let input_file = File::open(input_path)?;
     let reader: Box<dyn BufRead> = if input_path.extension().and_then(|s| s.to_str()) == Some("gz") {
@@ -557,7 +572,7 @@ fn write_refined_file(
     } else {
         Box::new(BufReader::new(input_file))
     };
-    
+
     // Prepare for chunked output
     let base_name = input_path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown");
     let extension = if input_path.extension().and_then(|s| s.to_str()) == Some("gz") {
@@ -565,7 +580,7 @@ fn write_refined_file(
     } else {
         ".jsonl"
     };
-    
+
     let mut chunk_number = 0;
     let mut current_chunk_size = 0;
     let mut writer: Option<Box<dyn Write>> = None;
@@ -573,15 +588,15 @@ fn write_refined_file(
     let mut total_count = 0;
     let mut lines_buffer = Vec::new();
     let mut chunk_files = Vec::new();
-    
+
     for (line_num, line) in reader.lines().enumerate() {
         total_count += 1;
         let line = line?;
-        
+
         // Keep line if it's in our keep set
         if keep_lines.map_or(false, |set| set.contains(&line_num)) {
             let line_bytes = line.as_bytes().len() + 1; // +1 for newline
-            
+
             // Check if we need to start a new chunk
             if current_chunk_size + line_bytes > CHUNK_SIZE_BYTES || writer.is_none() {
                 // Flush current writer if exists
@@ -591,15 +606,15 @@ fn write_refined_file(
                     }
                     w.flush()?;
                 }
-                
+
                 // Create new chunk file
                 chunk_number += 1;
                 let chunk_filename = format!("{}-{}{}", base_name, chunk_number, extension);
                 chunk_files.push(chunk_filename.clone());
-                
+
                 let output_path = output_dir.join(&chunk_filename);
                 let output_file = File::create(&output_path)?;
-                
+
                 writer = Some(if extension == ".jsonl.gz" {
                     Box::new(BufWriter::new(GzEncoder::new(
                         output_file,
@@ -608,14 +623,14 @@ fn write_refined_file(
                 } else {
                     Box::new(BufWriter::new(output_file))
                 });
-                
+
                 current_chunk_size = 0;
             }
-            
+
             lines_buffer.push(line);
             current_chunk_size += line_bytes;
             kept_count += 1;
-            
+
             // Write buffer if it gets large (to avoid excessive memory usage)
             if lines_buffer.len() >= 10000 {
                 if let Some(ref mut w) = writer {
@@ -626,7 +641,7 @@ fn write_refined_file(
             }
         }
     }
-    
+
     // Flush remaining lines
     if let Some(mut w) = writer {
         for buffered_line in lines_buffer {
@@ -634,7 +649,7 @@ fn write_refined_file(
         }
         w.flush()?;
     }
-    
+
     let removed_total = total_count - kept_count;
     if chunk_number > 0 {
         println!(
@@ -654,7 +669,7 @@ fn write_refined_file(
             total_count
         );
     }
-    
+
     Ok(())
 }
 
@@ -696,7 +711,7 @@ fn get_hash_vals_from_tokens(
 fn init_permutations(seeds: &Vec<u64>) -> Array1<u128> {
     use rand::{Rng, SeedableRng};
     use rand_chacha::ChaCha20Rng;
-    
+
     let n = seeds.len();
     let mut a = Array1::zeros(n);
     for (i, &seed) in seeds.iter().enumerate() {
@@ -712,7 +727,7 @@ fn update_hash_vals(
     ngram: &VecDeque<usize>,
 ) -> Array1<u64> {
     use ahash::RandomState;
-    
+
     // hash the vecdeque as a u128
     let hash_a = RandomState::with_seed(123);
     let hash_b = RandomState::with_seed(456);
@@ -733,27 +748,27 @@ fn detect_minhash_duplicates(
     lines_to_keep: &HashMap<String, HashSet<usize>>,
 ) -> Result<(HashMap<String, HashSet<usize>>, MinHashStats), Error> {
     println!("Building MinHash signatures...");
-    
+
     // Initialize MinHash structures
     let minhash_bands: MinHashBands = DashMap::new();
     let minhash_signatures: MinHashSignatures = DashMap::new();
-    
+
     // Setup hashing parameters
     let band_seeds: Vec<u32> = _expand_band_seeds(&vec![MINHASH_SEED as u32], MINHASH_NUM_BANDS)
         .into_iter()
         .map(|x| x as u32)
         .collect();
     let perm_seeds = _expand_band_seeds(&band_seeds, MINHASH_BAND_SIZE);
-    
+
     // Initialize tokenizer
     let tokenizer = OmniTokenizer::new("uniseg")?;
-    
+
     // Track statistics
     let total_lines_processed = Arc::new(AtomicUsize::new(0));
     let near_duplicates_found = Arc::new(AtomicUsize::new(0));
-    
+
     let pbar = build_pbar(reference_files.len(), "Computing MinHash signatures");
-    
+
     // Process each file
     reference_files.par_iter().for_each(|file_path| {
         if let Err(e) = process_file_for_minhash(
@@ -770,51 +785,51 @@ fn detect_minhash_duplicates(
         }
         pbar.inc(1);
     });
-    
+
     pbar.finish_with_message("MinHash signatures computed");
-    
+
     // Store bands in the LSH index
     println!("Building LSH index...");
     for entry in minhash_signatures.iter() {
         let (filename, line_num) = entry.key();
         let signature = entry.value();
-        
+
         let bands = signature.clone().into_shape((MINHASH_NUM_BANDS, MINHASH_BAND_SIZE)).unwrap();
         for row in bands.rows() {
             let mut hasher = Sha256::new();
             hasher.update(bytemuck::cast_slice(row.as_slice().unwrap()));
             let hash = hasher.finalize();
             let band_signature = hash[..8].to_vec();
-            
+
             minhash_bands
                 .entry(band_signature)
                 .or_default()
                 .push((filename.clone(), *line_num));
         }
     }
-    
+
     // Now detect near-duplicates
     println!("Detecting near-duplicates with >{:.0}% similarity...", MINHASH_SIMILARITY_THRESHOLD * 100.0);
-    
+
     let mut minhash_lines_to_keep: HashMap<String, HashSet<usize>> = HashMap::new();
     let near_duplicate_examples: DashMap<(String, usize), Vec<(String, usize, f32)>> = DashMap::new();
-    
+
     // For each signature, check if it has near-duplicates
     for entry in minhash_signatures.iter() {
         let (filename, line_num) = entry.key();
         let signature = entry.value();
-        
+
         // Generate bands for this signature
         let bands = signature.clone().into_shape((MINHASH_NUM_BANDS, MINHASH_BAND_SIZE)).unwrap();
         let mut potential_duplicates: HashMap<(String, usize), u32> = HashMap::new();
-        
+
         // Check each band for collisions
         for row in bands.rows() {
             let mut hasher = Sha256::new();
             hasher.update(bytemuck::cast_slice(row.as_slice().unwrap()));
             let hash = hasher.finalize();
             let band_signature = hash[..8].to_vec();
-            
+
             if let Some(matches) = minhash_bands.get(&band_signature) {
                 for (other_file, other_line) in matches.value() {
                     if (other_file, other_line) != (filename, line_num) {
@@ -823,19 +838,19 @@ fn detect_minhash_duplicates(
                 }
             }
         }
-        
+
         // Check Jaccard similarity for potential duplicates
         let mut is_near_duplicate = false;
         let mut similar_docs = Vec::new();
-        
+
         for ((other_file, other_line), _band_matches) in potential_duplicates {
             if let Some(other_sig) = minhash_signatures.get(&(other_file.clone(), other_line)) {
                 let similarity = calculate_jaccard_similarity(signature, other_sig.value());
-                
+
                 if similarity >= MINHASH_SIMILARITY_THRESHOLD {
                     // This is a near-duplicate
                     similar_docs.push((other_file.clone(), other_line, similarity));
-                    
+
                     // Keep only the first occurrence (lexicographically by filename, then by line number)
                     if (other_file.as_str(), other_line) < (filename.as_str(), *line_num) {
                         is_near_duplicate = true;
@@ -843,14 +858,14 @@ fn detect_minhash_duplicates(
                 }
             }
         }
-        
+
         if !similar_docs.is_empty() {
             near_duplicate_examples.insert((filename.clone(), *line_num), similar_docs);
             if is_near_duplicate {
                 near_duplicates_found.fetch_add(1, Ordering::Relaxed);
             }
         }
-        
+
         // Add to lines to keep if it's not a near-duplicate
         if !is_near_duplicate {
             minhash_lines_to_keep
@@ -859,13 +874,13 @@ fn detect_minhash_duplicates(
                 .insert(*line_num);
         }
     }
-    
+
     let stats = MinHashStats {
         total_lines_processed: total_lines_processed.load(Ordering::Relaxed),
         near_duplicates_found: near_duplicates_found.load(Ordering::Relaxed),
         near_duplicate_examples: near_duplicate_examples.into_iter().collect(),
     };
-    
+
     Ok((minhash_lines_to_keep, stats))
 }
 
@@ -891,14 +906,14 @@ fn process_file_for_minhash(
         .and_then(|s| s.to_str())
         .unwrap_or("unknown")
         .to_string();
-    
+
     // Get lines to keep for this file
     let keep_lines = lines_to_keep.get(&filename);
     if keep_lines.is_none() || keep_lines.unwrap().is_empty() {
         return Ok(()); // No lines to process for this file
     }
     let keep_lines = keep_lines.unwrap();
-    
+
     // Open file
     let file = File::open(file_path)?;
     let reader: Box<dyn BufRead> = if file_path.extension().and_then(|s| s.to_str()) == Some("gz") {
@@ -906,53 +921,53 @@ fn process_file_for_minhash(
     } else {
         Box::new(BufReader::new(file))
     };
-    
+
     // Process each line that passed exact deduplication
     for (line_num, line) in reader.lines().enumerate() {
         if !keep_lines.contains(&line_num) {
             continue; // Skip lines that were already exact duplicates
         }
-        
+
         let line = line?;
-        
+
         // Parse JSON and extract text
         let json_obj: Value = match serde_json::from_str(&line) {
             Ok(obj) => obj,
             Err(_) => continue,
         };
-        
+
         let text = match get_text_from_json(&json_obj) {
             Ok(t) => t,
             Err(_) => continue,
         };
-        
+
         // Clean text and tokenize
         let cleaned_text = clean_text(&text, "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~");
         let tokens = tokenizer.encode(&cleaned_text);
-        
+
         // Generate MinHash signature
         let hash_vals = get_hash_vals_from_tokens(tokens, perm_seeds, MINHASH_NGRAM_SIZE);
-        
+
         // Store signature
         minhash_signatures.insert((filename.clone(), line_num), hash_vals);
         total_lines_processed.fetch_add(1, Ordering::Relaxed);
     }
-    
+
     Ok(())
 }
 
 fn display_minhash_stats(stats: &MinHashStats, dry_run: bool) {
     println!("\n=== MINHASH DEDUPLICATION SUMMARY ===");
     println!("Lines processed for MinHash: {}", stats.total_lines_processed);
-    println!("Near-duplicates found (>{:.0}% similar): {}", 
-        MINHASH_SIMILARITY_THRESHOLD * 100.0, 
+    println!("Near-duplicates found (>{:.0}% similar): {}",
+        MINHASH_SIMILARITY_THRESHOLD * 100.0,
         stats.near_duplicates_found
     );
-    
+
     if dry_run && !stats.near_duplicate_examples.is_empty() {
         println!("\nDetailed near-duplicate comparisons (showing 20 examples):");
         println!("{}", "=".repeat(120));
-        
+
         // Sort by similarity (highest first but not 100%) and take interesting examples
         let mut examples = stats.near_duplicate_examples.clone();
         examples.sort_by(|a, b| {
@@ -960,24 +975,24 @@ fn display_minhash_stats(stats: &MinHashStats, dry_run: bool) {
             let max_sim_b = b.1.iter().map(|(_, _, sim)| sim).max_by(|x, y| x.partial_cmp(y).unwrap()).unwrap_or(&0.0);
             max_sim_b.partial_cmp(max_sim_a).unwrap()
         });
-        
+
         // Filter to show more interesting examples (not 100% similar)
         let mut shown = 0;
         for ((file, line_num), similar_docs) in examples.iter() {
             if shown >= 20 {
                 break;
             }
-            
+
             // Get the most similar match
             let mut sorted_similar = similar_docs.clone();
             sorted_similar.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap());
-            
+
             if let Some((similar_file, similar_line, similarity)) = sorted_similar.first() {
                 // Skip if similarity is exactly 100% (less interesting)
                 if *similarity == 1.0 && shown > 5 {
                     continue;
                 }
-                
+
                 // Try to load both texts for comparison
                 if let Ok((text1, text2)) = load_texts_for_comparison(file, *line_num, similar_file, *similar_line) {
                     shown += 1;
@@ -985,7 +1000,7 @@ fn display_minhash_stats(stats: &MinHashStats, dry_run: bool) {
                     println!("File 1: {}:{}", file, line_num + 1);
                     println!("File 2: {}:{}", similar_file, similar_line + 1);
                     println!("{}", "-".repeat(120));
-                    
+
                     // Display side by side
                     display_side_by_side(&text1, &text2, 58);
                     println!("{}", "=".repeat(120));
@@ -1003,36 +1018,36 @@ fn load_texts_for_comparison(
 ) -> Result<(String, String), Error> {
     let text1 = get_line_content(file1, line1)?;
     let text2 = get_line_content(file2, line2)?;
-    
+
     // Parse JSON and extract text
     let json1: Value = serde_json::from_str(&text1)?;
     let json2: Value = serde_json::from_str(&text2)?;
-    
+
     let content1 = get_text_from_json(&json1)?;
     let content2 = get_text_from_json(&json2)?;
-    
+
     Ok((content1, content2))
 }
 
 fn display_side_by_side(text1: &str, text2: &str, width: usize) {
     use textwrap::{wrap, Options};
-    
+
     let options = Options::new(width)
         .break_words(false)
         .word_separator(textwrap::WordSeparator::AsciiSpace);
-    
+
     let lines1 = wrap(text1, &options);
     let lines2 = wrap(text2, &options);
-    
+
     let max_lines = std::cmp::max(lines1.len(), lines2.len());
-    
+
     println!("{:<width$} │ {:<width$}", "TEXT 1", "TEXT 2", width = width);
     println!("{} │ {}", "-".repeat(width), "-".repeat(width));
-    
+
     for i in 0..max_lines {
         let line1 = lines1.get(i).map(|s| s.as_ref()).unwrap_or("");
         let line2 = lines2.get(i).map(|s| s.as_ref()).unwrap_or("");
-        
+
         // Highlight differences by checking if lines are exactly the same
         if line1 == line2 && !line1.is_empty() {
             println!("{:<width$} │ {:<width$}", line1, line2, width = width);
