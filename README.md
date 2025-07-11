@@ -42,7 +42,7 @@ cd decon
 s5cmd sync s3://decon-evals/* fixtures/reference
 
 # Download your data set to the directory of your choice. NOTE: you will probably want a different location, this is just the default.
-s5cmd sync s3://your-data-set-prefix fixtures/local
+s5cmd sync s3://your-data-set-prefix fixtures/local_input
 
 # Run contamination detection.
 cargo run --release detect --config examples/simple.yaml
