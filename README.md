@@ -50,9 +50,6 @@ cargo run --release detect --config examples/simple.yaml
 # Note that the options mix all the different modes (I'll clean this up eventually)
 # Also note that each has a sensible default. Performance and outcomes may vary wildly depending on options.
 cargo run --release detect --help
-
-# Review results interactively.
-cargo run --release review --config examples/simple.yaml --step
 ```
 
 If you want to manually run the orchestrator to manage downloading, uploading, and running against a persistent server with the index, please study the configuration flag outputs from `make deploy-wizard` or please write the author and express a desire for this feature. Author anticipates CLI focused users would prefer to manage non-contamination details on their own.
