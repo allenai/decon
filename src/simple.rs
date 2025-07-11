@@ -1,19 +1,22 @@
 use anyhow::{Error, Result};
 use dashmap::DashMap;
 use rayon::prelude::*;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::fs::{create_dir_all, File, OpenOptions};
-use std::io::{BufWriter, Write, BufRead};
+use std::io::{BufRead, BufWriter, Write};
 use std::panic::catch_unwind;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use mj_io::{expand_dirs, read_pathbuf_to_mem, write_mem_to_pathbuf, build_pbar};
+use mj_io::{build_pbar, expand_dirs, read_pathbuf_to_mem, write_mem_to_pathbuf};
 
-use crate::{Config, get_nested_json_val, get_results_filename, write_purified_file, OmniTokenizer, preprocess_text, clean_text};
+use crate::{
+    clean_text, get_nested_json_val, get_results_filename, preprocess_text, write_purified_file,
+    Config, OmniTokenizer,
+};
 
 // Simple mode structures
 type NgramToIdMap = DashMap<u64, u64>; // Maps n-gram hash to unique ID
@@ -29,14 +32,33 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
     // Step 1: Process eval datasets and build n-gram mappings
     println!("Processing eval datasets and building n-gram index...");
     let index_start = Instant::now();
-    let (ngram_to_id, id_to_docs, eval_documents, id_to_ngram_tokens, tokenizer, eval_text_snippets) = build_simple_index(config)?;
+    let (
+        ngram_to_id,
+        id_to_docs,
+        eval_documents,
+        id_to_ngram_tokens,
+        tokenizer,
+        eval_text_snippets,
+    ) = build_simple_index(config)?;
     let index_time = index_start.elapsed();
-    println!("Built simple index with {} unique n-grams in {:.2}s", ngram_to_id.len(), index_time.as_secs_f64());
+    println!(
+        "Built simple index with {} unique n-grams in {:.2}s",
+        ngram_to_id.len(),
+        index_time.as_secs_f64()
+    );
 
     // Step 2: Process training data and detect contamination
     println!("Processing training data for contamination detection...");
     let detection_start = Instant::now();
-    let total_contaminations = detect_simple_contamination(config, &ngram_to_id, &id_to_docs, &eval_documents, &id_to_ngram_tokens, &tokenizer, &eval_text_snippets)?;
+    let total_contaminations = detect_simple_contamination(
+        config,
+        &ngram_to_id,
+        &id_to_docs,
+        &eval_documents,
+        &id_to_ngram_tokens,
+        &tokenizer,
+        &eval_text_snippets,
+    )?;
     let detection_time = detection_start.elapsed();
 
     let total_time = start_main.elapsed();
@@ -49,7 +71,14 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
 }
 
 // Public type for the index
-pub type SimpleIndex = (NgramToIdMap, IdToDocsMap, EvalDocuments, IdToNgramTokens, OmniTokenizer, EvalTextSnippets);
+pub type SimpleIndex = (
+    NgramToIdMap,
+    IdToDocsMap,
+    EvalDocuments,
+    IdToNgramTokens,
+    OmniTokenizer,
+    EvalTextSnippets,
+);
 
 pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
     let ngram_to_id: NgramToIdMap = DashMap::new();
@@ -67,7 +96,7 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
     // Find all reference files
     let reference_files = expand_dirs(
         vec![config.reference_input.clone()],
-        Some(vec![".jsonl", ".gz"].as_slice())
+        Some(vec![".jsonl", ".gz"].as_slice()),
     )?;
     let pbar = build_pbar(reference_files.len(), "Reference files");
 
@@ -83,7 +112,7 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
             &next_ngram_id,
             &tokenizer,
             &id_to_ngram_tokens,
-            &eval_text_snippets
+            &eval_text_snippets,
         ) {
             println!("Error processing reference file {:?}: {:?}", file_path, e);
         }
@@ -93,7 +122,14 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
     // println!("Finished processing reference files. Total unique n-grams: {}", ngram_to_id.len()); //debug
     // println!("Total eval documents indexed: {}", eval_documents.len()); //debug
 
-    Ok((ngram_to_id, id_to_docs, eval_documents, id_to_ngram_tokens, tokenizer, eval_text_snippets))
+    Ok((
+        ngram_to_id,
+        id_to_docs,
+        eval_documents,
+        id_to_ngram_tokens,
+        tokenizer,
+        eval_text_snippets,
+    ))
 }
 
 fn process_simple_reference_file(
@@ -105,7 +141,7 @@ fn process_simple_reference_file(
     next_ngram_id: &std::sync::atomic::AtomicU64,
     tokenizer: &OmniTokenizer,
     id_to_ngram_tokens: &IdToNgramTokens,
-    eval_text_snippets: &EvalTextSnippets
+    eval_text_snippets: &EvalTextSnippets,
 ) -> Result<(), Error> {
     let data = read_pathbuf_to_mem(file_path)?;
 
@@ -138,17 +174,24 @@ fn process_simple_reference_file(
         // Use preprocess_text to get token IDs
         let word_tokens = if config.tokenizer_str == "word" {
             // For word mode, build vocabulary from reference set
-            let words: Vec<String> = cleaned.split_whitespace()
+            let words: Vec<String> = cleaned
+                .split_whitespace()
                 .map(|s| s.to_string())
                 .filter(|s| !s.is_empty())
                 .collect();
             // Add words to vocabulary and get IDs
-            words.iter()
+            words
+                .iter()
                 .map(|word| tokenizer.add_word(word) as usize)
                 .collect()
         } else {
-            let Ok(tokens) = catch_unwind(|| preprocess_text(&line_text, tokenizer, &config.punctuation_chars)) else {
-                println!("Tokenization failed on {:?} | line {:?}", file_path, line_num);
+            let Ok(tokens) =
+                catch_unwind(|| preprocess_text(&line_text, tokenizer, &config.punctuation_chars))
+            else {
+                println!(
+                    "Tokenization failed on {:?} | line {:?}",
+                    file_path, line_num
+                );
                 _skipped_entries += 1;
                 continue;
             };
@@ -166,13 +209,18 @@ fn process_simple_reference_file(
 
         // Calculate total n-grams for this document
         let total_ngrams = if word_tokens.len() < config.ngram_size {
-            if word_tokens.is_empty() { 0 } else { 1 }
+            if word_tokens.is_empty() {
+                0
+            } else {
+                1
+            }
         } else {
             word_tokens.len() - config.ngram_size + 1
         };
 
         // Read document ID from JSON (generated by Python download script)
-        let doc_id = json_obj.get("doc_id")
+        let doc_id = json_obj
+            .get("doc_id")
             .and_then(|v| v.as_u64())
             .ok_or_else(|| anyhow::anyhow!("Missing or invalid doc_id field in reference file"))?
             as u32;
@@ -185,7 +233,12 @@ fn process_simple_reference_file(
             if !word_tokens.is_empty() {
                 // For documents shorter than ngram_size, use all tokens
                 let ngram_tokens = word_tokens.clone();
-                let ngram_id = get_or_create_ngram_id(&ngram_tokens, ngram_to_id, next_ngram_id, id_to_ngram_tokens);
+                let ngram_id = get_or_create_ngram_id(
+                    &ngram_tokens,
+                    ngram_to_id,
+                    next_ngram_id,
+                    id_to_ngram_tokens,
+                );
                 unique_ngrams_set.insert(ngram_id);
                 add_doc_to_ngram(ngram_id, doc_id, id_to_docs);
 
@@ -195,7 +248,12 @@ fn process_simple_reference_file(
             for i in 0..=word_tokens.len() - config.ngram_size {
                 let ngram_slice = &word_tokens[i..i + config.ngram_size];
                 let ngram_tokens = ngram_slice.to_vec();
-                let ngram_id = get_or_create_ngram_id(&ngram_tokens, ngram_to_id, next_ngram_id, id_to_ngram_tokens);
+                let ngram_id = get_or_create_ngram_id(
+                    &ngram_tokens,
+                    ngram_to_id,
+                    next_ngram_id,
+                    id_to_ngram_tokens,
+                );
                 unique_ngrams_set.insert(ngram_id);
                 add_doc_to_ngram(ngram_id, doc_id, id_to_docs);
 
@@ -208,7 +266,10 @@ fn process_simple_reference_file(
         let unique_ngrams = unique_ngrams_set.len();
 
         // Store document metadata (no collision possible with sequential IDs)
-        eval_documents.insert(doc_id, (eval_name.clone(), line_num, total_ngrams, unique_ngrams));
+        eval_documents.insert(
+            doc_id,
+            (eval_name.clone(), line_num, total_ngrams, unique_ngrams),
+        );
 
         // if _lines_processed % 1000 == 0 {
         //     println!("Processed {} lines from {}, current n-gram vocab size: {}", _lines_processed, eval_name, ngram_to_id.len()); //debug
@@ -221,14 +282,18 @@ fn process_simple_reference_file(
 
 // Helper functions
 fn hash_ngram(tokens: &[usize]) -> u64 {
-    use std::hash::{Hash, Hasher, DefaultHasher};
+    use std::hash::{DefaultHasher, Hash, Hasher};
     let mut hasher = DefaultHasher::new();
     tokens.hash(&mut hasher);
     hasher.finish()
 }
 
-
-fn get_or_create_ngram_id(ngram_tokens: &[usize], ngram_to_id: &NgramToIdMap, next_id: &std::sync::atomic::AtomicU64, id_to_ngram_tokens: &IdToNgramTokens) -> u64 {
+fn get_or_create_ngram_id(
+    ngram_tokens: &[usize],
+    ngram_to_id: &NgramToIdMap,
+    next_id: &std::sync::atomic::AtomicU64,
+    id_to_ngram_tokens: &IdToNgramTokens,
+) -> u64 {
     use std::sync::atomic::Ordering;
 
     let ngram_hash = hash_ngram(ngram_tokens);
@@ -256,7 +321,10 @@ fn get_or_create_ngram_id(ngram_tokens: &[usize], ngram_to_id: &NgramToIdMap, ne
 }
 
 fn add_doc_to_ngram(ngram_id: u64, doc_id: u32, id_to_docs: &IdToDocsMap) {
-    id_to_docs.entry(ngram_id).or_insert_with(HashSet::new).insert(doc_id);
+    id_to_docs
+        .entry(ngram_id)
+        .or_insert_with(HashSet::new)
+        .insert(doc_id);
 }
 
 fn detect_simple_contamination(
@@ -266,14 +334,14 @@ fn detect_simple_contamination(
     eval_documents: &EvalDocuments,
     id_to_ngram_tokens: &IdToNgramTokens,
     tokenizer: &OmniTokenizer,
-    eval_text_snippets: &EvalTextSnippets
+    eval_text_snippets: &EvalTextSnippets,
 ) -> Result<usize, Error> {
     // println!("Starting training data contamination detection..."); //debug
 
     // Find all training files
     let training_files = expand_dirs(
         vec![config.local_input.clone()],
-        Some(vec![".jsonl", ".gz"].as_slice())
+        Some(vec![".jsonl", ".gz"].as_slice()),
     )?;
 
     // println!("Found {} training files to process", training_files.len()); //debug
@@ -311,10 +379,11 @@ fn detect_simple_contamination(
             eval_text_snippets,
             &results_writer,
             &total_contaminations,
-            &contaminated_files
+            &contaminated_files,
         ) {
             Ok(lines_processed) => {
-                total_lines_processed.fetch_add(lines_processed, std::sync::atomic::Ordering::SeqCst);
+                total_lines_processed
+                    .fetch_add(lines_processed, std::sync::atomic::Ordering::SeqCst);
             }
             Err(e) => {
                 println!("Error processing training file {:?}: {:?}", file_path, e);
@@ -338,18 +407,29 @@ fn detect_simple_contamination(
         let micros_per_line = total_micros / lines_processed as f64;
 
         if micros_per_line >= 1000.0 {
-            println!("Processed {} training lines in {:.2}s ({:.2} ms/line)",
-                     lines_processed, processing_time.as_secs_f64(), micros_per_line / 1000.0);
+            println!(
+                "Processed {} training lines in {:.2}s ({:.2} ms/line)",
+                lines_processed,
+                processing_time.as_secs_f64(),
+                micros_per_line / 1000.0
+            );
         } else {
-            println!("Processed {} training lines in {:.2}s ({:.0} μs/line)",
-                     lines_processed, processing_time.as_secs_f64(), micros_per_line);
+            println!(
+                "Processed {} training lines in {:.2}s ({:.0} μs/line)",
+                lines_processed,
+                processing_time.as_secs_f64(),
+                micros_per_line
+            );
         }
     }
 
     if total_contaminations_count > 0 {
         println!("\n=== SIMPLE CONTAMINATION SUMMARY ===");
-        println!("Found {} contamination instances across {} files",
-                total_contaminations_count, contaminated_files.len());
+        println!(
+            "Found {} contamination instances across {} files",
+            total_contaminations_count,
+            contaminated_files.len()
+        );
         println!("Results saved to: {:?}", results_path);
     } else {
         println!("\n=== NO CONTAMINATION DETECTED ===");
@@ -515,7 +595,7 @@ pub fn process_simple_training_file(
     contamination_results: &ContaminationResults,
     tokenizer: &OmniTokenizer,
     id_to_ngram_tokens: &IdToNgramTokens,
-    _eval_text_snippets: &EvalTextSnippets
+    _eval_text_snippets: &EvalTextSnippets,
 ) -> Result<usize, Error> {
     let data = read_pathbuf_to_mem(file_path)?;
 
@@ -546,7 +626,10 @@ pub fn process_simple_training_file(
         // Clean text once and get token IDs
         let cleaned_text = clean_text(&line_text, &config.punctuation_chars);
         let Ok(word_tokens) = catch_unwind(|| tokenizer.encode(&cleaned_text)) else {
-            println!("Tokenization failed on {:?} | line {:?}", file_path, line_num);
+            println!(
+                "Tokenization failed on {:?} | line {:?}",
+                file_path, line_num
+            );
             continue;
         };
         let word_count = word_tokens.len();
@@ -564,7 +647,7 @@ pub fn process_simple_training_file(
             config,
             ngram_to_id,
             id_to_docs,
-            id_to_ngram_tokens
+            id_to_ngram_tokens,
         )?;
 
         // Convert clusters to contamination entries
@@ -586,9 +669,14 @@ pub fn process_simple_training_file(
                         println!("\nWARNING: Overlap ratio > 1.0 detected!");
                         println!("  Training file: {}", file_name);
                         println!("  Eval: {}:{}", eval_name, eval_line);
-                        println!("  unique_matches={}, unique_ngrams={}, ratio={:.3}",
-                                 unique_matches, unique_ngrams, overlap_ratio);
-                        println!("  Cluster indices: start={}, end={}", cluster.start_idx, cluster.end_idx);
+                        println!(
+                            "  unique_matches={}, unique_ngrams={}, ratio={:.3}",
+                            unique_matches, unique_ngrams, overlap_ratio
+                        );
+                        println!(
+                            "  Cluster indices: start={}, end={}",
+                            cluster.start_idx, cluster.end_idx
+                        );
 
                         // Print first 10 matched ngram IDs for debugging
                         let id_vec: Vec<_> = matched_ngram_ids.iter().take(10).collect();
@@ -598,8 +686,14 @@ pub fn process_simple_training_file(
                         }
 
                         // Try to understand what's happening
-                        println!("  This means we found {} unique n-grams in the training cluster", unique_matches);
-                        println!("  But the eval document only has {} unique n-grams total", unique_ngrams);
+                        println!(
+                            "  This means we found {} unique n-grams in the training cluster",
+                            unique_matches
+                        );
+                        println!(
+                            "  But the eval document only has {} unique n-grams total",
+                            unique_ngrams
+                        );
                         println!("  This should be impossible - investigating...");
 
                         // Additional validation
@@ -612,7 +706,10 @@ pub fn process_simple_training_file(
                                     println!("    ERROR: ngram_id {} is not associated with doc_id {} in id_to_docs!", ngram_id, doc_id);
                                 }
                             } else {
-                                println!("    ERROR: ngram_id {} not found in id_to_docs at all!", ngram_id);
+                                println!(
+                                    "    ERROR: ngram_id {} not found in id_to_docs at all!",
+                                    ngram_id
+                                );
                             }
                         }
                         if invalid_matches > 0 {
@@ -626,11 +723,13 @@ pub fn process_simple_training_file(
                         &cluster.matching_ngrams,
                         ngram_to_id,
                         id_to_docs,
-                        id_to_ngram_tokens
+                        id_to_ngram_tokens,
                     );
 
                     // Only record results that exceed both thresholds
-                    if overlap_ratio >= config.toxic_overlap_threshold && toxic_score >= config.toxic_score_threshold {
+                    if overlap_ratio >= config.toxic_overlap_threshold
+                        && toxic_score >= config.toxic_score_threshold
+                    {
                         // Extract the overlapping text with context
                         let training_overlap_text = extract_overlap_with_context(
                             &cleaned_text,
@@ -638,7 +737,7 @@ pub fn process_simple_training_file(
                             cluster.start_idx,
                             cluster.end_idx,
                             tokenizer,
-                            10 // context words
+                            10, // context words
                         );
 
                         let entry = SimpleContaminationEntry {
@@ -666,7 +765,10 @@ pub fn process_simple_training_file(
             }
 
             if !cluster_results.is_empty() {
-                contamination_results.entry(file_name.clone()).or_insert_with(Vec::new).extend(cluster_results);
+                contamination_results
+                    .entry(file_name.clone())
+                    .or_insert_with(Vec::new)
+                    .extend(cluster_results);
             }
         }
 
@@ -691,7 +793,7 @@ pub fn process_simple_training_file_streaming(
     eval_text_snippets: &EvalTextSnippets,
     results_writer: &Arc<Mutex<BufWriter<File>>>,
     total_contaminations: &Arc<AtomicU32>,
-    contaminated_files: &Arc<DashMap<String, HashSet<usize>>>
+    contaminated_files: &Arc<DashMap<String, HashSet<usize>>>,
 ) -> Result<usize, Error> {
     let data = read_pathbuf_to_mem(file_path)?;
 
@@ -725,7 +827,10 @@ pub fn process_simple_training_file_streaming(
         // Clean text once and get token IDs
         let cleaned_text = clean_text(&line_text, &config.punctuation_chars);
         let Ok(word_tokens) = catch_unwind(|| tokenizer.encode(&cleaned_text)) else {
-            println!("Tokenization failed on {:?} | line {:?}", file_path, line_num);
+            println!(
+                "Tokenization failed on {:?} | line {:?}",
+                file_path, line_num
+            );
             continue;
         };
         let word_count = word_tokens.len();
@@ -743,7 +848,7 @@ pub fn process_simple_training_file_streaming(
             config,
             ngram_to_id,
             id_to_docs,
-            id_to_ngram_tokens
+            id_to_ngram_tokens,
         )?;
 
         // Convert clusters to contamination entries and write immediately
@@ -763,11 +868,13 @@ pub fn process_simple_training_file_streaming(
                         &cluster.matching_ngrams,
                         ngram_to_id,
                         id_to_docs,
-                        id_to_ngram_tokens
+                        id_to_ngram_tokens,
                     );
 
                     // Only record results that exceed both thresholds
-                    if overlap_ratio >= config.toxic_overlap_threshold && toxic_score >= config.toxic_score_threshold {
+                    if overlap_ratio >= config.toxic_overlap_threshold
+                        && toxic_score >= config.toxic_score_threshold
+                    {
                         // Extract the overlapping text with context
                         let training_overlap_text = extract_overlap_with_context(
                             &cleaned_text,
@@ -775,7 +882,7 @@ pub fn process_simple_training_file_streaming(
                             cluster.start_idx,
                             cluster.end_idx,
                             tokenizer,
-                            10 // context words
+                            10, // context words
                         );
 
                         // Create JSON entry
@@ -803,7 +910,8 @@ pub fn process_simple_training_file_streaming(
 
                         // Look up eval text snippet
                         let eval_key = (eval_name.clone(), *eval_line);
-                        let eval_text = eval_text_snippets.get(&eval_key)
+                        let eval_text = eval_text_snippets
+                            .get(&eval_key)
                             .map(|entry| entry.value().clone())
                             .unwrap_or_else(|| String::new());
                         result["eval_overlap_text"] = json!(eval_text);
@@ -852,7 +960,7 @@ fn process_ngrams_with_simple_sampling(
     config: &Config,
     ngram_to_id: &NgramToIdMap,
     id_to_docs: &IdToDocsMap,
-    id_to_ngram_tokens: &IdToNgramTokens
+    id_to_ngram_tokens: &IdToNgramTokens,
 ) -> Result<Vec<SimpleContaminationCluster>, Error> {
     let mut clusters = Vec::new();
     let mut processed_indices = HashSet::new();
@@ -862,7 +970,11 @@ fn process_ngrams_with_simple_sampling(
 
     // Calculate total n-grams
     let total_ngrams = if word_tokens.len() < config.ngram_size {
-        if word_tokens.is_empty() { 0 } else { 1 }
+        if word_tokens.is_empty() {
+            0
+        } else {
+            1
+        }
     } else {
         word_tokens.len() - config.ngram_size + 1
     };
@@ -881,7 +993,9 @@ fn process_ngrams_with_simple_sampling(
         }
 
         // Check this n-gram for contamination
-        if let Some(document_ids) = check_ngram_for_match(i, word_tokens, config, ngram_to_id, id_to_docs) {
+        if let Some(document_ids) =
+            check_ngram_for_match(i, word_tokens, config, ngram_to_id, id_to_docs)
+        {
             let ngram_tokens = if word_tokens.len() < config.ngram_size {
                 word_tokens.to_vec()
             } else {
@@ -899,7 +1013,7 @@ fn process_ngrams_with_simple_sampling(
                 id_to_docs,
                 document_ids,
                 &ngram_tokens,
-                id_to_ngram_tokens
+                id_to_ngram_tokens,
             )?;
 
             // Mark all indices in this cluster as processed
@@ -929,7 +1043,7 @@ fn check_ngram_for_match(
     word_tokens: &[usize],
     config: &Config,
     ngram_to_id: &NgramToIdMap,
-    id_to_docs: &IdToDocsMap
+    id_to_docs: &IdToDocsMap,
 ) -> Option<HashSet<u32>> {
     let ngram_tokens = if word_tokens.len() < config.ngram_size {
         word_tokens.to_vec()
@@ -966,7 +1080,7 @@ fn expand_simple_contamination_cluster(
     id_to_docs: &IdToDocsMap,
     initial_document_ids: HashSet<u32>,
     initial_training_ngram: &[usize],
-    id_to_ngram_tokens: &IdToNgramTokens
+    id_to_ngram_tokens: &IdToNgramTokens,
 ) -> Result<SimpleContaminationCluster, Error> {
     let mut start_idx = hit_idx;
     let mut end_idx = hit_idx;
@@ -979,7 +1093,8 @@ fn expand_simple_contamination_cluster(
 
     // Get the initial n-gram ID for tracking
     let initial_ngram_hash = hash_ngram(initial_training_ngram);
-    let initial_ngram_id = ngram_to_id.get(&initial_ngram_hash)
+    let initial_ngram_id = ngram_to_id
+        .get(&initial_ngram_hash)
         .map(|id| *id)
         .unwrap_or(0);
 
@@ -1001,7 +1116,11 @@ fn expand_simple_contamination_cluster(
     // println!("Initial n-gram: '{}'", initial_training_ngram); //debug
 
     let total_ngrams = if word_tokens.len() < config.ngram_size {
-        if word_tokens.is_empty() { 0 } else { 1 }
+        if word_tokens.is_empty() {
+            0
+        } else {
+            1
+        }
     } else {
         word_tokens.len() - config.ngram_size + 1
     };
@@ -1012,7 +1131,9 @@ fn expand_simple_contamination_cluster(
     while left_idx > 0 && !active_documents.is_empty() {
         left_idx -= 1;
 
-        if let Some(matched_docs) = check_ngram_for_match(left_idx, word_tokens, config, ngram_to_id, id_to_docs) {
+        if let Some(matched_docs) =
+            check_ngram_for_match(left_idx, word_tokens, config, ngram_to_id, id_to_docs)
+        {
             let ngram_tokens = if word_tokens.len() < config.ngram_size {
                 word_tokens.to_vec()
             } else {
@@ -1022,7 +1143,10 @@ fn expand_simple_contamination_cluster(
             // println!("Left traversal: checking n-gram {} '{:?}'", left_idx, ngram_tokens); //debug
 
             // Check intersection with active documents
-            let intersection: Vec<u32> = active_documents.intersection(&matched_docs).cloned().collect();
+            let intersection: Vec<u32> = active_documents
+                .intersection(&matched_docs)
+                .cloned()
+                .collect();
 
             if !intersection.is_empty() {
                 // println!("Left hit at {}: {} docs intersect", left_idx, intersection.len()); //debug
@@ -1040,12 +1164,18 @@ fn expand_simple_contamination_cluster(
 
                 // Update matches and reset misses for intersecting documents
                 for doc_id in &intersection {
-                    document_matches.entry(*doc_id).or_insert_with(HashSet::new).insert(ngram_id);
+                    document_matches
+                        .entry(*doc_id)
+                        .or_insert_with(HashSet::new)
+                        .insert(ngram_id);
                     document_misses.insert(*doc_id, 0);
                 }
 
                 // Remove documents that didn't match this n-gram
-                let to_remove: Vec<u32> = active_documents.difference(&matched_docs).cloned().collect();
+                let to_remove: Vec<u32> = active_documents
+                    .difference(&matched_docs)
+                    .cloned()
+                    .collect();
                 for doc_id in to_remove {
                     let miss_count = document_misses.entry(doc_id).or_insert(0);
                     *miss_count += 1;
@@ -1100,7 +1230,9 @@ fn expand_simple_contamination_cluster(
     while right_idx + 1 < total_ngrams && !active_documents.is_empty() {
         right_idx += 1;
 
-        if let Some(matched_docs) = check_ngram_for_match(right_idx, word_tokens, config, ngram_to_id, id_to_docs) {
+        if let Some(matched_docs) =
+            check_ngram_for_match(right_idx, word_tokens, config, ngram_to_id, id_to_docs)
+        {
             let ngram_tokens = if word_tokens.len() < config.ngram_size {
                 word_tokens.to_vec()
             } else {
@@ -1110,7 +1242,10 @@ fn expand_simple_contamination_cluster(
             // println!("Right traversal: checking n-gram {} '{:?}'", right_idx, ngram_tokens); //debug
 
             // Check intersection with active documents
-            let intersection: Vec<u32> = active_documents.intersection(&matched_docs).cloned().collect();
+            let intersection: Vec<u32> = active_documents
+                .intersection(&matched_docs)
+                .cloned()
+                .collect();
 
             if !intersection.is_empty() {
                 // println!("Right hit at {}: {} docs intersect", right_idx, intersection.len()); //debug
@@ -1128,12 +1263,18 @@ fn expand_simple_contamination_cluster(
 
                 // Update matches and reset misses for intersecting documents
                 for doc_id in &intersection {
-                    document_matches.entry(*doc_id).or_insert_with(HashSet::new).insert(ngram_id);
+                    document_matches
+                        .entry(*doc_id)
+                        .or_insert_with(HashSet::new)
+                        .insert(ngram_id);
                     document_misses.insert(*doc_id, 0);
                 }
 
                 // Remove documents that didn't match this n-gram
-                let to_remove: Vec<u32> = active_documents.difference(&matched_docs).cloned().collect();
+                let to_remove: Vec<u32> = active_documents
+                    .difference(&matched_docs)
+                    .cloned()
+                    .collect();
                 for doc_id in to_remove {
                     let miss_count = document_misses.entry(doc_id).or_insert(0);
                     *miss_count += 1;
@@ -1193,7 +1334,7 @@ fn calculate_simple_toxic_score(
     matching_ngrams: &[String],
     ngram_to_id: &NgramToIdMap,
     id_to_docs: &IdToDocsMap,
-    _id_to_ngram_tokens: &IdToNgramTokens
+    _id_to_ngram_tokens: &IdToNgramTokens,
 ) -> f32 {
     let mut unique_ngram_ids = HashSet::new();
 
@@ -1210,7 +1351,8 @@ fn calculate_simple_toxic_score(
     }
 
     // Calculate toxic score: sum of 1/ln(document_count) for each unique n-gram
-    let toxic_score: f32 = unique_ngram_ids.iter()
+    let toxic_score: f32 = unique_ngram_ids
+        .iter()
         .map(|ngram_id| {
             if let Some(doc_set) = id_to_docs.get(ngram_id) {
                 let document_count = doc_set.len() as f32;
@@ -1231,15 +1373,19 @@ fn calculate_simple_toxic_score(
 fn parse_ngram_string(ngram_str: &str) -> Result<Vec<usize>, Error> {
     // Parse "[123, 456, 789]" format back to Vec<usize>
     let trimmed = ngram_str.trim_start_matches('[').trim_end_matches(']');
-    trimmed.split(", ")
-        .map(|s| s.parse::<usize>().map_err(|e| anyhow::anyhow!("Failed to parse token ID: {}", e)))
+    trimmed
+        .split(", ")
+        .map(|s| {
+            s.parse::<usize>()
+                .map_err(|e| anyhow::anyhow!("Failed to parse token ID: {}", e))
+        })
         .collect()
 }
 
 #[allow(dead_code)]
 fn save_contamination_results(
     config: &Config,
-    contamination_results: &ContaminationResults
+    contamination_results: &ContaminationResults,
 ) -> Result<(), Error> {
     // println!("Saving contamination results..."); //debug
 
@@ -1257,19 +1403,24 @@ fn save_contamination_results(
         // println!("Saving results for {}: {} contamination entries", file_name, results.len()); //debug
 
         // Create output filename similar to toxic format
-        let results_filename = config.report_output_dir.join(format!("{}_simple_contamination.jsonl", file_name));
+        let results_filename = config
+            .report_output_dir
+            .join(format!("{}_simple_contamination.jsonl", file_name));
 
         // Convert to JSON format similar to toxic results
-        let json_results: Vec<Value> = results.iter().map(|entry| {
-            json!({
-                "training_line": entry.training_line,
-                "eval_name": entry.eval_name,
-                "eval_line": entry.eval_line,
-                "overlap_ratio": entry.overlap_ratio,
-                "matching_ngrams": entry.matching_ngrams,
-                "detection_method": "simple"
+        let json_results: Vec<Value> = results
+            .iter()
+            .map(|entry| {
+                json!({
+                    "training_line": entry.training_line,
+                    "eval_name": entry.eval_name,
+                    "eval_line": entry.eval_line,
+                    "overlap_ratio": entry.overlap_ratio,
+                    "matching_ngrams": entry.matching_ngrams,
+                    "detection_method": "simple"
+                })
             })
-        }).collect();
+            .collect();
 
         // Write results to file
         let mut file = BufWriter::new(File::create(&results_filename)?);
@@ -1288,7 +1439,7 @@ fn save_contamination_results(
 #[allow(dead_code)]
 pub fn save_contamination_results_toxic_format(
     config: &Config,
-    contamination_results: &ContaminationResults
+    contamination_results: &ContaminationResults,
 ) -> Result<PathBuf, Error> {
     save_contamination_results_toxic_format_with_filename(config, contamination_results, None)
 }
@@ -1297,25 +1448,35 @@ pub fn save_contamination_results_toxic_format(
 pub fn save_contamination_results_toxic_format_with_eval_text(
     config: &Config,
     contamination_results: &ContaminationResults,
-    eval_text_snippets: &EvalTextSnippets
+    eval_text_snippets: &EvalTextSnippets,
 ) -> Result<PathBuf, Error> {
-    save_contamination_results_toxic_format_with_filename_and_eval_text(config, contamination_results, None, eval_text_snippets)
+    save_contamination_results_toxic_format_with_filename_and_eval_text(
+        config,
+        contamination_results,
+        None,
+        eval_text_snippets,
+    )
 }
 
 #[allow(dead_code)]
 pub fn save_contamination_results_toxic_format_with_filename(
     config: &Config,
     contamination_results: &ContaminationResults,
-    custom_filename: Option<&str>
+    custom_filename: Option<&str>,
 ) -> Result<PathBuf, Error> {
-    save_contamination_results_toxic_format_with_filename_and_eval_text(config, contamination_results, custom_filename, &DashMap::new())
+    save_contamination_results_toxic_format_with_filename_and_eval_text(
+        config,
+        contamination_results,
+        custom_filename,
+        &DashMap::new(),
+    )
 }
 
 pub fn save_contamination_results_toxic_format_with_filename_and_eval_text(
     config: &Config,
     contamination_results: &ContaminationResults,
     custom_filename: Option<&str>,
-    eval_text_snippets: &EvalTextSnippets
+    eval_text_snippets: &EvalTextSnippets,
 ) -> Result<PathBuf, Error> {
     // Create output directory if it doesn't exist
     create_dir_all(&config.report_output_dir)?;
@@ -1356,8 +1517,12 @@ pub fn save_contamination_results_toxic_format_with_filename_and_eval_text(
             }
 
             // Look up eval text snippet
-            let eval_key = (contamination_entry.eval_name.clone(), contamination_entry.eval_line);
-            let eval_text = eval_text_snippets.get(&eval_key)
+            let eval_key = (
+                contamination_entry.eval_name.clone(),
+                contamination_entry.eval_line,
+            );
+            let eval_text = eval_text_snippets
+                .get(&eval_key)
                 .map(|entry| entry.value().clone())
                 .unwrap_or_else(|| String::new());
             result["eval_overlap_text"] = json!(eval_text);
@@ -1377,8 +1542,11 @@ pub fn save_contamination_results_toxic_format_with_filename_and_eval_text(
 
     if total_contaminations > 0 {
         println!("\n=== SIMPLE CONTAMINATION SUMMARY ===");
-        println!("Found {} contamination instances across {} files",
-                total_contaminations, contamination_results.len());
+        println!(
+            "Found {} contamination instances across {} files",
+            total_contaminations,
+            contamination_results.len()
+        );
         println!("Results saved to: {:?}", output_file);
     } else {
         println!("\n=== NO CONTAMINATION DETECTED ===");
@@ -1399,7 +1567,10 @@ fn create_purified_files(
     println!("\nCreating purified files...");
 
     // Determine output directory for cleaned files
-    let cleaned_dir = config.cleaned_output_dir.as_ref().unwrap_or(&config.report_output_dir);
+    let cleaned_dir = config
+        .cleaned_output_dir
+        .as_ref()
+        .unwrap_or(&config.report_output_dir);
 
     // Process each training file that has contamination
     for file_path in training_files {
@@ -1433,10 +1604,16 @@ fn create_purified_files(
             // Use the shared write_purified_file function
             write_purified_file(file_path, cleaned_dir, &contaminated_lines)?;
 
-            println!("Created purified file for {} (removed {} lines)",
-                     file_name, contaminated_lines.len());
+            println!(
+                "Created purified file for {} (removed {} lines)",
+                file_name,
+                contaminated_lines.len()
+            );
         } else {
-            println!("No contamination found for {} - skipping clean file creation", file_name);
+            println!(
+                "No contamination found for {} - skipping clean file creation",
+                file_name
+            );
         }
     }
 
@@ -1452,7 +1629,10 @@ fn create_purified_files_streaming(
     println!("\nCreating purified files...");
 
     // Determine output directory for cleaned files
-    let cleaned_dir = config.cleaned_output_dir.as_ref().unwrap_or(&config.report_output_dir);
+    let cleaned_dir = config
+        .cleaned_output_dir
+        .as_ref()
+        .unwrap_or(&config.report_output_dir);
 
     // Process each training file that has contamination
     for file_path in training_files {
@@ -1481,10 +1661,16 @@ fn create_purified_files_streaming(
             // Use the shared write_purified_file function
             write_purified_file(file_path, cleaned_dir, &contaminated_lines)?;
 
-            println!("Created purified file for {} (removed {} lines)",
-                     file_name, contaminated_lines.len());
+            println!(
+                "Created purified file for {} (removed {} lines)",
+                file_name,
+                contaminated_lines.len()
+            );
         } else {
-            println!("No contamination found for {} - skipping clean file creation", file_name);
+            println!(
+                "No contamination found for {} - skipping clean file creation",
+                file_name
+            );
         }
     }
 
