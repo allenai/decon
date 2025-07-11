@@ -995,6 +995,31 @@ EVAL_CONFIG = {
     }
 }
 
+# TODO: Add these
+# - MMLU Pro: https://huggingface.co/datasets/TIGER-Lab/MMLU-Pro
+# - HLE: https://huggingface.co/datasets/cais/hle
+# - SuperGPQA: https://huggingface.co/datasets/m-a-p/SuperGPQA
+# - BBEH: https://huggingface.co/datasets/hubert233/BigBenchExtraHard
+# - AIME 2025: https://huggingface.co/datasets/opencompass/AIME2025
+# - LCB v6: https://huggingface.co/datasets/livecodebench/code_generation_lite/tree/main
+#        - This comes out in versions. We are versions v3 and below. So, only need to decontam `test(4|5|6).jsonl`
+# - HumanEval‑Pro: https://huggingface.co/datasets/CodeEval-Pro/humaneval-pro
+# - MBPP‑Pro: https://huggingface.co/datasets/CodeEval-Pro/mbpp-pro
+# - CodeForces: https://huggingface.co/datasets/open-r1/codeforces
+#        - Only need to decontam the test split for this dataset
+# - IFBench: https://huggingface.co/datasets/allenai/IFBench_multi-turn
+# - TQA: https://huggingface.co/datasets/domenicrosati/TruthfulQA
+# - GSM+: https://huggingface.co/datasets/qintongli/GSM-Plus
+# - LBPP: https://huggingface.co/datasets/CohereLabs/lbpp
+# - RepoBench: https://huggingface.co/datasets/tianyang/repobench_python_v1.1 (edited)
+# https://github.com/Aider-AI/polyglot-benchmark
+# - https://huggingface.co/datasets/walledai/XSTest
+# - https://huggingface.co/datasets/walledai/HarmBench
+# - https://huggingface.co/datasets/allenai/tulu-3-do-anything-now-eval
+# - https://huggingface.co/datasets/allenai/tulu-3-trustllm-jailbreaktrigger-eval
+# - https://huggingface.co/datasets/allenai/wildjailbreak
+# - https://huggingface.co/datasets/walledai/WildGuardTest
+
 def split_document(text, threshold):
     """Split a document into chunks if it exceeds the threshold.
 
