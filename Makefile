@@ -4,7 +4,7 @@ help:
 	@echo "Available targets:"
 	@echo "  detect     - Run contamination detection with dev config"
 	@echo "  simple     - Run simple contamination detection with dev config"
-	@echo "  review     - Run review mode with dev config and step-by-step output (use --full for complete training docs)"
+	@echo "  review     - Review contamination cases from a directory (usage: make review <directory>)"
 	@echo "  stats      - Display eval dataset statistics from a directory (usage: make stats <directory>)"
 	@echo "  tp         - Run review mode to show True Positives"
 	@echo "  tn         - Run review mode to show True Negatives"
@@ -47,7 +47,7 @@ simple:
 
 review:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
-		echo "Error: Directory parameter required. Usage: make stats <directory>"; \
+		echo "Error: Directory parameter required. Usage: make review <directory>"; \
 		exit 1; \
 	fi
 	@DIR=$(filter-out $@,$(MAKECMDGOALS)); \

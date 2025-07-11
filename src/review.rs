@@ -127,8 +127,8 @@ pub fn review_contamination(
 ) -> Result<(), Error> {
     println!("=== CONTAMINATION REVIEW ===");
 
-    // Handle stats with directory
-    if stats && dir.is_some() {
+    // Handle directory-based operations
+    if dir.is_some() {
         let dir_path = dir.unwrap();
         if !dir_path.exists() {
             println!("Directory not found: {:?}", dir_path);
@@ -145,8 +145,44 @@ pub fn review_contamination(
 
         println!("Found {} total contamination instances from directory\n", all_results.len());
 
-        // Display eval dataset statistics with bar chart
-        display_eval_dataset_stats(&all_results)?;
+        if stats {
+            // Display eval dataset statistics with bar chart
+            display_eval_dataset_stats(&all_results)?;
+            return Ok(());
+        }
+
+        // For step-by-step review with directory
+        if step {
+            println!("=== REVIEWING ALL CONTAMINATION CASES ===\n");
+            
+            // Review each contamination case
+            for (idx, result) in all_results.iter().enumerate() {
+                if idx > 0 {
+                    // Wait for user input before showing next case
+                    println!("\nPress Enter to continue to next contamination case...");
+                    let mut input = String::new();
+                    io::stdin().read_line(&mut input).unwrap();
+
+                    // Clear the screen
+                    print!("\x1B[2J\x1B[1;1H");
+                }
+
+                println!("{}", "=".repeat(80));
+                println!("CONTAMINATION #{} of {}", idx + 1, all_results.len());
+                println!("{}", "=".repeat(80));
+
+                // We don't have ground truth or config when using directory mode
+                // Pass None for the config parameter
+                display_contamination_case_without_config(result)?;
+                println!();
+            }
+
+            println!("=== REVIEW COMPLETE ===");
+            return Ok(());
+        }
+
+        // If neither stats nor step, just show summary
+        println!("Use --stats to see statistics or --step to review cases interactively.");
         return Ok(());
     }
 
@@ -556,10 +592,15 @@ fn load_contamination_results_from_directory(dir_path: &PathBuf) -> Result<Vec<C
     Ok(all_results)
 }
 
-fn display_contamination_case(
+fn display_contamination_case_without_config(
     result: &ContaminationResult,
-    _ground_truth: &[GroundTruthRecord],
-    _config: &Config,
+) -> Result<(), Error> {
+    // This is a simplified version that doesn't need ground truth or config
+    display_contamination_case_internal(result)
+}
+
+fn display_contamination_case_internal(
+    result: &ContaminationResult,
 ) -> Result<(), Error> {
     println!("📁 TRAINING FILE: {}", result.training_file);
 
@@ -705,6 +746,15 @@ fn display_contamination_case(
     }
 
     Ok(())
+}
+
+fn display_contamination_case(
+    result: &ContaminationResult,
+    _ground_truth: &[GroundTruthRecord],
+    _config: &Config,
+) -> Result<(), Error> {
+    // Just call the internal function since we don't use ground_truth or config
+    display_contamination_case_internal(result)
 }
 
 fn display_eval_dataset_stats(contamination_results: &[ContaminationResult]) -> Result<(), Error> {
