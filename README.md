@@ -4,12 +4,11 @@ Contamination detection tools for training datasets. Identifies when training da
 
 ## Overview
 
-This tool provides three **prototype-grade** complementary detection approaches to efficiently identify contamination:
+This tool provides three **prototype-grade** complementary detection approaches to efficiently identify contamination.
 
-- **Exact matches**: Identical text between training and evaluation data
-- **Near-duplicates**: Text with minor modifications (typos, formatting, small edits)
-- **Semantic similarity**: Paraphrased or reworded content with similar meaning
-- **Document length asymmetry**: Contamination between documents of very different lengths
+You can use this tool to produce **report files** which highlight potential contamination and a **clean copy** of a dataset.
+
+A typical workflow is to run the tool to [generate reports](#-running-decontamination-on-aws-with-poormanray) then [review the reports](#reviewing-results) to determine appropriate thresholds for your contamination preferences.
 
 ## Quick Start
 
@@ -57,6 +56,30 @@ cargo run --release review --config examples/simple.yaml --step
 ```
 
 If you want to manually run the orchestrator to manage downloading, uploading, and running against a persistent server with the index, please study the configuration flag outputs from `make deploy-wizard` or please write the author and express a desire for this feature. Author anticipates CLI focused users would prefer to manage non-contamination details on their own.
+
+## Reviewing Results
+
+Let's say you've got an s3 bucket which contains report output files.
+
+```
+s5cmd sync s3://ai2-decon-reports/big-reasoning-traces/* /my-directory
+
+# To review individual matches.
+cd decon
+make review /my-directory
+
+# To see statistics by eval
+make stats /my-directory
+
+```
+
+### Tuning
+
+With a batch of results, you might want to experiment with alternative thresholds.
+
+Filtering options are available.
+
+
 
 ## Detection Methods
 
