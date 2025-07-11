@@ -22,7 +22,12 @@
       "Bash(python:*)",
       "Bash(chmod:*)",
       "Bash(timeout 30s cargo run --release detect --config test_c100k.yaml)",
-      "Bash(cp:*)"
+      "Bash(if [ -d \"fixtures/reference-dedupe\" ])",
+      "Bash(then mv fixtures/reference-dedupe fixtures/reference-refined)",
+      "Bash(else echo \"Directory doesn''t exist yet\")",
+      "Bash(fi)",
+      "Bash(timeout 180 cargo run --release refine-references --dry-run)",
+      "Bash(timeout 300 cargo run --release refine-references --dry-run)"
     ],
     "deny": []
   }
