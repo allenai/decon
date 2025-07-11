@@ -47,10 +47,11 @@ simple:
 
 review:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
-		echo "Error: Directory parameter required. Usage: make review <directory>"; \
-		exit 1; \
-	fi
-	@DIR=$(filter-out $@,$(MAKECMDGOALS)); \
+		DIR="fixtures/output"; \
+		echo "Using default directory: $$DIR"; \
+	else \
+		DIR=$(filter-out $@,$(MAKECMDGOALS)); \
+	fi; \
 	FILTER_ARGS=""; \
 	if [ -n "$(MIN_OVERLAP_RATIO)" ]; then \
 		FILTER_ARGS="$$FILTER_ARGS --min-overlap-ratio $(MIN_OVERLAP_RATIO)"; \
