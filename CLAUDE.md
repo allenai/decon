@@ -85,6 +85,10 @@ Algorithm-specific:
 
 Note: SIMPLE is the only fully tested and complete detection method. MinHash and TOXIC are work in progress.
 
+### Debugging
+
+Set larger timeouts like 3 minutes when running detect.
+
 ### Changes
 
 Please favor simplicity and focused changes.

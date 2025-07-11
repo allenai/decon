@@ -371,13 +371,14 @@ pub type ContaminationResults = DashMap<String, Vec<SimpleContaminationEntry>>;
 /// Extract overlapping text with context from cleaned text
 fn extract_overlap_with_context(
     cleaned_text: &str,
+    tokens: &[usize],
     start_idx: usize,
     end_idx: usize,
-    tokenizer_str: &str,
+    tokenizer: &OmniTokenizer,
     context_words: usize,
 ) -> Option<String> {
     // For word tokenizer, tokens are just words split by whitespace
-    if tokenizer_str == "word" {
+    if tokenizer.tokenizer_name == "word" {
         // Only iterate through the words we need
         let context_start = start_idx.saturating_sub(context_words);
         let needed_end = end_idx + context_words;
@@ -436,8 +437,49 @@ fn extract_overlap_with_context(
         return Some(result);
     }
 
-    // For other tokenizers, just return the segment without fancy formatting
-    // since we'd need the actual tokenizer instance to decode properly
+    // For BPE tokenizers (c100k, p50k), decode from token array
+    if let Some(inner) = tokenizer.inner.as_ref() {
+        // Check bounds
+        if start_idx >= tokens.len() || end_idx > tokens.len() || start_idx >= end_idx {
+            return None;
+        }
+
+        let context_start = start_idx.saturating_sub(context_words);
+        let context_end = (end_idx + context_words).min(tokens.len());
+
+        let mut result = String::new();
+
+        // Decode and add leading context
+        if context_start < start_idx {
+            if let Ok(prefix) = inner.decode(tokens[context_start..start_idx].to_vec()) {
+                result.push_str("... ");
+                result.push_str(&prefix);
+                result.push_str(" ");
+            }
+        }
+
+        // Decode and add contaminated section
+        if let Ok(contaminated) = inner.decode(tokens[start_idx..end_idx].to_vec()) {
+            result.push_str("【");
+            result.push_str(&contaminated);
+            result.push_str("】");
+        }
+
+        // Decode and add trailing context
+        if end_idx < context_end {
+            if let Ok(suffix) = inner.decode(tokens[end_idx..context_end].to_vec()) {
+                result.push_str(" ");
+                result.push_str(&suffix);
+                result.push_str(" ...");
+            }
+        }
+
+        if !result.is_empty() {
+            return Some(result);
+        }
+    }
+
+    // Fallback for other tokenizers
     None
 }
 
@@ -592,9 +634,10 @@ pub fn process_simple_training_file(
                         // Extract the overlapping text with context
                         let training_overlap_text = extract_overlap_with_context(
                             &cleaned_text,
+                            &word_tokens,
                             cluster.start_idx,
                             cluster.end_idx,
-                            &config.tokenizer_str,
+                            tokenizer,
                             10 // context words
                         );
 
@@ -728,9 +771,10 @@ pub fn process_simple_training_file_streaming(
                         // Extract the overlapping text with context
                         let training_overlap_text = extract_overlap_with_context(
                             &cleaned_text,
+                            &word_tokens,
                             cluster.start_idx,
                             cluster.end_idx,
-                            &config.tokenizer_str,
+                            tokenizer,
                             10 // context words
                         );
 

@@ -20,7 +20,8 @@
       "Bash(cat:*)",
       "Bash(git mv:*)",
       "Bash(python:*)",
-      "Bash(chmod:*)"
+      "Bash(chmod:*)",
+      "Bash(timeout 30s cargo run --release detect --config test_c100k.yaml)"
     ],
     "deny": []
   }
