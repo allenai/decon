@@ -112,3 +112,7 @@ Semantic contamination detection using word embeddings and poison tokens.
 ## Configuration
 
 See the [Configuration Guide](doc/configuration.md) for detailed information about all available options.
+
+## Evaluation Datasets
+
+Preparing high-quality evaluation datasets is crucial for accurate contamination detection. See the [Evaluation Dataset Guide](doc/eval-datasets.md) for information on downloading, examining, and refining evaluation datasets.

@@ -856,7 +856,9 @@ EVAL_CONFIG = {
         'wildchat': {
             'hf_path': 'allenai/WildChat',
             'splits': ['train'],  # Only has train split
-            'transform': 'auto'  # Will use auto extraction to handle conversation field
+            'transform': {
+                'text_field': 'text',
+            }
         },
 
         'lab_bench_dbqa': {
