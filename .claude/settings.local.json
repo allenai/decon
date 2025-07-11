@@ -21,7 +21,11 @@
       "Bash(git mv:*)",
       "Bash(python:*)",
       "Bash(chmod:*)",
-      "Bash(timeout 30s cargo run --release detect --config test_c100k.yaml)"
+      "Bash(timeout 30s cargo run --release detect --config test_c100k.yaml)",
+      "Bash(if [ -d \"fixtures/reference-dedupe\" ])",
+      "Bash(then mv fixtures/reference-dedupe fixtures/reference-refined)",
+      "Bash(else echo \"Directory doesn''t exist yet\")",
+      "Bash(fi)"
     ],
     "deny": []
   }

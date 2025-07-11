@@ -21,6 +21,7 @@ use mj_io::read_pathbuf_to_mem;
 // Internal modules
 mod daemon;
 mod minhash;
+mod reference;
 mod review;
 mod simple;
 mod toxic;
@@ -280,6 +281,14 @@ enum Commands {
             help = "Skip buckets with more than this many entries (-1 to disable)"
         )]
         skip_hot_bucket_threshold: Option<i32>,
+    },
+
+    RefineReferences {
+        #[arg(
+            long,
+            help = "Perform a dry run - show statistics without writing files"
+        )]
+        dry_run: bool,
     },
 }
 
@@ -1012,6 +1021,8 @@ fn main() -> Result<(), Error> {
             let runtime = tokio::runtime::Runtime::new().unwrap();
             runtime.block_on(daemon::run_daemon(loaded_config, *port))
         }
+
+        Commands::RefineReferences { dry_run } => reference::refine_reference_files(*dry_run),
     };
     result
 }
