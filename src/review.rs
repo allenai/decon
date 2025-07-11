@@ -114,8 +114,9 @@ impl ClassificationStats {
 }
 
 pub fn review_contamination(
-    config: &PathBuf,
+    config: Option<&PathBuf>,
     results_file: Option<&PathBuf>,
+    dir: Option<&PathBuf>,
     step: bool,
     metric: bool,
     fp: bool,
@@ -126,7 +127,35 @@ pub fn review_contamination(
 ) -> Result<(), Error> {
     println!("=== CONTAMINATION REVIEW ===");
 
-    let config_obj = read_config(config)?;
+    // Handle stats with directory
+    if stats && dir.is_some() {
+        let dir_path = dir.unwrap();
+        if !dir_path.exists() {
+            println!("Directory not found: {:?}", dir_path);
+            return Err(anyhow::anyhow!("Directory not found"));
+        }
+
+        // Load all result files from directory
+        let all_results = load_contamination_results_from_directory(dir_path)?;
+
+        if all_results.is_empty() {
+            println!("No contamination results found in directory: {:?}", dir_path);
+            return Ok(());
+        }
+
+        println!("Found {} total contamination instances from directory\n", all_results.len());
+
+        // Display eval dataset statistics with bar chart
+        display_eval_dataset_stats(&all_results)?;
+        return Ok(());
+    }
+
+    // For non-stats operations, config is required
+    if config.is_none() {
+        return Err(anyhow::anyhow!("--config is required unless using --stats with --dir"));
+    }
+
+    let config_obj = read_config(config.unwrap())?;
 
     // Determine results file path
     let results_path = match results_file {
@@ -501,6 +530,32 @@ fn load_contamination_results(results_path: &PathBuf) -> Result<Vec<Contaminatio
     Ok(results)
 }
 
+fn load_contamination_results_from_directory(dir_path: &PathBuf) -> Result<Vec<ContaminationResult>, Error> {
+    let mut all_results = Vec::new();
+
+    // Find all .jsonl files in the directory
+    let jsonl_files = expand_dirs(vec![dir_path.clone()], Some(vec![".jsonl"].as_slice()))?;
+
+    println!("Processing {} JSONL files from directory...", jsonl_files.len());
+
+    for file_path in jsonl_files {
+        println!("Processing: {:?}", file_path);
+
+        match load_contamination_results(&file_path) {
+            Ok(results) => {
+                println!("  Found {} contamination instances", results.len());
+                all_results.extend(results);
+            }
+            Err(e) => {
+                // Skip files that can't be parsed as contamination results
+                println!("  Skipping file (not a contamination results file): {}", e);
+            }
+        }
+    }
+
+    Ok(all_results)
+}
+
 fn display_contamination_case(
     result: &ContaminationResult,
     _ground_truth: &[GroundTruthRecord],
@@ -655,7 +710,7 @@ fn display_contamination_case(
 fn display_eval_dataset_stats(contamination_results: &[ContaminationResult]) -> Result<(), Error> {
     // Count occurrences of each eval dataset
     let mut eval_counts: HashMap<String, usize> = HashMap::new();
-    
+
     for result in contamination_results {
         // Strip the split suffix (everything after last underscore) to get the eval suite
         let parts: Vec<&str> = result.eval_dataset.split('_').collect();
@@ -668,11 +723,11 @@ fn display_eval_dataset_stats(contamination_results: &[ContaminationResult]) -> 
             *eval_counts.entry(result.eval_dataset.clone()).or_insert(0) += 1;
         }
     }
-    
+
     // Sort by count (descending)
     let mut sorted_counts: Vec<(String, usize)> = eval_counts.into_iter().collect();
     sorted_counts.sort_by(|a, b| b.1.cmp(&a.1));
-    
+
     println!("=== EVAL DATASET STATISTICS ===");
     println!();
     println!("Total contamination incidents: {:?}", contamination_results.len());
@@ -680,11 +735,11 @@ fn display_eval_dataset_stats(contamination_results: &[ContaminationResult]) -> 
     println!();
     println!("Counts by eval suite:");
     println!();
-    
+
     // Find the maximum count for scaling the bar chart
     let max_count = sorted_counts.first().map(|(_, count)| *count).unwrap_or(0);
     let bar_width = 50; // Width of the bar chart in characters
-    
+
     // Display each eval suite with a horizontal bar chart
     for (suite, count) in &sorted_counts {
         // Calculate bar length proportional to count
@@ -693,11 +748,11 @@ fn display_eval_dataset_stats(contamination_results: &[ContaminationResult]) -> 
         } else {
             0
         };
-        
+
         // Create the bar using Unicode block characters
         let bar = "█".repeat(bar_length);
         let empty = " ".repeat(bar_width - bar_length);
-        
+
         // Format the output with aligned columns
         println!(
             "  {:<30} {:>8} │{}{}│",
@@ -707,9 +762,9 @@ fn display_eval_dataset_stats(contamination_results: &[ContaminationResult]) -> 
             empty
         );
     }
-    
+
     println!();
-    println!("=== END STATISTICS ===");
-    
+    println!();
+
     Ok(())
 }

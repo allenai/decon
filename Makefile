@@ -5,7 +5,7 @@ help:
 	@echo "  detect     - Run contamination detection with dev config"
 	@echo "  simple     - Run simple contamination detection with dev config"
 	@echo "  review     - Run review mode with dev config and step-by-step output (use --full for complete training docs)"
-	@echo "  stats      - Run review mode with dev config and statistics output"
+	@echo "  stats      - Display eval dataset statistics from a directory (usage: make stats <directory>)"
 	@echo "  tp         - Run review mode to show True Positives"
 	@echo "  tn         - Run review mode to show True Negatives"
 	@echo "  fp         - Run review mode to show False Positives"
@@ -45,17 +45,21 @@ toxic:
 simple:
 	cargo run --release detect --config examples/simple.yaml
 
-toxic-review:
-	cargo run --release review --config examples/toxic.yaml --step
-
-simple-review:
-	cargo run --release review --config examples/simple.yaml --step
-
-minhash-review:
-	cargo run --release review --config examples/minhash.yaml --step
+review:
+	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
+		echo "Error: Directory parameter required. Usage: make stats <directory>"; \
+		exit 1; \
+	fi
+	@DIR=$(filter-out $@,$(MAKECMDGOALS)); \
+	cargo run --release -- review --step --dir $$DIR
 
 stats:
-	cargo run -- review --config examples/simple.yaml --stats
+	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
+		echo "Error: Directory parameter required. Usage: make stats <directory>"; \
+		exit 1; \
+	fi
+	@DIR=$(filter-out $@,$(MAKECMDGOALS)); \
+	cargo run --release -- review --stats --dir $$DIR
 
 fn:
 	cargo run -- review --config examples/simple.yaml --fn
@@ -166,3 +170,7 @@ polling-auto-terminate:
 		exit 1; \
 	fi
 	@python python/deploy.py polling-auto-terminate --name $(NAME)
+
+# This prevents make from treating the directory argument as a target when using 'make stats <directory>'
+%:
+	@:

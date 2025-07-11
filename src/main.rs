@@ -125,11 +125,14 @@ enum Commands {
     },
 
     Review {
-        #[arg(required = true, long)]
-        config: PathBuf,
+        #[arg(long)]
+        config: Option<PathBuf>,
 
         #[arg(long)]
         results_file: Option<PathBuf>,
+
+        #[arg(long, help = "Directory containing result files to analyze for stats")]
+        dir: Option<PathBuf>,
 
         #[arg(
             long,
@@ -854,6 +857,7 @@ fn main() -> Result<(), Error> {
         Commands::Review {
             config,
             results_file,
+            dir,
             step,
             metric,
             fp,
@@ -862,8 +866,9 @@ fn main() -> Result<(), Error> {
             tn,
             stats,
         } => review::review_contamination(
-            config,
+            config.as_ref(),
             results_file.as_ref(),
+            dir.as_ref(),
             *step,
             *metric,
             *fp,
