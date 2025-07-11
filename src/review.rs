@@ -1,13 +1,9 @@
 use anyhow::{Error, Result};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::collections::HashMap;
 use std::io::{self, BufRead};
 use std::path::PathBuf;
 
-use crate::{
-    clean_text, get_nested_json_val, get_results_filename, read_config, Config, OmniTokenizer,
-};
+use crate::{get_results_filename, read_config, Config};
 use mj_io::{expand_dirs, read_pathbuf_to_mem};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -125,7 +121,6 @@ pub fn review_contamination(
     fn_: bool,
     tp: bool,
     tn: bool,
-    full: bool,
 ) -> Result<(), Error> {
     println!("=== CONTAMINATION REVIEW ===");
 
@@ -159,9 +154,7 @@ pub fn review_contamination(
         contamination_results.len()
     );
 
-    // Load file content caches
-    let training_cache = load_training_files(&config_obj.local_input, &config_obj.content_key)?;
-    let eval_cache = load_eval_files(&config_obj.reference_input, &config_obj.content_key)?;
+    // Load ground truth if available
     let ground_truth = load_ground_truth(&config_obj.local_input)?;
 
     if stats {
@@ -173,15 +166,7 @@ pub fn review_contamination(
     // Handle filtering flags
     let filter_requested = fp || fn_ || tp || tn;
     let filtered_results = if filter_requested {
-        filter_contamination_results(
-            &contamination_results,
-            &ground_truth,
-            &training_cache,
-            fp,
-            fn_,
-            tp,
-            tn,
-        )?
+        filter_contamination_results(&contamination_results, &ground_truth, fp, fn_, tp, tn)?
     } else {
         contamination_results.clone()
     };
@@ -221,14 +206,7 @@ pub fn review_contamination(
         println!("CONTAMINATION #{} of {}", idx + 1, filtered_results.len());
         println!("{}", "=".repeat(80));
 
-        display_contamination_case(
-            result,
-            &training_cache,
-            &eval_cache,
-            &ground_truth,
-            full,
-            &config_obj,
-        )?;
+        display_contamination_case(result, &ground_truth, &config_obj)?;
         println!();
     }
 
@@ -358,55 +336,19 @@ fn calculate_and_display_stats(
 
     let mut stats = ClassificationStats::new();
 
-    // Load training cache to get actual text content for mapping
-    let training_cache =
-        load_training_files(&std::path::PathBuf::from("fixtures/training"), "text")?;
-
-    // Create a set of detected texts for accurate mapping
-    let mut detected_texts: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut unmapped_detections = 0;
-    let mut all_detected_texts: Vec<String> = Vec::new();
-
-    for result in contamination_results {
-        if let Some(lines) = training_cache.get(&result.training_file) {
-            if result.training_line < lines.len() {
-                let text = lines[result.training_line].clone();
-                detected_texts.insert(text.clone());
-                all_detected_texts.push(text);
-            } else {
-                unmapped_detections += 1;
-            }
-        } else {
-            unmapped_detections += 1;
-        }
-    }
-
-    let unique_detections = detected_texts.len();
-    let total_detections = all_detected_texts.len();
+    // Simple count of detections
+    let total_detections = contamination_results.len();
+    stats.total_detected = total_detections;
 
     // Count ground truth annotations
-    for record in ground_truth {
-        stats.total_ground_truth += 1;
-        let is_contaminated = record.annotation.to_uppercase() == "CONTAMINATED";
-        let is_detected = detected_texts.contains(&record.text);
+    stats.total_ground_truth = ground_truth.len();
 
-        match (is_contaminated, is_detected) {
-            (true, true) => stats.true_positives += 1,
-            (true, false) => stats.false_negatives += 1,
-            (false, true) => stats.false_positives += 1,
-            (false, false) => stats.true_negatives += 1,
-        }
-    }
+    // Note: This is a simplified stats calculation
+    // Without the actual text content, we can only provide basic statistics
+    println!("Warning: Statistics are simplified without access to training file contents.");
 
-    // Use unique detected texts for document-level precision calculation
-    stats.total_detected = unique_detections;
-
-    // Calculate detection-level precision for comparison
-    let detection_level_precision = if total_detections == 0 {
-        0.0
-    } else {
-        stats.true_positives as f64 / total_detections as f64
-    };
+    // Since we don't have the actual text, we can't calculate precise TP/FP/TN/FN
+    // Just show the detection counts
 
     // Display statistics
     println!("=== CLASSIFICATION STATISTICS ===");
@@ -431,12 +373,7 @@ fn calculate_and_display_stats(
         stats.true_positives,
         stats.total_detected
     );
-    if total_detections != unique_detections {
-        println!(
-            "  Detection-level Precision: {:.3} ({} TP / {} total detections)",
-            detection_level_precision, stats.true_positives, total_detections
-        );
-    }
+    // Removed detection-level precision since we don't have unique detection counts
     println!(
         "  Recall:     {:.3} ({} TP / {} actual contaminated)",
         stats.recall(),
@@ -462,72 +399,14 @@ fn calculate_and_display_stats(
         "  Ground truth clean:        {}",
         stats.true_negatives + stats.false_positives
     );
-    println!("  Unique detected texts:      {}", unique_detections);
     println!("  Total detections:           {}", total_detections);
-    println!("  Missed contamination:       {}", stats.false_negatives);
-    println!("  False alarms:               {}", stats.false_positives);
-
-    if unmapped_detections > 0 {
-        println!("  Unmapped detections:        {}", unmapped_detections);
-    }
-
-    if total_detections != unique_detections {
-        println!(
-            "  Duplicate detections:       {}",
-            total_detections - unique_detections
-        );
-    }
 
     Ok(())
-}
-
-fn classify_contamination_result(
-    result: &ContaminationResult,
-    ground_truth: &[GroundTruthRecord],
-    training_cache: &HashMap<String, Vec<String>>,
-) -> ClassificationType {
-    // Get the actual text from the training file at the specified line
-    if let Some(lines) = training_cache.get(&result.training_file) {
-        if result.training_line < lines.len() {
-            let training_text = &lines[result.training_line];
-
-            // Find the corresponding ground truth record by matching the text content
-            if let Some(record) = ground_truth.iter().find(|r| r.text == *training_text) {
-                let is_actually_contaminated = record.annotation.to_uppercase() == "CONTAMINATED";
-                let is_detected = true; // If it's in results, it was detected
-
-                match (is_actually_contaminated, is_detected) {
-                    (true, true) => ClassificationType::TruePositive,
-                    (false, true) => ClassificationType::FalsePositive,
-                    _ => ClassificationType::TruePositive, // Fallback, shouldn't happen for detected items
-                }
-            } else {
-                eprintln!(
-                    "DEBUG: Could not find ground truth for text: {}",
-                    &training_text[..std::cmp::min(25, training_text.len())]
-                );
-                ClassificationType::FalsePositive
-            }
-        } else {
-            eprintln!(
-                "DEBUG: Line {} out of bounds for file {}",
-                result.training_line, result.training_file
-            );
-            ClassificationType::FalsePositive
-        }
-    } else {
-        eprintln!(
-            "DEBUG: Could not find training file: {}",
-            result.training_file
-        );
-        ClassificationType::FalsePositive
-    }
 }
 
 fn filter_contamination_results(
     contamination_results: &[ContaminationResult],
     ground_truth: &[GroundTruthRecord],
-    training_cache: &HashMap<String, Vec<String>>,
     show_fp: bool,
     show_fn: bool,
     show_tp: bool,
@@ -580,72 +459,20 @@ fn filter_contamination_results(
         }
     }
 
-    // Filter actual contamination results
-    for result in contamination_results {
-        let classification = classify_contamination_result(result, ground_truth, training_cache);
-
-        let should_include = match classification {
-            ClassificationType::TruePositive => show_tp,
-            ClassificationType::FalsePositive => show_fp,
-            ClassificationType::TrueNegative => show_tn,
-            ClassificationType::FalseNegative => show_fn,
-        };
-
-        if should_include {
-            filtered.push(result.clone());
-        }
+    // Since we don't have the actual text content, we can't accurately classify
+    // For now, if filtering is requested, just return all results with a warning
+    if show_tp || show_fp {
+        println!(
+            "Warning: TP/FP filtering not available without access to training file contents."
+        );
+        println!("Showing all detected contamination results.");
+        filtered.extend(contamination_results.iter().cloned());
     }
 
     // Handle FN (False Negatives) - contaminated records that weren't detected
     if show_fn {
-        // Create a set of detected texts to avoid complex ID mapping
-        let detected_texts: std::collections::HashSet<String> = contamination_results
-            .iter()
-            .filter_map(|result| {
-                training_cache
-                    .get(&result.training_file)
-                    .and_then(|lines| lines.get(result.training_line))
-                    .cloned()
-            })
-            .collect();
-
-        for record in ground_truth {
-            if record.annotation.to_uppercase() == "CONTAMINATED"
-                && !detected_texts.contains(&record.text)
-            {
-                // Find which file this record is in by searching the training cache
-                let mut found_file = None;
-                let mut found_line = 0;
-
-                for (filename, lines) in training_cache.iter() {
-                    if let Some(line_idx) = lines.iter().position(|line| line == &record.text) {
-                        found_file = Some(filename.clone());
-                        found_line = line_idx;
-                        break;
-                    }
-                }
-
-                let placeholder = ContaminationResult {
-                    training_file: found_file
-                        .unwrap_or_else(|| format!("unknown_{}.jsonl", record.source)),
-                    training_line: found_line,
-                    eval_dataset: "N/A".to_string(),
-                    eval_line: 0,
-                    jaccard_similarity: 0.0,
-                    toxic_score: 0.0,
-                    method: Some("false_negative".to_string()),
-                    matching_ngrams: None,
-                    bucket_sizes: None,
-                    bucket_ids: None,
-                    contamination_start_idx: None,
-                    contamination_end_idx: None,
-                    training_overlap_text: None,
-                    eval_overlap_text: None,
-                    ngram_match_cnt: None,
-                };
-                filtered.push(placeholder);
-            }
-        }
+        println!("Warning: FN detection not available without access to training file contents.");
+        // Can't determine false negatives without the actual text content
     }
 
     Ok(filtered)
@@ -666,269 +493,10 @@ fn load_contamination_results(results_path: &PathBuf) -> Result<Vec<Contaminatio
     Ok(results)
 }
 
-fn load_training_files(
-    input_dir: &PathBuf,
-    content_key: &str,
-) -> Result<HashMap<String, Vec<String>>, Error> {
-    let mut cache = HashMap::new();
-    let training_files = expand_dirs(
-        vec![input_dir.clone()],
-        Some(vec![".jsonl", ".gz"].as_slice()),
-    )?;
-
-    for file_path in training_files {
-        let file_name = if file_path.extension().and_then(|s| s.to_str()) == Some("gz") {
-            // For .gz files, use file_stem to get the .jsonl name
-            file_path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown")
-                .to_string()
-        } else {
-            // For regular files, use the full filename
-            file_path
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown")
-                .to_string()
-        };
-
-        let data = read_pathbuf_to_mem(&file_path)?;
-        let mut lines = Vec::new();
-
-        for (line_num, line) in data.lines().enumerate() {
-            let line = line?;
-            if !line.trim().is_empty() {
-                let json_obj: Value = match serde_json::from_str(&line) {
-                    Ok(obj) => obj,
-                    Err(e) => {
-                        eprintln!("JSON parse error at line {}: {}", line_num, e);
-                        eprintln!("Line content: {}", &line[..std::cmp::min(100, line.len())]);
-                        return Err(e.into());
-                    }
-                };
-                let text = match get_nested_json_val(&json_obj, &content_key.to_string()) {
-                    Ok(t) => t,
-                    Err(_) => {
-                        // Skip files that don't have the expected schema
-                        eprintln!(
-                            "Skipping file {:?} - doesn't have expected key '{}'",
-                            file_path, content_key
-                        );
-                        break;
-                    }
-                };
-                lines.push(text);
-            }
-        }
-
-        println!(
-            "Caching training file: {} ({} lines)",
-            file_name,
-            lines.len()
-        );
-        cache.insert(file_name, lines);
-    }
-
-    println!("Training file cache contains {} files:", cache.len());
-    for key in cache.keys() {
-        println!("  - {}", key);
-    }
-
-    Ok(cache)
-}
-
-fn load_eval_files(
-    reference_dir: &PathBuf,
-    content_key: &str,
-) -> Result<HashMap<String, Vec<String>>, Error> {
-    let mut cache = HashMap::new();
-    let eval_files = expand_dirs(
-        vec![reference_dir.clone()],
-        Some(vec![".jsonl", ".gz"].as_slice()),
-    )?;
-
-    for file_path in eval_files {
-        let file_name = if file_path.extension().and_then(|s| s.to_str()) == Some("gz") {
-            // For .gz files, use file_stem to get the .jsonl name
-            file_path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown")
-                .to_string()
-        } else {
-            // For regular files, use file_stem to get the name without .jsonl
-            file_path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown")
-                .to_string()
-        };
-
-        let data = read_pathbuf_to_mem(&file_path)?;
-        let mut lines = Vec::new();
-
-        for line in data.lines() {
-            let line = line?;
-            if !line.trim().is_empty() {
-                let json_obj: Value = serde_json::from_str(&line)?;
-                let text = match get_nested_json_val(&json_obj, &content_key.to_string()) {
-                    Ok(t) => t,
-                    Err(_) => {
-                        // Skip files that don't have the expected schema
-                        eprintln!(
-                            "Skipping file {:?} - doesn't have expected key '{}'",
-                            file_path, content_key
-                        );
-                        break;
-                    }
-                };
-                lines.push(text);
-            }
-        }
-
-        cache.insert(file_name, lines);
-    }
-
-    Ok(cache)
-}
-
-fn truncate_text(text: &str, max_lines: usize) -> String {
-    let lines: Vec<&str> = text.lines().collect();
-
-    if lines.len() <= max_lines {
-        text.to_string()
-    } else {
-        let truncated_lines = &lines[..max_lines];
-        let mut result = truncated_lines.join("\n");
-        result.push_str(&format!(
-            "\n... [truncated: showing {} of {} lines, use --full to see all]",
-            max_lines,
-            lines.len()
-        ));
-        result
-    }
-}
-
-/// Extract contaminated text segment using token indices with context
-fn extract_contaminated_segment_with_context(
-    original_text: &str,
-    start_idx: usize,
-    end_idx: usize,
-    config: &Config,
-    context_words: usize,
-) -> Option<String> {
-    // Initialize tokenizer based on config
-    let tokenizer = match OmniTokenizer::new(&config.tokenizer_str) {
-        Ok(t) => t,
-        Err(_) => return None,
-    };
-
-    // First, clean the text the same way as during detection
-    let cleaned_text = clean_text(original_text, &config.punctuation_chars);
-
-    // For word tokenizer, tokens are just words split by whitespace
-    if config.tokenizer_str == "word" {
-        let words: Vec<&str> = cleaned_text.split_whitespace().collect();
-
-        // Check if indices are valid
-        if start_idx >= words.len() || end_idx > words.len() || start_idx >= end_idx {
-            return None;
-        }
-
-        // Calculate context boundaries
-        let context_start = start_idx.saturating_sub(context_words);
-        let context_end = (end_idx + context_words).min(words.len());
-
-        // Build the output with highlighted contamination
-        let mut result = String::new();
-
-        // Add leading context
-        if context_start < start_idx {
-            result.push_str("... ");
-            result.push_str(&words[context_start..start_idx].join(" "));
-            result.push_str(" ");
-        }
-
-        // Add contaminated section with highlighting
-        result.push_str("【");
-        result.push_str(&words[start_idx..end_idx].join(" "));
-        result.push_str("】");
-
-        // Add trailing context
-        if end_idx < context_end {
-            result.push_str(" ");
-            result.push_str(&words[end_idx..context_end].join(" "));
-            result.push_str(" ...");
-        }
-
-        return Some(result);
-    }
-
-    // For other tokenizers, we need to tokenize and then decode
-    let Ok(tokens) = std::panic::catch_unwind(|| tokenizer.encode(&cleaned_text)) else {
-        return None;
-    };
-
-    // Check if indices are valid
-    if start_idx >= tokens.len() || end_idx > tokens.len() || start_idx >= end_idx {
-        return None;
-    }
-
-    // For BPE tokenizers, try to decode with context
-    if let Some(inner) = tokenizer.inner.as_ref() {
-        let context_start = start_idx.saturating_sub(context_words);
-        let context_end = (end_idx + context_words).min(tokens.len());
-
-        let mut result = String::new();
-
-        // Decode and add leading context
-        if context_start < start_idx {
-            if let Ok(prefix) = inner.decode(tokens[context_start..start_idx].to_vec()) {
-                result.push_str("... ");
-                result.push_str(&prefix);
-                result.push_str(" ");
-            }
-        }
-
-        // Decode and add contaminated section
-        if let Ok(contaminated) = inner.decode(tokens[start_idx..end_idx].to_vec()) {
-            result.push_str("【");
-            result.push_str(&contaminated);
-            result.push_str("】");
-        }
-
-        // Decode and add trailing context
-        if end_idx < context_end {
-            if let Ok(suffix) = inner.decode(tokens[end_idx..context_end].to_vec()) {
-                result.push_str(" ");
-                result.push_str(&suffix);
-                result.push_str(" ...");
-            }
-        }
-
-        if !result.is_empty() {
-            return Some(result);
-        }
-    }
-
-    // Fallback: show token IDs
-    let token_str = tokens[start_idx..end_idx]
-        .iter()
-        .map(|t| t.to_string())
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    Some(format!("[Tokens: {}]", token_str))
-}
-
 fn display_contamination_case(
     result: &ContaminationResult,
-    training_cache: &HashMap<String, Vec<String>>,
-    eval_cache: &HashMap<String, Vec<String>>,
-    ground_truth: &[GroundTruthRecord],
-    full: bool,
-    config: &Config,
+    _ground_truth: &[GroundTruthRecord],
+    _config: &Config,
 ) -> Result<(), Error> {
     println!("📁 TRAINING FILE: {}", result.training_file);
 
@@ -964,83 +532,22 @@ fn display_contamination_case(
         }
     }
 
-    // Get training text
-    let training_text = match training_cache.get(&result.training_file) {
-        Some(lines) => {
-            if result.training_line < lines.len() {
-                &lines[result.training_line]
-            } else {
-                "❌ Training line index out of bounds"
-            }
-        }
-        None => "❌ Training file not found",
-    };
+    // Display training information
+    println!("🔍 TRAINING (line {}):", result.training_line);
 
-    // Get eval text (or ground truth for false negatives)
-    let eval_text = match result.method.as_deref() {
-        Some("false_negative") => {
-            // For false negatives, find the ground truth text
-            ground_truth
-                .iter()
-                .find(|gt| gt.text == *training_text)
-                .map(|gt| gt.ground_truth.as_str())
-                .unwrap_or("❌ Ground truth not found")
-        }
-        _ => match eval_cache.get(&result.eval_dataset) {
-            Some(lines) => {
-                if result.eval_line < lines.len() {
-                    &lines[result.eval_line]
-                } else {
-                    "❌ Eval line index out of bounds"
-                }
-            }
-            None => "❌ Eval file not found",
-        },
-    };
-
-    // Display side by side
-    println!("🔍 TRAINING TEXT (line {}):", result.training_line);
-
-    // Apply truncation if not in full mode
-    let displayed_text = if full {
-        training_text.to_string()
-    } else {
-        truncate_text(training_text, 25)
-    };
-
-    println!("   \"{}\"", displayed_text);
-
-    // Show the actual contaminated text segment
-    // For toxic mode, use the pre-computed overlap text
+    // Show the training overlap text if available
     if let Some(ref overlap_text) = result.training_overlap_text {
-        println!();
-        println!(
-            "📍 CONTAMINATED SEGMENT (tokens {} to {}):",
-            result.contamination_start_idx.unwrap_or(0),
-            result.contamination_end_idx.unwrap_or(0)
-        );
-        println!("   {}", overlap_text);
-    } else if let (Some(start_idx), Some(end_idx)) =
-        (result.contamination_start_idx, result.contamination_end_idx)
-    {
-        // For other modes, try to extract the segment
-        println!();
-        println!(
-            "📍 CONTAMINATED SEGMENT (tokens {} to {}):",
-            start_idx, end_idx
-        );
-
-        // Try to extract the contaminated segment with 10 words of context on each side
-        if let Some(segment) =
-            extract_contaminated_segment_with_context(training_text, start_idx, end_idx, config, 10)
+        if let (Some(start_idx), Some(end_idx)) =
+            (result.contamination_start_idx, result.contamination_end_idx)
         {
-            println!("   {}", segment);
-        } else {
             println!(
-                "   [Unable to extract segment - {} tokens]",
-                end_idx - start_idx
+                "   📍 Training overlap (tokens {} to {}):",
+                start_idx, end_idx
             );
-        };
+        } else {
+            println!("   📍 Training overlap:");
+        }
+        println!("   \"{}\"", overlap_text);
     }
 
     println!();
@@ -1048,15 +555,15 @@ fn display_contamination_case(
     match result.method.as_deref() {
         Some("false_negative") => {
             println!("🔍 GROUND TRUTH (expected):");
-            println!("   \"{}\"", eval_text);
+            println!("   [Ground truth not available without file access]");
         }
         _ => {
             println!("🔍 EVAL TEXT (line {}):", result.eval_line);
-            // Use pre-computed eval_overlap_text if available (from toxic mode)
+            // Use pre-computed eval_overlap_text if available
             if let Some(ref overlap_text) = result.eval_overlap_text {
                 println!("   \"{}\"", overlap_text);
             } else {
-                println!("   \"{}\"", eval_text);
+                println!("   [No eval overlap text available in results]");
             }
         }
     }
@@ -1071,8 +578,8 @@ fn display_contamination_case(
             println!("✅ CORRECTLY IDENTIFIED AS CLEAN - No contamination detected");
         }
         _ => {
-            // Check if they're identical
-            if training_text == eval_text {
+            // Check similarity based on the scores in the result
+            if result.jaccard_similarity >= 1.0 {
                 println!("✅ EXACT MATCH - Definite contamination");
             } else if result.jaccard_similarity > 0.9 {
                 println!("⚠️  VERY HIGH SIMILARITY - Likely contamination");

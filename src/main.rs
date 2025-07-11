@@ -166,12 +166,6 @@ enum Commands {
             help = "Show only true negatives (correctly identified as clean - requires ground truth)"
         )]
         tn: bool,
-
-        #[arg(
-            long,
-            help = "Display full training documents (default: truncate at 50 lines)"
-        )]
-        full: bool,
     },
 
     Daemon {
@@ -860,7 +854,6 @@ fn main() -> Result<(), Error> {
             fn_,
             tp,
             tn,
-            full,
         } => review::review_contamination(
             config,
             results_file.as_ref(),
@@ -870,7 +863,6 @@ fn main() -> Result<(), Error> {
             *fn_,
             *tp,
             *tn,
-            *full,
         ),
 
         Commands::Daemon {

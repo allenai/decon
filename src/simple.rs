@@ -737,7 +737,7 @@ pub fn process_simple_training_file(
                             cluster.start_idx,
                             cluster.end_idx,
                             tokenizer,
-                            10, // context words
+                            30, // context words (tripled from 10)
                         );
 
                         let entry = SimpleContaminationEntry {
@@ -882,7 +882,7 @@ pub fn process_simple_training_file_streaming(
                             cluster.start_idx,
                             cluster.end_idx,
                             tokenizer,
-                            10, // context words
+                            30, // context words (tripled from 10)
                         );
 
                         // Create JSON entry

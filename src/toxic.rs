@@ -2450,7 +2450,7 @@ pub fn process_toxic_training_file(
                             &word_tokens,
                             cluster.start_idx,
                             cluster.end_idx,
-                            10, // context words
+                            30, // context words (tripled from 10)
                         );
 
                         contamination_results
