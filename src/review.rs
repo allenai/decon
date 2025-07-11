@@ -7,6 +7,12 @@ use std::path::PathBuf;
 use crate::{get_results_filename, read_config, Config};
 use mj_io::{expand_dirs, read_pathbuf_to_mem};
 
+// Helper function to convert bracket highlights to ANSI bold formatting
+fn format_with_bold_highlights(text: &str) -> String {
+    text.replace("【", "\x1b[1m")
+        .replace("】", "\x1b[0m")
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContaminationResult {
     pub training_file: String,
@@ -772,7 +778,7 @@ fn display_contamination_case_internal(
         } else {
             println!("   📍 Training overlap:");
         }
-        println!("   \"{}\"", overlap_text);
+        println!("   \"{}\"", format_with_bold_highlights(overlap_text));
     }
 
     println!();
@@ -786,7 +792,7 @@ fn display_contamination_case_internal(
             println!("🔍 EVAL TEXT (line {}):", result.eval_line);
             // Use pre-computed eval_overlap_text if available
             if let Some(ref overlap_text) = result.eval_overlap_text {
-                println!("   \"{}\"", overlap_text);
+                println!("   \"{}\"", format_with_bold_highlights(overlap_text));
             } else {
                 println!("   [No eval overlap text available in results]");
             }
