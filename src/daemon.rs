@@ -357,6 +357,9 @@ fn process_single_file(
 
             // Use the existing detection logic from simple.rs
             let contamination_results = dashmap::DashMap::new();
+            
+            // Calculate total documents once
+            let total_docs = eval_documents.len() as f32;
 
             let lines_processed = crate::simple::process_simple_training_file(
                 file_path,
@@ -368,6 +371,7 @@ fn process_single_file(
                 tokenizer,
                 id_to_ngram_tokens,
                 eval_text_snippets,
+                total_docs,
             )?;
 
             // Only save results if contamination was found

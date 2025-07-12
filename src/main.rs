@@ -200,6 +200,12 @@ enum Commands {
             help = "Filter by evaluation dataset name (strips suffix after last underscore)"
         )]
         eval: Option<String>,
+        
+        #[arg(
+            long,
+            help = "Skip records with contamination score == 1.0 (exact matches)"
+        )]
+        skip_exact: bool,
     },
 
     Daemon {
@@ -910,6 +916,7 @@ fn main() -> Result<(), Error> {
             min_idf_score,
             min_length,
             eval,
+            skip_exact,
         } => review::review_contamination(
             config.as_ref(),
             results_file.as_ref(),
@@ -925,6 +932,7 @@ fn main() -> Result<(), Error> {
             *min_idf_score,
             *min_length,
             eval.as_deref(),
+            *skip_exact,
         ),
 
         Commands::Daemon {

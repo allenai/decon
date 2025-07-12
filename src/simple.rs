@@ -50,6 +50,30 @@ type EvalDocuments = DashMap<u32, (String, usize, usize, usize)>; // Maps doc_id
 type EvalTextSnippets = DashMap<(String, usize), String>; // Maps (eval_name, line_num) to text snippet (first 1000 words)
 type IdToNgramTokens = DashMap<u64, Vec<usize>>; // Maps unique ID to token IDs for display
 
+
+// This is the minimum contamination score to be considered a match.
+// We also use this as C in  P(L) = 1.0 - C * e^(-k*L^n) such that documents
+// with length L < X need perfect scores. k and n are tuned for L=~10
+const CONTAMINATION_SCORE_THRESHOLD: f32 = 0.79;  // 0.81
+
+// This is the minimum penalty factor applied for very short texts (L<~10).
+// A value of 0.6 means a 40% penalty (score multiplied by 0.6).
+// This is set to the CONTAMINATION_SCORE_THRESHOLD because any penalty
+// factor beyond this gaurantees it's not a match. When applied on the
+// curve set by LENGTH_PENALTY_DECAY_RATE, it makes it so that below
+const MIN_LENGTH_PENALTY: f32 = CONTAMINATION_SCORE_THRESHOLD;
+
+// This is the 'k' in the formula P(L) = 1.0 - e^(-k*L^n).
+// It controls how quickly the penalty rises from 0 toward 1.0 as length increases.
+// A larger 'k' means the penalty reaches higher values faster (less penalty for shorter texts).
+const LENGTH_PENALTY_DECAY_RATE: f32 = 0.6; // Tuned for L=10→0.80, L=36→0.88, L=40→0.89
+
+// This is the 'n' in the formula P(L) = 1.0 - e^(-k*L^n).
+// It controls the shape of the curve. When n < 1, the curve has a gentler initial rise
+// and longer tail. When n > 1, the curve rises sharply at first then flattens.
+const LENGTH_PENALTY_POWER_N: f32 = 0.4;
+
+
 pub fn contamination_detect(config: &Config) -> Result<(), Error> {
     println!("Starting SIMPLE contamination detection...");
     let start_main = Instant::now();
@@ -363,6 +387,9 @@ fn detect_simple_contamination(
 ) -> Result<usize, Error> {
     // println!("Starting training data contamination detection..."); //debug
 
+    // Calculate total documents once
+    let total_docs = eval_documents.len() as f32;
+
     // Find all training files
     let training_files = expand_dirs(
         vec![config.local_input.clone()],
@@ -405,6 +432,7 @@ fn detect_simple_contamination(
             &results_writer,
             &total_contaminations,
             &contaminated_files,
+            total_docs,
         ) {
             Ok(lines_processed) => {
                 total_lines_processed
@@ -594,7 +622,8 @@ pub struct SimpleContaminationEntry {
     eval_name: String,
     eval_line: usize,
     overlap_ratio: f32,
-    toxic_score: f32,
+    idf_sum: f32,              // Sum of IDF scores for all matching n-grams
+    max_idf: f32,              // Maximum IDF score among matching n-grams
     matching_ngrams: Vec<String>,
     // Token indices for position recovery
     contamination_start_idx: Option<usize>, // Start index in token array
@@ -602,6 +631,61 @@ pub struct SimpleContaminationEntry {
     training_overlap_text: Option<String>,
     ngram_match_cnt: usize,    // Number of unique n-gram matches
     eval_unique_ngrams: usize, // Total unique n-grams in the eval document
+    length_penalty: Option<f32>, // Length penalty factor applied during scoring
+}
+
+impl SimpleContaminationEntry {
+    /// Calculate the length penalty factor for this entry
+    pub fn calculate_length_penalty(&self) -> f32 {
+        let l = self.eval_unique_ngrams as f32;
+        let mut length_penalty = 1.0 - (-LENGTH_PENALTY_DECAY_RATE * l.powf(LENGTH_PENALTY_POWER_N)).exp();
+        length_penalty = length_penalty.max(MIN_LENGTH_PENALTY);
+        length_penalty
+    }
+
+    /// Calculate contamination score based on overlap ratio and IDF, with length penalty
+    /// Returns a score between 0.0 and 1.0, where higher scores indicate more likely contamination
+    pub fn score_contamination(&self) -> f32 {
+        // Basically we reject anything with less than 80% overlap. Just on principle.
+        // TODO review
+        if self.overlap_ratio < 0.7 {
+            return 0.0;
+        }
+
+        // Perfect matches always get maximum score
+        if self.overlap_ratio >= 1.0 {
+            return 1.0;
+        }
+
+        // Average IDF per n-gram
+        let avg_idf_per_ngram = self.idf_sum / self.ngram_match_cnt.max(1) as f32;
+
+        // Sigmoid normalization for IDF: maps (-∞,+∞) to (0,1)
+        // Center around 0.0 (the natural threshold where doc_freq = N/e ≈ 36.8%)
+        // Positive IDF = rare terms, Negative IDF = common terms
+        // The 0.5 factor controls the steepness of the sigmoid
+        let normalized_idf = 1.0 / (1.0 + (-0.5 * avg_idf_per_ngram).exp());
+
+        // Create a combined score using linear combination
+        // Weight overlap more heavily than IDF
+        let overlap_weight = 0.4;
+        let idf_weight = 0.6;
+
+        // Base combined score
+        let base_score = (overlap_weight * self.overlap_ratio) + (idf_weight * normalized_idf);
+
+        // Apply length penalty - shorter texts need to have higher scores to survive.
+        // They need to be more exact and have more salient tokens.
+        let length_penalty = self.calculate_length_penalty();
+
+        // Final score with length penalty applied
+        base_score * length_penalty
+    }
+
+    /// Check if this entry represents contamination (score >= 0.78)
+    pub fn is_contaminated(&self) -> bool {
+        self.score_contamination() >= CONTAMINATION_SCORE_THRESHOLD
+    }
 }
 
 #[derive(Clone)]
@@ -622,6 +706,7 @@ pub fn process_simple_training_file(
     tokenizer: &OmniTokenizer,
     id_to_ngram_tokens: &IdToNgramTokens,
     _eval_text_snippets: &EvalTextSnippets,
+    total_docs: f32,
 ) -> Result<usize, Error> {
     let data = read_compressed_file(file_path)?;
 
@@ -743,18 +828,37 @@ pub fn process_simple_training_file(
                         println!();
                     }
 
-                    // Calculate toxic score using IDF approach
-                    let toxic_score = calculate_simple_toxic_score(
+                    // Calculate IDF scores
+                    let (idf_sum, max_idf) = calculate_simple_toxic_score(
                         &cluster.matching_ngrams,
                         ngram_to_id,
                         id_to_docs,
+                        total_docs,
                         id_to_ngram_tokens,
                     );
 
-                    // Only record results that exceed both thresholds
-                    if overlap_ratio >= config.toxic_overlap_threshold
-                        && toxic_score >= config.toxic_score_threshold
-                    {
+                    // Create the contamination entry first
+                    let mut entry = SimpleContaminationEntry {
+                        training_line: line_num,
+                        eval_name: eval_name.clone(),
+                        eval_line: *eval_line,
+                        overlap_ratio,
+                        idf_sum,
+                        max_idf,
+                        matching_ngrams: cluster.matching_ngrams.clone(),
+                        contamination_start_idx: Some(cluster.start_idx),
+                        contamination_end_idx: Some(cluster.end_idx),
+                        training_overlap_text: None, // Will be filled if contaminated
+                        ngram_match_cnt: unique_matches,
+                        eval_unique_ngrams: *unique_ngrams,
+                        length_penalty: None, // Will be calculated and set below
+                    };
+
+                    // Calculate and store the length penalty
+                    entry.length_penalty = Some(entry.calculate_length_penalty());
+
+                    // Check if this entry represents contamination using score threshold
+                    if entry.is_contaminated() {
                         // Extract the overlapping text with context
                         let training_overlap_text = extract_overlap_with_context(
                             &cleaned_text,
@@ -765,27 +869,15 @@ pub fn process_simple_training_file(
                             30, // context words (tripled from 10)
                         );
 
-                        let entry = SimpleContaminationEntry {
-                            training_line: line_num,
-                            eval_name: eval_name.clone(),
-                            eval_line: *eval_line,
-                            overlap_ratio,
-                            toxic_score,
-                            matching_ngrams: cluster.matching_ngrams.clone(),
-                            contamination_start_idx: Some(cluster.start_idx),
-                            contamination_end_idx: Some(cluster.end_idx),
-                            training_overlap_text,
-                            ngram_match_cnt: unique_matches,
-                            eval_unique_ngrams: *unique_ngrams,
-                        };
+                        let mut entry_with_text = entry;
+                        entry_with_text.training_overlap_text = training_overlap_text;
+                        cluster_results.push(entry_with_text);
 
-                        cluster_results.push(entry);
-
-                        // println!("Found contamination: train_line={}, eval={}:{}, overlap={:.3} (>={:.3}), toxic_score={:.3} (>={:.3})", //debug
-                        //          line_num, eval_name, eval_line, overlap_ratio, config.toxic_overlap_threshold, toxic_score, config.toxic_score_threshold);
+                        // println!("Found contamination: train_line={}, eval={}:{}, overlap={:.3} (>={:.3}), idf_sum={:.3} (>={:.3})", //debug
+                        //          line_num, eval_name, eval_line, overlap_ratio, config.toxic_overlap_threshold, idf_sum, config.toxic_score_threshold);
                     } else {
-                        // println!("Below threshold: train_line={}, eval={}:{}, overlap={:.3} < {:.3} OR toxic_score={:.3} < {:.3}", //debug
-                        //          line_num, eval_name, eval_line, overlap_ratio, config.toxic_overlap_threshold, toxic_score, config.toxic_score_threshold);
+                        // println!("Below threshold: train_line={}, eval={}:{}, overlap={:.3} < {:.3} OR idf_sum={:.3} < {:.3}", //debug
+                        //          line_num, eval_name, eval_line, overlap_ratio, config.toxic_overlap_threshold, idf_sum, config.toxic_score_threshold);
                     }
                 }
             }
@@ -820,6 +912,7 @@ pub fn process_simple_training_file_streaming(
     results_writer: &Arc<Mutex<BufWriter<File>>>,
     total_contaminations: &Arc<AtomicU32>,
     contaminated_files: &Arc<DashMap<String, HashSet<usize>>>,
+    total_docs: f32,
 ) -> Result<usize, Error> {
     let data = read_compressed_file(file_path)?;
 
@@ -888,18 +981,37 @@ pub fn process_simple_training_file_streaming(
                         0.0
                     };
 
-                    // Calculate toxic score using IDF approach
-                    let toxic_score = calculate_simple_toxic_score(
+                    // Calculate IDF scores
+                    let (idf_sum, max_idf) = calculate_simple_toxic_score(
                         &cluster.matching_ngrams,
                         ngram_to_id,
                         id_to_docs,
+                        total_docs,
                         id_to_ngram_tokens,
                     );
 
-                    // Only record results that exceed both thresholds
-                    if overlap_ratio >= config.toxic_overlap_threshold
-                        && toxic_score >= config.toxic_score_threshold
-                    {
+                    // Create a temporary entry to check contamination
+                    let mut temp_entry = SimpleContaminationEntry {
+                        training_line: line_num,
+                        eval_name: eval_name.clone(),
+                        eval_line: *eval_line,
+                        overlap_ratio,
+                        idf_sum,
+                        max_idf,
+                        matching_ngrams: cluster.matching_ngrams.clone(),
+                        contamination_start_idx: Some(cluster.start_idx),
+                        contamination_end_idx: Some(cluster.end_idx),
+                        training_overlap_text: None,
+                        ngram_match_cnt: unique_matches,
+                        eval_unique_ngrams: *unique_ngrams,
+                        length_penalty: None, // Will be calculated and set below
+                    };
+
+                    // Calculate and store the length penalty
+                    temp_entry.length_penalty = Some(temp_entry.calculate_length_penalty());
+
+                    // Check if this entry represents contamination using score threshold
+                    if temp_entry.is_contaminated() {
                         // Extract the overlapping text with context
                         let training_overlap_text = extract_overlap_with_context(
                             &cleaned_text,
@@ -917,9 +1029,13 @@ pub fn process_simple_training_file_streaming(
                             "eval_dataset": eval_name,
                             "eval_line": eval_line,
                             "overlap_ratio": overlap_ratio,
-                            "toxic_score": toxic_score,
+                            "toxic_score": idf_sum,  // Keep for backward compatibility
+                            "idf_sum": idf_sum,
+                            "max_idf": max_idf,
                             "ngram_match_cnt": unique_matches,
                             "eval_unique_ngrams": unique_ngrams,
+                            "contamination_score": temp_entry.score_contamination(),
+                            "length_penalty": temp_entry.length_penalty.unwrap_or(0.0),
                             "method": "simple"
                         });
 
@@ -1354,14 +1470,15 @@ fn expand_simple_contamination_cluster(
     })
 }
 
-/// Calculate toxic score using inverse document frequency approach
-/// Similar to toxic.rs, but for n-gram buckets instead of LSH buckets
+/// Calculate IDF scores using inverse document frequency approach
+/// Returns (idf_sum, max_idf) for all matching n-grams
 fn calculate_simple_toxic_score(
     matching_ngrams: &[String],
     ngram_to_id: &NgramToIdMap,
     id_to_docs: &IdToDocsMap,
+    total_docs: f32,
     _id_to_ngram_tokens: &IdToNgramTokens,
-) -> f32 {
+) -> (f32, f32) {  // Returns (idf_sum, max_idf)
     let mut unique_ngram_ids = HashSet::new();
 
     // For display ngrams (formatted as "[id1, id2, id3]"), we need to extract the actual ngram IDs
@@ -1376,24 +1493,21 @@ fn calculate_simple_toxic_score(
         }
     }
 
-    // Calculate toxic score: sum of 1/ln(document_count) for each unique n-gram
-    let toxic_score: f32 = unique_ngram_ids
-        .iter()
-        .map(|ngram_id| {
-            if let Some(doc_set) = id_to_docs.get(ngram_id) {
-                let document_count = doc_set.len() as f32;
-                if document_count > 1.0 {
-                    1.0 / document_count.ln()
-                } else {
-                    1.0 // For single-document n-grams, max weight
-                }
-            } else {
-                0.0 // N-gram not found (shouldn't happen)
-            }
-        })
-        .sum();
+    // Calculate IDF values for all unique n-grams
+    let mut idf_sum = 0.0f32;
+    let mut max_idf = 0.0f32;
 
-    toxic_score
+    for ngram_id in &unique_ngram_ids {
+        if let Some(doc_set) = id_to_docs.get(ngram_id) {
+            let doc_freq = doc_set.len() as f32;
+            // Standard IDF formula: ln(N/doc_freq)
+            let idf = (total_docs / doc_freq).ln();
+            idf_sum += idf;
+            max_idf = max_idf.max(idf);
+        }
+    }
+
+    (idf_sum, max_idf)
 }
 
 fn parse_ngram_string(ngram_str: &str) -> Result<Vec<usize>, Error> {
@@ -1524,9 +1638,13 @@ pub fn save_contamination_results_toxic_format_with_filename_and_eval_text(
                 "eval_dataset": contamination_entry.eval_name,
                 "eval_line": contamination_entry.eval_line,
                 "overlap_ratio": contamination_entry.overlap_ratio,
-                "toxic_score": contamination_entry.toxic_score,
+                "toxic_score": contamination_entry.idf_sum,  // Keep for backward compatibility
+                "idf_sum": contamination_entry.idf_sum,
+                "max_idf": contamination_entry.max_idf,
                 "ngram_match_cnt": contamination_entry.ngram_match_cnt,
                 "eval_unique_ngrams": contamination_entry.eval_unique_ngrams,
+                "contamination_score": contamination_entry.score_contamination(),
+                "length_penalty": contamination_entry.length_penalty.unwrap_or_else(|| contamination_entry.calculate_length_penalty()),
                 "method": "simple"
             });
 

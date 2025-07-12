@@ -6,6 +6,7 @@ fixtures/reference/*.*
 fixtures/reference-download/*.*
 fixtures/cleaned/*.*
 fixtures/local_input/*.*
+fixtures/big_input
 tests/output
 test_daemon.sh
 test_multi_thread.sh

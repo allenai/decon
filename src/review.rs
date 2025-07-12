@@ -42,6 +42,10 @@ pub struct ContaminationResult {
     pub ngram_match_cnt: Option<usize>,
     #[serde(default)]
     pub eval_unique_ngrams: Option<usize>,
+    #[serde(default)]
+    pub contamination_score: Option<f32>,
+    #[serde(default)]
+    pub length_penalty: Option<f32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -135,6 +139,7 @@ pub fn review_contamination(
     min_idf_score: Option<f32>,
     min_length: Option<usize>,
     eval_filter: Option<&str>,
+    skip_exact: bool,
 ) -> Result<(), Error> {
     println!("=== CONTAMINATION REVIEW ===");
 
@@ -166,6 +171,7 @@ pub fn review_contamination(
             min_idf_score,
             min_length,
             eval_filter,
+            skip_exact,
         );
 
         if all_results.is_empty() {
@@ -185,6 +191,9 @@ pub fn review_contamination(
             }
             if eval_filter.is_some() {
                 println!("  - Eval dataset filter: {}", eval_filter.unwrap());
+            }
+            if skip_exact {
+                println!("  - Skipping exact matches (contamination_score == 1.0)");
             }
             return Ok(());
         }
@@ -283,6 +292,7 @@ pub fn review_contamination(
         min_idf_score,
         min_length,
         eval_filter,
+        skip_exact,
     );
 
     if contamination_results.is_empty() {
@@ -302,6 +312,9 @@ pub fn review_contamination(
         }
         if eval_filter.is_some() {
             println!("  - Eval dataset filter: {}", eval_filter.unwrap());
+        }
+        if skip_exact {
+            println!("  - Skipping exact matches (contamination_score == 1.0)");
         }
         return Ok(());
     }
@@ -624,6 +637,8 @@ fn filter_contamination_results(
                     eval_overlap_text: None,
                     ngram_match_cnt: None,
                     eval_unique_ngrams: None,
+                    contamination_score: None,
+                    length_penalty: None,
                 };
                 filtered.push(placeholder);
             }
@@ -670,6 +685,7 @@ fn filter_contamination_results_by_thresholds(
     min_idf_score: Option<f32>,
     min_length: Option<usize>,
     eval_filter: Option<&str>,
+    skip_exact: bool,
 ) -> Vec<ContaminationResult> {
     results
         .into_iter()
@@ -713,6 +729,15 @@ fn filter_contamination_results_by_thresholds(
                 } else {
                     // If ngram_match_cnt is not present, filter out
                     return false;
+                }
+            }
+            
+            // Skip exact matches if requested
+            if skip_exact {
+                if let Some(score) = result.contamination_score {
+                    if score == 1.0 {
+                        return false;
+                    }
                 }
             }
 
@@ -787,6 +812,12 @@ fn display_contamination_case_internal(result: &ContaminationResult) -> Result<(
             }
             if let Some(eval_unique_ngrams) = result.eval_unique_ngrams {
                 println!("📊 EVAL UNIQUE N-GRAMS: {}", eval_unique_ngrams);
+            }
+            if let Some(score) = result.contamination_score {
+                println!("⚡ CONTAMINATION SCORE: {:.3}", score);
+            }
+            if let Some(penalty) = result.length_penalty {
+                println!("📏 LENGTH PENALTY: {:.3}", penalty);
             }
             println!();
         }
