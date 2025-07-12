@@ -1,5 +1,6 @@
 use anyhow::{Error, Result};
 use dashmap::DashMap;
+use flate2::read::GzDecoder;
 use rayon::prelude::*;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -10,7 +11,6 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use flate2::read::GzDecoder;
 use zstd::stream::read::Decoder as ZstdDecoder;
 
 use mj_io::{build_pbar, expand_dirs, read_pathbuf_to_mem, write_mem_to_pathbuf};
@@ -24,7 +24,7 @@ use crate::{
 fn read_compressed_file(path: &PathBuf) -> Result<Vec<u8>, Error> {
     let mut file = File::open(path)?;
     let mut buffer = Vec::new();
-    
+
     match path.extension().and_then(|s| s.to_str()) {
         Some("gz") => {
             let mut decoder = GzDecoder::new(file);
@@ -39,7 +39,7 @@ fn read_compressed_file(path: &PathBuf) -> Result<Vec<u8>, Error> {
             file.read_to_end(&mut buffer)?;
         }
     }
-    
+
     Ok(buffer)
 }
 
@@ -600,7 +600,8 @@ pub struct SimpleContaminationEntry {
     contamination_start_idx: Option<usize>, // Start index in token array
     contamination_end_idx: Option<usize>,   // End index in token array
     training_overlap_text: Option<String>,
-    ngram_match_cnt: usize, // Number of unique n-gram matches
+    ngram_match_cnt: usize,    // Number of unique n-gram matches
+    eval_unique_ngrams: usize, // Total unique n-grams in the eval document
 }
 
 #[derive(Clone)]
@@ -625,20 +626,16 @@ pub fn process_simple_training_file(
     let data = read_compressed_file(file_path)?;
 
     let file_name = match file_path.extension().and_then(|s| s.to_str()) {
-        Some("gz") | Some("zst") => {
-            file_path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown")
-                .to_string()
-        }
-        _ => {
-            file_path
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown")
-                .to_string()
-        }
+        Some("gz") | Some("zst") => file_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown")
+            .to_string(),
+        _ => file_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown")
+            .to_string(),
     };
 
     // println!("Processing training file: {}", file_name); //debug
@@ -779,6 +776,7 @@ pub fn process_simple_training_file(
                             contamination_end_idx: Some(cluster.end_idx),
                             training_overlap_text,
                             ngram_match_cnt: unique_matches,
+                            eval_unique_ngrams: *unique_ngrams,
                         };
 
                         cluster_results.push(entry);
@@ -826,20 +824,16 @@ pub fn process_simple_training_file_streaming(
     let data = read_compressed_file(file_path)?;
 
     let file_name = match file_path.extension().and_then(|s| s.to_str()) {
-        Some("gz") | Some("zst") => {
-            file_path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown")
-                .to_string()
-        }
-        _ => {
-            file_path
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown")
-                .to_string()
-        }
+        Some("gz") | Some("zst") => file_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown")
+            .to_string(),
+        _ => file_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown")
+            .to_string(),
     };
 
     let mut lines_processed = 0;
@@ -925,6 +919,7 @@ pub fn process_simple_training_file_streaming(
                             "overlap_ratio": overlap_ratio,
                             "toxic_score": toxic_score,
                             "ngram_match_cnt": unique_matches,
+                            "eval_unique_ngrams": unique_ngrams,
                             "method": "simple"
                         });
 
@@ -1531,6 +1526,7 @@ pub fn save_contamination_results_toxic_format_with_filename_and_eval_text(
                 "overlap_ratio": contamination_entry.overlap_ratio,
                 "toxic_score": contamination_entry.toxic_score,
                 "ngram_match_cnt": contamination_entry.ngram_match_cnt,
+                "eval_unique_ngrams": contamination_entry.eval_unique_ngrams,
                 "method": "simple"
             });
 
@@ -1607,46 +1603,37 @@ fn create_purified_files(
     for file_path in training_files {
         // Match the same logic used in process_training_file
         let file_name = match file_path.extension().and_then(|s| s.to_str()) {
-            Some("gz") | Some("zst") => {
-                file_path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("unknown")
-                    .to_string()
-            }
-            _ => {
-                file_path
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("unknown")
-                    .to_string()
-            }
+            Some("gz") | Some("zst") => file_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string(),
+            _ => file_path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string(),
         };
 
-        // Check if this file has any contamination
+        // Collect contaminated line numbers for this file
+        let mut contaminated_lines = HashSet::new();
         if let Some(contaminations) = contamination_results.get(&file_name) {
-            if contaminations.is_empty() {
-                continue;
-            }
-
-            // Collect contaminated line numbers
-            let mut contaminated_lines = HashSet::new();
             for entry in contaminations.iter() {
                 contaminated_lines.insert(entry.training_line);
             }
+        }
 
-            // Use the shared write_purified_file function
-            write_purified_file(file_path, cleaned_dir, &contaminated_lines)?;
+        // Always create a purified file when purify mode is enabled
+        write_purified_file(file_path, cleaned_dir, &contaminated_lines)?;
 
+        if contaminated_lines.is_empty() {
+            println!("Copied clean file: {}", file_name);
+        } else {
             println!(
                 "Created purified file for {} (removed {} lines)",
                 file_name,
                 contaminated_lines.len()
             );
-        } else {
-            // Copy the clean file as-is
-            write_purified_file(file_path, cleaned_dir, &HashSet::new())?;
-            println!("Copied clean file: {}", file_name);
         }
     }
 
@@ -1671,41 +1658,36 @@ fn create_purified_files_streaming(
     for file_path in training_files {
         // Match the same logic used in process_training_file
         let file_name = match file_path.extension().and_then(|s| s.to_str()) {
-            Some("gz") | Some("zst") => {
-                file_path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("unknown")
-                    .to_string()
-            }
-            _ => {
-                file_path
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("unknown")
-                    .to_string()
-            }
+            Some("gz") | Some("zst") => file_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string(),
+            _ => file_path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string(),
         };
 
-        // Check if this file has any contamination
-        if let Some(entry) = contaminated_files.get(&file_name) {
-            let contaminated_lines = entry.value();
-            if contaminated_lines.is_empty() {
-                continue;
-            }
+        // Get contaminated lines for this file (if any)
+        let contaminated_lines = if let Some(entry) = contaminated_files.get(&file_name) {
+            entry.value().clone()
+        } else {
+            HashSet::new()
+        };
 
-            // Use the shared write_purified_file function
-            write_purified_file(file_path, cleaned_dir, &contaminated_lines)?;
+        // Always create a purified file when purify mode is enabled
+        write_purified_file(file_path, cleaned_dir, &contaminated_lines)?;
 
+        if contaminated_lines.is_empty() {
+            println!("Copied clean file: {}", file_name);
+        } else {
             println!(
                 "Created purified file for {} (removed {} lines)",
                 file_name,
                 contaminated_lines.len()
             );
-        } else {
-            // Copy the clean file as-is
-            write_purified_file(file_path, cleaned_dir, &HashSet::new())?;
-            println!("Copied clean file: {}", file_name);
         }
     }
 

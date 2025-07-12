@@ -17,11 +17,11 @@ use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 
+use crate::minhash::_expand_band_seeds;
+use crate::{clean_text, get_nested_json_val, OmniTokenizer};
 use mj_io::{build_pbar, expand_dirs};
 use ndarray::Array1;
 use sha2::{Digest, Sha256};
-use crate::{clean_text, get_nested_json_val, OmniTokenizer};
-use crate::minhash::{_expand_band_seeds};
 
 // Constants for filtering
 const MIN_LENGTH: usize = 50; // Minimum character count for text entries
@@ -87,24 +87,28 @@ pub fn refine_reference_files(dry_run: bool) -> Result<(), Error> {
     println!("\nPhase 2: Analyzing lines to keep after deduplication...");
     let lines_to_keep = build_lines_to_keep(&duplicate_map);
     let lines_after_dedup: usize = lines_to_keep.values().map(|set| set.len()).sum();
-    println!("Lines remaining after deduplication: {} (removed {} duplicates)",
+    println!(
+        "Lines remaining after deduplication: {} (removed {} duplicates)",
         lines_after_dedup,
         dedup_stats.total_lines - lines_after_dedup
     );
 
     // Phase 3: MinHash near-duplicate detection
     println!("\nPhase 3: Detecting near-duplicates with MinHash...");
-    let (minhash_lines_to_keep, minhash_stats) = detect_minhash_duplicates(&reference_files, &lines_to_keep)?;
+    let (minhash_lines_to_keep, minhash_stats) =
+        detect_minhash_duplicates(&reference_files, &lines_to_keep)?;
     display_minhash_stats(&minhash_stats, dry_run);
     let lines_after_minhash: usize = minhash_lines_to_keep.values().map(|set| set.len()).sum();
-    println!("Lines remaining after MinHash deduplication: {} (removed {} near-duplicates)",
+    println!(
+        "Lines remaining after MinHash deduplication: {} (removed {} near-duplicates)",
         lines_after_minhash,
         lines_after_dedup - lines_after_minhash
     );
 
     // Phase 4: Apply filters to analyze what would be removed
     println!("\nPhase 4: Analyzing filters...");
-    let (filtered_lines_to_keep, filter_stats) = apply_filters(&reference_files, &minhash_lines_to_keep)?;
+    let (filtered_lines_to_keep, filter_stats) =
+        apply_filters(&reference_files, &minhash_lines_to_keep)?;
     display_filter_stats(&filter_stats);
 
     // Phase 5: Write files (only if not dry run)
@@ -114,7 +118,8 @@ pub fn refine_reference_files(dry_run: bool) -> Result<(), Error> {
     } else {
         println!("\n[DRY RUN] Skipping file writing phase.");
         let total_lines_final: usize = filtered_lines_to_keep.values().map(|set| set.len()).sum();
-        println!("Would write {} refined files with {} lines total",
+        println!(
+            "Would write {} refined files with {} lines total",
             reference_files.len(),
             total_lines_final
         );
@@ -124,11 +129,26 @@ pub fn refine_reference_files(dry_run: bool) -> Result<(), Error> {
     // Final summary
     println!("\n=== OVERALL SUMMARY ===");
     println!("Original lines: {}", dedup_stats.total_lines);
-    println!("After exact deduplication: {} (removed {} duplicates)", lines_after_dedup, dedup_stats.total_lines - lines_after_dedup);
-    println!("After MinHash deduplication: {} (removed {} near-duplicates)", lines_after_minhash, lines_after_dedup - lines_after_minhash);
-    println!("After filtering: {} (removed {} by filters)", filter_stats.total_lines_after_filters, filter_stats.total_lines_before_filters - filter_stats.total_lines_after_filters);
-    println!("Total reduction: {:.1}% ({} lines removed)",
-        ((dedup_stats.total_lines - filter_stats.total_lines_after_filters) as f64 / dedup_stats.total_lines as f64) * 100.0,
+    println!(
+        "After exact deduplication: {} (removed {} duplicates)",
+        lines_after_dedup,
+        dedup_stats.total_lines - lines_after_dedup
+    );
+    println!(
+        "After MinHash deduplication: {} (removed {} near-duplicates)",
+        lines_after_minhash,
+        lines_after_dedup - lines_after_minhash
+    );
+    println!(
+        "After filtering: {} (removed {} by filters)",
+        filter_stats.total_lines_after_filters,
+        filter_stats.total_lines_before_filters - filter_stats.total_lines_after_filters
+    );
+    println!(
+        "Total reduction: {:.1}% ({} lines removed)",
+        ((dedup_stats.total_lines - filter_stats.total_lines_after_filters) as f64
+            / dedup_stats.total_lines as f64)
+            * 100.0,
         dedup_stats.total_lines - filter_stats.total_lines_after_filters
     );
 
@@ -269,8 +289,8 @@ fn get_text_from_json(json_obj: &Value) -> Result<String, Error> {
 }
 
 fn hash_text(text: &str) -> LineHash {
-    use std::hash::{Hash, Hasher};
     use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
 
     let mut hasher = DefaultHasher::new();
     text.hash(&mut hasher);
@@ -329,7 +349,11 @@ fn display_duplicate_stats(
         sorted_duplicates.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
 
         for (i, (_hash, occurrences)) in sorted_duplicates.iter().take(10).enumerate() {
-            println!("\nDuplicate #{} (appears {} times):", i + 1, occurrences.len());
+            println!(
+                "\nDuplicate #{} (appears {} times):",
+                i + 1,
+                occurrences.len()
+            );
 
             // Try to read the actual content for this duplicate
             if let Some((first_file, first_line)) = occurrences.first() {
@@ -362,15 +386,28 @@ fn display_duplicate_stats(
 
 fn display_filter_stats(stats: &FilterStats) {
     println!("\n=== FILTER STATISTICS ===");
-    println!("Lines after deduplication: {}", stats.total_lines_before_filters);
+    println!(
+        "Lines after deduplication: {}",
+        stats.total_lines_before_filters
+    );
     println!("Lines removed by filters:");
-    println!("  - min_length (<{} chars): {}", MIN_LENGTH, stats.lines_removed_min_length);
-    println!("  - min_unique_words (<{} unique): {}", MIN_UNIQUE_WORDS, stats.lines_removed_min_unique_words);
-    println!("Lines after all filters: {}", stats.total_lines_after_filters);
+    println!(
+        "  - min_length (<{} chars): {}",
+        MIN_LENGTH, stats.lines_removed_min_length
+    );
+    println!(
+        "  - min_unique_words (<{} unique): {}",
+        MIN_UNIQUE_WORDS, stats.lines_removed_min_unique_words
+    );
+    println!(
+        "Lines after all filters: {}",
+        stats.total_lines_after_filters
+    );
 
     let filter_reduction = stats.total_lines_before_filters - stats.total_lines_after_filters;
     if stats.total_lines_before_filters > 0 {
-        println!("Filter reduction: {:.1}% ({} lines removed)",
+        println!(
+            "Filter reduction: {:.1}% ({} lines removed)",
             (filter_reduction as f64 / stats.total_lines_before_filters as f64) * 100.0,
             filter_reduction
         );
@@ -525,11 +562,7 @@ fn write_refined_files(
 
     // Process each file
     reference_files.par_iter().for_each(|file_path| {
-        if let Err(e) = write_refined_file(
-            file_path,
-            output_dir,
-            &lines_to_keep,
-        ) {
+        if let Err(e) = write_refined_file(file_path, output_dir, &lines_to_keep) {
             eprintln!("Error writing refined file {:?}: {:?}", file_path, e);
         }
         pbar.inc(1);
@@ -566,14 +599,18 @@ fn write_refined_file(
 
     // Open input file
     let input_file = File::open(input_path)?;
-    let reader: Box<dyn BufRead> = if input_path.extension().and_then(|s| s.to_str()) == Some("gz") {
+    let reader: Box<dyn BufRead> = if input_path.extension().and_then(|s| s.to_str()) == Some("gz")
+    {
         Box::new(BufReader::new(GzDecoder::new(input_file)))
     } else {
         Box::new(BufReader::new(input_file))
     };
 
     // Prepare for chunked output
-    let base_name = input_path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown");
+    let base_name = input_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown");
     let extension = if input_path.extension().and_then(|s| s.to_str()) == Some("gz") {
         ".jsonl.gz"
     } else {
@@ -653,10 +690,7 @@ fn write_refined_file(
     if chunk_number > 0 {
         println!(
             "  {} -> {} chunks ({} kept, {} removed)",
-            filename,
-            chunk_number,
-            kept_count,
-            removed_total
+            filename, chunk_number, kept_count, removed_total
         );
         for chunk_file in chunk_files {
             println!("    - {}", chunk_file);
@@ -664,8 +698,7 @@ fn write_refined_file(
     } else if removed_total > 0 {
         println!(
             "  {} -> (no output - all {} lines removed)",
-            filename,
-            total_count
+            filename, total_count
         );
     }
 
@@ -793,7 +826,10 @@ fn detect_minhash_duplicates(
         let (filename, line_num) = entry.key();
         let signature = entry.value();
 
-        let bands = signature.clone().into_shape((MINHASH_NUM_BANDS, MINHASH_BAND_SIZE)).unwrap();
+        let bands = signature
+            .clone()
+            .into_shape((MINHASH_NUM_BANDS, MINHASH_BAND_SIZE))
+            .unwrap();
         for row in bands.rows() {
             let mut hasher = Sha256::new();
             hasher.update(bytemuck::cast_slice(row.as_slice().unwrap()));
@@ -808,10 +844,14 @@ fn detect_minhash_duplicates(
     }
 
     // Now detect near-duplicates
-    println!("Detecting near-duplicates with >{:.0}% similarity...", MINHASH_SIMILARITY_THRESHOLD * 100.0);
+    println!(
+        "Detecting near-duplicates with >{:.0}% similarity...",
+        MINHASH_SIMILARITY_THRESHOLD * 100.0
+    );
 
     let mut minhash_lines_to_keep: HashMap<String, HashSet<usize>> = HashMap::new();
-    let near_duplicate_examples: DashMap<(String, usize), Vec<(String, usize, f32)>> = DashMap::new();
+    let near_duplicate_examples: DashMap<(String, usize), Vec<(String, usize, f32)>> =
+        DashMap::new();
 
     // For each signature, check if it has near-duplicates
     for entry in minhash_signatures.iter() {
@@ -819,7 +859,10 @@ fn detect_minhash_duplicates(
         let signature = entry.value();
 
         // Generate bands for this signature
-        let bands = signature.clone().into_shape((MINHASH_NUM_BANDS, MINHASH_BAND_SIZE)).unwrap();
+        let bands = signature
+            .clone()
+            .into_shape((MINHASH_NUM_BANDS, MINHASH_BAND_SIZE))
+            .unwrap();
         let mut potential_duplicates: HashMap<(String, usize), u32> = HashMap::new();
 
         // Check each band for collisions
@@ -832,7 +875,9 @@ fn detect_minhash_duplicates(
             if let Some(matches) = minhash_bands.get(&band_signature) {
                 for (other_file, other_line) in matches.value() {
                     if (other_file, other_line) != (filename, line_num) {
-                        *potential_duplicates.entry((other_file.clone(), *other_line)).or_insert(0) += 1;
+                        *potential_duplicates
+                            .entry((other_file.clone(), *other_line))
+                            .or_insert(0) += 1;
                     }
                 }
             }
@@ -957,8 +1002,12 @@ fn process_file_for_minhash(
 
 fn display_minhash_stats(stats: &MinHashStats, dry_run: bool) {
     println!("\n=== MINHASH DEDUPLICATION SUMMARY ===");
-    println!("Lines processed for MinHash: {}", stats.total_lines_processed);
-    println!("Near-duplicates found (>{:.0}% similar): {}",
+    println!(
+        "Lines processed for MinHash: {}",
+        stats.total_lines_processed
+    );
+    println!(
+        "Near-duplicates found (>{:.0}% similar): {}",
         MINHASH_SIMILARITY_THRESHOLD * 100.0,
         stats.near_duplicates_found
     );
@@ -970,8 +1019,16 @@ fn display_minhash_stats(stats: &MinHashStats, dry_run: bool) {
         // Sort by similarity (highest first but not 100%) and take interesting examples
         let mut examples = stats.near_duplicate_examples.clone();
         examples.sort_by(|a, b| {
-            let max_sim_a = a.1.iter().map(|(_, _, sim)| sim).max_by(|x, y| x.partial_cmp(y).unwrap()).unwrap_or(&0.0);
-            let max_sim_b = b.1.iter().map(|(_, _, sim)| sim).max_by(|x, y| x.partial_cmp(y).unwrap()).unwrap_or(&0.0);
+            let max_sim_a =
+                a.1.iter()
+                    .map(|(_, _, sim)| sim)
+                    .max_by(|x, y| x.partial_cmp(y).unwrap())
+                    .unwrap_or(&0.0);
+            let max_sim_b =
+                b.1.iter()
+                    .map(|(_, _, sim)| sim)
+                    .max_by(|x, y| x.partial_cmp(y).unwrap())
+                    .unwrap_or(&0.0);
             max_sim_b.partial_cmp(max_sim_a).unwrap()
         });
 
@@ -993,7 +1050,9 @@ fn display_minhash_stats(stats: &MinHashStats, dry_run: bool) {
                 }
 
                 // Try to load both texts for comparison
-                if let Ok((text1, text2)) = load_texts_for_comparison(file, *line_num, similar_file, *similar_line) {
+                if let Ok((text1, text2)) =
+                    load_texts_for_comparison(file, *line_num, similar_file, *similar_line)
+                {
                     shown += 1;
                     println!("\n{}) {:.1}% similar", shown, similarity * 100.0);
                     println!("File 1: {}:{}", file, line_num + 1);

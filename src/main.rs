@@ -375,7 +375,7 @@ pub struct Config {
     // Purify option - create cleaned files with contaminated lines removed
     #[serde(default)]
     pub purify: bool,
-    
+
     // Minimum word count for eval file indexing in SIMPLE mode
     #[serde(default = "default_eval_min_word_count")]
     pub eval_min_word_count: usize,

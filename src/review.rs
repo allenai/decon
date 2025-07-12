@@ -9,8 +9,7 @@ use mj_io::{expand_dirs, read_pathbuf_to_mem};
 
 // Helper function to convert bracket highlights to ANSI bold formatting
 fn format_with_bold_highlights(text: &str) -> String {
-    text.replace("【", "\x1b[1m")
-        .replace("】", "\x1b[0m")
+    text.replace("【", "\x1b[1m").replace("】", "\x1b[0m")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,6 +40,8 @@ pub struct ContaminationResult {
     pub eval_overlap_text: Option<String>,
     #[serde(default)]
     pub ngram_match_cnt: Option<usize>,
+    #[serde(default)]
+    pub eval_unique_ngrams: Option<usize>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -149,7 +150,10 @@ pub fn review_contamination(
         let mut all_results = load_contamination_results_from_directory(dir_path)?;
 
         if all_results.is_empty() {
-            println!("No contamination results found in directory: {:?}", dir_path);
+            println!(
+                "No contamination results found in directory: {:?}",
+                dir_path
+            );
             return Ok(());
         }
 
@@ -168,7 +172,10 @@ pub fn review_contamination(
             println!("No contamination results matched the filter criteria.");
             println!("Original count: {}", original_count);
             if min_overlap_ratio.is_some() {
-                println!("  - Minimum overlap ratio: {:.3}", min_overlap_ratio.unwrap());
+                println!(
+                    "  - Minimum overlap ratio: {:.3}",
+                    min_overlap_ratio.unwrap()
+                );
             }
             if min_idf_score.is_some() {
                 println!("  - Minimum IDF score: {:.3}", min_idf_score.unwrap());
@@ -182,9 +189,15 @@ pub fn review_contamination(
             return Ok(());
         }
 
-        println!("Found {} contamination instances from directory", all_results.len());
+        println!(
+            "Found {} contamination instances from directory",
+            all_results.len()
+        );
         if original_count != all_results.len() {
-            println!("({} filtered out by threshold criteria)", original_count - all_results.len());
+            println!(
+                "({} filtered out by threshold criteria)",
+                original_count - all_results.len()
+            );
         }
         println!();
 
@@ -231,7 +244,9 @@ pub fn review_contamination(
 
     // For non-stats operations, config is required
     if config.is_none() {
-        return Err(anyhow::anyhow!("--config is required unless using --stats with --dir"));
+        return Err(anyhow::anyhow!(
+            "--config is required unless using --stats with --dir"
+        ));
     }
 
     let config_obj = read_config(config.unwrap())?;
@@ -274,7 +289,10 @@ pub fn review_contamination(
         println!("No contamination results matched the filter criteria.");
         println!("Original count: {}", original_count);
         if min_overlap_ratio.is_some() {
-            println!("  - Minimum overlap ratio: {:.3}", min_overlap_ratio.unwrap());
+            println!(
+                "  - Minimum overlap ratio: {:.3}",
+                min_overlap_ratio.unwrap()
+            );
         }
         if min_idf_score.is_some() {
             println!("  - Minimum IDF score: {:.3}", min_idf_score.unwrap());
@@ -293,7 +311,10 @@ pub fn review_contamination(
         contamination_results.len()
     );
     if original_count != contamination_results.len() {
-        println!("({} filtered out by threshold criteria)", original_count - contamination_results.len());
+        println!(
+            "({} filtered out by threshold criteria)",
+            original_count - contamination_results.len()
+        );
     }
     println!();
 
@@ -602,6 +623,7 @@ fn filter_contamination_results(
                     training_overlap_text: None,
                     eval_overlap_text: None,
                     ngram_match_cnt: None,
+                    eval_unique_ngrams: None,
                 };
                 filtered.push(placeholder);
             }
@@ -649,60 +671,68 @@ fn filter_contamination_results_by_thresholds(
     min_length: Option<usize>,
     eval_filter: Option<&str>,
 ) -> Vec<ContaminationResult> {
-    results.into_iter().filter(|result| {
-        // Check eval dataset filter (strip suffix after last underscore)
-        if let Some(eval_name) = eval_filter {
-            // Strip the split suffix (everything after last underscore) from result's eval_dataset
-            let parts: Vec<&str> = result.eval_dataset.split('_').collect();
-            let eval_suite = if parts.len() > 1 {
-                parts[..parts.len() - 1].join("_")
-            } else {
-                result.eval_dataset.clone()
-            };
-            
-            // Check if it matches the filter
-            if eval_suite != eval_name {
-                return false;
-            }
-        }
-        
-        // Check overlap ratio (jaccard_similarity)
-        if let Some(min_ratio) = min_overlap_ratio {
-            if result.jaccard_similarity < min_ratio {
-                return false;
-            }
-        }
+    results
+        .into_iter()
+        .filter(|result| {
+            // Check eval dataset filter (strip suffix after last underscore)
+            if let Some(eval_name) = eval_filter {
+                // Strip the split suffix (everything after last underscore) from result's eval_dataset
+                let parts: Vec<&str> = result.eval_dataset.split('_').collect();
+                let eval_suite = if parts.len() > 1 {
+                    parts[..parts.len() - 1].join("_")
+                } else {
+                    result.eval_dataset.clone()
+                };
 
-        // Check IDF score (toxic_score)
-        if let Some(min_idf) = min_idf_score {
-            if result.toxic_score < min_idf {
-                return false;
-            }
-        }
-
-        // Check n-gram match count
-        if let Some(min_len) = min_length {
-            if let Some(match_cnt) = result.ngram_match_cnt {
-                if match_cnt < min_len {
+                // Check if it matches the filter
+                if eval_suite != eval_name {
                     return false;
                 }
-            } else {
-                // If ngram_match_cnt is not present, filter out
-                return false;
             }
-        }
 
-        true
-    }).collect()
+            // Check overlap ratio (jaccard_similarity)
+            if let Some(min_ratio) = min_overlap_ratio {
+                if result.jaccard_similarity < min_ratio {
+                    return false;
+                }
+            }
+
+            // Check IDF score (toxic_score)
+            if let Some(min_idf) = min_idf_score {
+                if result.toxic_score < min_idf {
+                    return false;
+                }
+            }
+
+            // Check n-gram match count
+            if let Some(min_len) = min_length {
+                if let Some(match_cnt) = result.ngram_match_cnt {
+                    if match_cnt < min_len {
+                        return false;
+                    }
+                } else {
+                    // If ngram_match_cnt is not present, filter out
+                    return false;
+                }
+            }
+
+            true
+        })
+        .collect()
 }
 
-fn load_contamination_results_from_directory(dir_path: &PathBuf) -> Result<Vec<ContaminationResult>, Error> {
+fn load_contamination_results_from_directory(
+    dir_path: &PathBuf,
+) -> Result<Vec<ContaminationResult>, Error> {
     let mut all_results = Vec::new();
 
     // Find all .jsonl files in the directory
     let jsonl_files = expand_dirs(vec![dir_path.clone()], Some(vec![".jsonl"].as_slice()))?;
 
-    println!("Processing {} JSONL files from directory...", jsonl_files.len());
+    println!(
+        "Processing {} JSONL files from directory...",
+        jsonl_files.len()
+    );
 
     for file_path in jsonl_files {
         match load_contamination_results(&file_path) {
@@ -719,16 +749,12 @@ fn load_contamination_results_from_directory(dir_path: &PathBuf) -> Result<Vec<C
     Ok(all_results)
 }
 
-fn display_contamination_case_without_config(
-    result: &ContaminationResult,
-) -> Result<(), Error> {
+fn display_contamination_case_without_config(result: &ContaminationResult) -> Result<(), Error> {
     // This is a simplified version that doesn't need ground truth or config
     display_contamination_case_internal(result)
 }
 
-fn display_contamination_case_internal(
-    result: &ContaminationResult,
-) -> Result<(), Error> {
+fn display_contamination_case_internal(result: &ContaminationResult) -> Result<(), Error> {
     println!("📁 TRAINING FILE: {}", result.training_file);
 
     // Handle special cases for FN and TN placeholders
@@ -758,6 +784,9 @@ fn display_contamination_case_internal(
             }
             if let Some(ngram_match_cnt) = result.ngram_match_cnt {
                 println!("🔢 N-GRAM MATCHES: {}", ngram_match_cnt);
+            }
+            if let Some(eval_unique_ngrams) = result.eval_unique_ngrams {
+                println!("📊 EVAL UNIQUE N-GRAMS: {}", eval_unique_ngrams);
             }
             println!();
         }
@@ -907,7 +936,10 @@ fn display_eval_dataset_stats(contamination_results: &[ContaminationResult]) -> 
 
     println!("=== EVAL DATASET STATISTICS ===");
     println!();
-    println!("Total contamination incidents: {:?}", contamination_results.len());
+    println!(
+        "Total contamination incidents: {:?}",
+        contamination_results.len()
+    );
     println!("Unique eval suites: {}", sorted_counts.len());
     println!();
     println!("Counts by eval suite:");
@@ -931,13 +963,7 @@ fn display_eval_dataset_stats(contamination_results: &[ContaminationResult]) -> 
         let empty = " ".repeat(bar_width - bar_length);
 
         // Format the output with aligned columns
-        println!(
-            "  {:<30} {:>8} │{}{}│",
-            suite,
-            count,
-            bar,
-            empty
-        );
+        println!("  {:<30} {:>8} │{}{}│", suite, count, bar, empty);
     }
 
     println!();
