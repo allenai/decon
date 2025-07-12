@@ -165,7 +165,10 @@ EVAL_CONFIG = {
         'jeopardy_mc': {
             'hf_path': 'allenai/jeopardy_mc',
             'splits': ['test'],
-            'transform': 'auto'
+            'transform': {
+                'text_field': 'context_original',
+                'answer_field': 'continuation_original'
+            }
         },
 
         # Please pick one among the available configs: ['cpp', 'c', 'javascript', 'java', 'python', 'php', 'csharp', 'typescript', 'bash', 'swift', 'go', 'rust', 'ruby', 'r', 'matlab', 'scala', 'haskell']
@@ -910,11 +913,11 @@ EVAL_CONFIG = {
 
         'bbeh': {
             'hf_path': 'hubert233/BigBenchExtraHard',
-            'splits': ['boardgame_qa', 'boolean_expressions', 'buggy_tables', 'causal_understanding', 
-                      'disambiguation_qa', 'dyck_languages', 'geometric_shapes', 'hyperbaton', 'linguini', 
-                      'movie_recommendation', 'multistep_arithmetic', 'nycc', 'object_counting', 
-                      'object_properties', 'sarc_triples', 'shuffled_objects', 'spatial_reasoning', 
-                      'sportqa', 'temporal_sequence', 'time_arithmetic', 'web_of_lies', 'word_sorting', 
+            'splits': ['boardgame_qa', 'boolean_expressions', 'buggy_tables', 'causal_understanding',
+                      'disambiguation_qa', 'dyck_languages', 'geometric_shapes', 'hyperbaton', 'linguini',
+                      'movie_recommendation', 'multistep_arithmetic', 'nycc', 'object_counting',
+                      'object_properties', 'sarc_triples', 'shuffled_objects', 'spatial_reasoning',
+                      'sportqa', 'temporal_sequence', 'time_arithmetic', 'web_of_lies', 'word_sorting',
                       'zebra_puzzles'],
             'transform': {
                 'text_field': 'input',
