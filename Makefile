@@ -1,4 +1,4 @@
-.PHONY: help detect review stats simple evals evals-s3 embeddings refine
+.PHONY: help detect review stats simple evals evals-s3 push-evals embeddings refine
 
 help:
 	@echo "Available targets:"
@@ -10,9 +10,10 @@ help:
 	@echo "  tn         - Run review mode to show True Negatives"
 	@echo "  fp         - Run review mode to show False Positives"
 	@echo "  fn         - Run review mode to show False Negatives"
-	@echo "  refine     - Run reference data refinement in dry-run mode (removes duplicates and filters)"
+	@echo "  refine     - Run reference data refinement"
 	@echo "  evals      - Download evaluation datasets using Python script"
 	@echo "  evals-s3   - Download evaluation datasets from S3 bucket decon-evals"
+	@echo "  push-evals - Push evaluation datasets to S3 bucket decon-evals (deletes existing content)"
 	@echo "  embeddings - Download and prepare word embeddings using Python script"
 	@echo ""
 	@echo "Daemon targets:"
@@ -31,7 +32,7 @@ help:
 	@echo "  orchestrate-debug - Test with MAX_FILES_DEBUG=5 for development"
 	@echo ""
 	@echo "Deployment targets (requires poormanray):"
-	@echo "  deploy-wizard     - Interactive deployment wizard for setting up Decon on EC2"
+	@echo "  poormanray-command-generator - Interactive walk to setup Decon on EC2"
 	@echo "  deploy-status     - Check status of a deployment (usage: make deploy-status NAME=<cluster-name>)"
 	@echo "  deploy-logs       - View deployment logs (usage: make deploy-logs NAME=<cluster-name> [LOG=daemon|orchestrator])"
 	@echo "  deploy-terminate  - Terminate a deployment (usage: make deploy-terminate NAME=<cluster-name>)"
@@ -111,11 +112,16 @@ evals-s3:
 	mkdir -p fixtures/reference
 	s5cmd sync s3://decon-evals/* fixtures/reference
 
+push-evals:
+	@echo "Syncing reference files to s3://decon-evals/ with deletion..."
+	s5cmd sync --delete fixtures/reference/ s3://decon-evals/
+	@echo "Push to S3 complete!"
+
 embeddings:
 	python python/prepare_embeddings.py
 
 refine:
-	cargo run --release refine-references --dry-run
+	cargo run --release refine-references 
 
 daemon:
 	cargo run --release daemon --config examples/simple.yaml --port 8080
@@ -169,8 +175,7 @@ orchestrate-debug:
 	MAX_FILES_DEBUG=100 python python/orchestration.py --config examples/orchestration.yaml
 
 # Deployment targets for managing remote clusters
-deploy-wizard:
-	@echo "Starting Decon deployment wizard..."
+poormanray-command-generator:
 	python python/deploy.py wizard
 
 deploy-status:

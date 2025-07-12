@@ -3,7 +3,7 @@
 fixtures/output/*.*
 fixtures/embeddings/*.*
 fixtures/reference/*.*
-fixtures/reference-refined/*.*
+fixtures/reference-download/*.*
 fixtures/cleaned/*.*
 fixtures/local_input/*.*
 tests/output

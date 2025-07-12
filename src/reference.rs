@@ -24,7 +24,7 @@ use crate::{clean_text, get_nested_json_val, OmniTokenizer};
 use crate::minhash::{_expand_band_seeds};
 
 // Constants for filtering
-const MIN_LENGTH: usize = 10; // Minimum word count for text entries
+const MIN_LENGTH: usize = 50; // Minimum character count for text entries
 const MIN_UNIQUE_WORDS: usize = 4; // Minimum unique word count for text entries
 
 // Constants for MinHash deduplication
@@ -52,8 +52,8 @@ pub fn refine_reference_files(dry_run: bool) -> Result<(), Error> {
     println!("Starting reference file refinement...");
 
     // Fixed paths
-    let reference_dir = PathBuf::from("fixtures/reference");
-    let output_dir = PathBuf::from("fixtures/reference-refined");
+    let reference_dir = PathBuf::from("fixtures/reference-download");
+    let output_dir = PathBuf::from("fixtures/reference");
 
     // Check if reference directory exists
     if !reference_dir.exists() {
@@ -278,7 +278,7 @@ fn hash_text(text: &str) -> LineHash {
 }
 
 fn get_line_content(filename: &str, line_num: usize) -> Result<String, Error> {
-    let file_path = PathBuf::from("fixtures/reference").join(filename);
+    let file_path = PathBuf::from("fixtures/reference-download").join(filename);
     let file = File::open(&file_path)?;
 
     let reader: Box<dyn BufRead> = if file_path.extension().and_then(|s| s.to_str()) == Some("gz") {
@@ -364,7 +364,7 @@ fn display_filter_stats(stats: &FilterStats) {
     println!("\n=== FILTER STATISTICS ===");
     println!("Lines after deduplication: {}", stats.total_lines_before_filters);
     println!("Lines removed by filters:");
-    println!("  - min_length (<{} words): {}", MIN_LENGTH, stats.lines_removed_min_length);
+    println!("  - min_length (<{} chars): {}", MIN_LENGTH, stats.lines_removed_min_length);
     println!("  - min_unique_words (<{} unique): {}", MIN_UNIQUE_WORDS, stats.lines_removed_min_unique_words);
     println!("Lines after all filters: {}", stats.total_lines_after_filters);
 
@@ -479,15 +479,14 @@ fn filter_file(
             // Parse JSON to check filters
             if let Ok(json_obj) = serde_json::from_str::<Value>(&line) {
                 if let Ok(text) = get_text_from_json(&json_obj) {
-                    // Apply minimum length filter (count words)
-                    let words: Vec<&str> = text.split_whitespace().collect();
-                    let word_count = words.len();
-                    if word_count < MIN_LENGTH {
+                    // Apply minimum length filter (count characters)
+                    if text.len() < MIN_LENGTH {
                         lines_removed_min_length.fetch_add(1, Ordering::Relaxed);
                         continue;
                     }
 
                     // Apply minimum unique words filter
+                    let words: Vec<&str> = text.split_whitespace().collect();
                     let unique_words: HashSet<&str> = words.into_iter().collect();
                     if unique_words.len() < MIN_UNIQUE_WORDS {
                         lines_removed_min_unique_words.fetch_add(1, Ordering::Relaxed);

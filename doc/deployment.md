@@ -14,12 +14,12 @@ This guide covers deploying Decon on EC2 clusters using the poormanray (pmr) too
 
 ## Quick Start
 
-### Interactive Deployment Wizard
+### Poormanray
 
 The easiest way to deploy Decon is using the interactive wizard:
 
 ```bash
-make deploy-wizard
+make poormanray-command-generator
 ```
 
 The wizard will guide you through:

@@ -14,15 +14,14 @@ A typical workflow is to run the tool to [generate reports](#-running-decontamin
 
 ### 🚀 Running Decontamination on AWS with poormanray
 
-The fastest way to run large-scale decontamination is using the deployment wizard which generates `poormanray` commands:
+The fastest way to run large-scale decontamination is using the poormanray-command-generator which generates `poormanray` commands:
 
 ```bash
 # Clone the repository
 git clone https://github.com/allenai/decon
 cd decon
 
-# Run the deployment wizard
-make deploy-wizard
+make poormanray-command-generator
 ```
 
 See the [Configuration Guide](doc/configuration.md) for customizing detection parameters.
@@ -52,7 +51,7 @@ cargo run --release detect --config examples/simple.yaml
 cargo run --release detect --help
 ```
 
-If you want to manually run the orchestrator to manage downloading, uploading, and running against a persistent server with the index, please study the configuration flag outputs from `make deploy-wizard`. Author anticipates CLI focused users would prefer to manage non-contamination details on their own.
+If you want to manually run the orchestrator to manage downloading, uploading, and running against a persistent server with the index, please study the configuration flag outputs from `make poormanray-command-generator`. Author anticipates CLI focused users would prefer to manage non-contamination details on their own.
 
 ## Reviewing Results
 

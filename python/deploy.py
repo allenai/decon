@@ -351,10 +351,7 @@ def cli():
 
 @cli.command()
 def wizard():
-    """Interactive deployment wizard"""
-    print("\n🧙 Decon Deployment Wizard\n")
-    print("This wizard will guide you through deploying Decon on EC2.")
-    print("Press Enter to accept default values shown in [brackets].\n")
+    print("\n\n💡 \033[1;93mSensible defaults are provided in [brackets]. Press Enter to accept.\033[0m\n")
 
     # Basic cluster configuration
     print("=== Cluster Configuration ===")
@@ -493,7 +490,7 @@ def wizard():
     print("━" * 80)
     print("\nCopy and run these commands to deploy your cluster:\n")
 
-    print("\033[1m1. Create cluster\033[0m")
+    print("\033[1m # 1. Create cluster\033[0m")
     print("\npoormanray create \\")
     print(f"  --name {cluster_name} \\")
     print(f"  --owner {owner} \\")
@@ -501,13 +498,13 @@ def wizard():
     print(f"  --instance-type {instance_type} \\")
     print("  --region us-east-1 \n")
 
-    print("\033[1m2. Install dependencies and setup environment\033[0m")
+    print("\033[1m # 2. Install dependencies and setup environment\033[0m")
     print("\npoormanray setup-decon \\")
     print(f"  --name {cluster_name} \\")
     print(f"  --ssh-key-path {ssh_key} \\")
     print(f"  --github-token {github_token} \n")
 
-    print("\033[1m3. Launch decontamination server that builds reference index and receives work.\033[0m")
+    print("\033[1m # 3. Launch decontamination server that builds reference index and receives work.\033[0m")
     print("\npoormanray run \\")
     print(f"  --name {cluster_name} \\")
     print("  --command \"cd decon && nohup cargo run --release -- daemon \\")
@@ -527,7 +524,7 @@ def wizard():
     print(f"  --ssh-key-path {ssh_key} \\")
     print("  --detach\n")
 
-    print("\033[1m4. Launch orchestrator which downloads files, submits to daemon, and uploads results.\033[0m")
+    print("\033[1m # 4. Launch orchestrator which downloads files, submits to daemon, and uploads results.\033[0m")
     print("\npoormanray run \\")
     print(f"  --name {cluster_name} \\")
     print("  --command \"cd decon && nohup python python/orchestration.py \\")

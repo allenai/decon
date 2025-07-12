@@ -15,7 +15,7 @@ DOCUMENT_SPLIT_THRESHOLD = 2500
 
 # Configuration for downloading and transforming eval datasets
 EVAL_CONFIG = {
-    'output_dir': 'fixtures/reference',
+    'output_dir': 'fixtures/reference-download',
     'jsonl_format': {
         'text_field': 'text',
         'eval_field': 'eval_name',
@@ -599,7 +599,7 @@ EVAL_CONFIG = {
             'splits': ['train', 'validation', 'test'],
             'transform': {
                 'text_field': 'question',
-                'answer_field': 'answer'
+                'answer_field': 'answer.value'
             }
         },
 
@@ -1110,6 +1110,18 @@ def auto_extract(example):
         return text_candidates[0][0], text_candidates[1][0]
 
 
+def get_nested_field(obj, field_path):
+    """Access nested fields using dot notation (e.g., 'answer.value')"""
+    fields = field_path.split('.')
+    value = obj
+    for field in fields:
+        if isinstance(value, dict) and field in value:
+            value = value[field]
+        else:
+            return None
+    return value
+
+
 def download_and_transform_eval(eval_name, eval_config, global_config, document_id_counter):
     """Download HF dataset and transform to our JSONL format"""
 
@@ -1192,7 +1204,11 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                     # Use the existing manual extraction logic
                     # Extract text field
                     text_field = eval_config['transform']['text_field']
-                    text = example[text_field]
+                    text = get_nested_field(example, text_field)
+                    
+                    # Skip if field not found
+                    if text is None:
+                        continue
 
                     # Handle cases where text might be a list
                     if isinstance(text, list):
@@ -1209,8 +1225,8 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                     original_context = None
                     if 'context_field' in eval_config['transform']:
                         context_field = eval_config['transform']['context_field']
-                        if context_field in example:
-                            context = example[context_field]
+                        context = get_nested_field(example, context_field)
+                        if context is not None:
                             # Handle cases where context might be a list
                             if isinstance(context, list):
                                 # Take the first element if it's a list
@@ -1259,8 +1275,8 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                     # Handle answer fields if configured
                     if 'answer_field' in eval_config['transform']:
                         answer_field = eval_config['transform']['answer_field']
-                        if answer_field in example:
-                            answer_value = example[answer_field]
+                        answer_value = get_nested_field(example, answer_field)
+                        if answer_value is not None:
 
                             # Always create a question-only record first
                             record_question_only = create_record_template()
@@ -1294,8 +1310,8 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                     # Handle choices field if configured (e.g., multiple choice questions)
                     if 'choices_field' in eval_config['transform']:
                         choices_field = eval_config['transform']['choices_field']
-                        if choices_field in example:
-                            choices = example[choices_field]
+                        choices = get_nested_field(example, choices_field)
+                        if choices is not None:
 
                             # Handle choices structure: {'text': [...], 'label': [...]}
                             if isinstance(choices, dict) and 'text' in choices:
