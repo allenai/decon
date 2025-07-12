@@ -428,7 +428,7 @@ class ContaminationOrchestrator:
         # Also check for cleaned files if cleaned directory is configured
         cleaned_files = []
         if self.config.remote_cleaned_output_dir:
-            cleaned_file_tuples = self._list_s3_files(self.config.remote_cleaned_output_dir, ['.clean.jsonl', '.clean.jsonl.gz', '.clean.jsonl.zst', '.clean.jsonl.bz2', '.clean.jsonl.xz'])
+            cleaned_file_tuples = self._list_s3_files(self.config.remote_cleaned_output_dir, ['.jsonl', '.jsonl.gz', '.jsonl.zst', '.jsonl.bz2', '.jsonl.xz'])
             # Extract just the keys, ignore sizes for processed file checking
             cleaned_files = [key for key, size in cleaned_file_tuples]
             # Found cleaned files
@@ -447,9 +447,9 @@ class ContaminationOrchestrator:
         for key in cleaned_files:
             filename = os.path.basename(key)
             # Extract base name from cleaned filename
-            # Expected format: basename.clean.jsonl or basename.clean.jsonl.gz
+            # Expected format: basename.jsonl or basename.jsonl.gz
             basename = None
-            for ext in ['.clean.jsonl.gz', '.clean.jsonl.zst', '.clean.jsonl.bz2', '.clean.jsonl.xz', '.clean.jsonl']:
+            for ext in ['.jsonl.gz', '.jsonl.zst', '.jsonl.bz2', '.jsonl.xz', '.jsonl']:
                 if filename.endswith(ext):
                     basename = filename[:-len(ext)]
                     break

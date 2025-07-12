@@ -511,8 +511,8 @@ pub fn get_purified_filename(input_file: &PathBuf) -> String {
             .unwrap_or("unknown")
     };
 
-    // Format: {base name}.clean.jsonl.gz
-    format!("{}.clean.jsonl.gz", base_name)
+    // Format: {base name}.jsonl.gz
+    format!("{}.jsonl.gz", base_name)
 }
 
 // Common function to write a purified file with contaminated lines removed

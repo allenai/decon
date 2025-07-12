@@ -389,10 +389,25 @@ def wizard():
 
     remote_cleaned_output_dir = None
     if purify:
+        # Generate default cleaned dataset path
+        # Split the input path and replace the last segment with {segment}-decon
+        path_parts = remote_file_input.rstrip('/').split('/')
+        if len(path_parts) > 3:  # Ensure we have at least s3://bucket/something
+            last_segment = path_parts[-1]
+            # Remove file extension if present
+            if last_segment.endswith('.jsonl') or last_segment.endswith('.json'):
+                last_segment = last_segment.rsplit('.', 1)[0]
+            path_parts[-1] = f"{last_segment}-decon"
+            default_cleaned_path = '/'.join(path_parts)
+        else:
+            # Fallback if path is too short
+            default_cleaned_path = f"{remote_file_input.rstrip('/')}-decon"
+        
         # Ask for cleaned dataset destination immediately after purification question
         while True:
             remote_cleaned_output_dir = click.prompt(
-                "S3 bucket for cleaned dataset copy (e.g., s3://bucket/cleaned)",
+                "S3 bucket for cleaned dataset copy",
+                default=default_cleaned_path,
                 type=str
             )
             # Validate that it starts with s3://
@@ -427,32 +442,33 @@ def wizard():
     # Detection configuration
     print("\n=== Detection Configuration ===")
 
-    # Detection mode
-    print("\nDetection modes:")
-    print("  simple  - Fast n-gram matching (other options might run, but are works in progress and will not outperform simple)")
-    print("  minhash - Near-duplicate detection using MinHash")
-    print("  toxic   - Semantic similarity using word embeddings\n")
-    mode = click.prompt("Detection mode", default="simple",
-                       type=click.Choice(['simple', 'minhash', 'toxic']))
+    # Detection mode - temporarily forced to simple
+    # print("\nDetection modes:")
+    # print("  simple  - Fast n-gram matching (other options might run, but are works in progress and will not outperform simple)")
+    # print("  minhash - Near-duplicate detection using MinHash")
+    # print("  toxic   - Semantic similarity using word embeddings\n")
+    # mode = click.prompt("Detection mode", default="simple",
+    #                    type=click.Choice(['simple', 'minhash', 'toxic']))
+    mode = "simple"  # Force simple mode for now
 
     # Common parameters
     content_key = click.prompt("JSON field containing text in jsonl files to decontaminate", default="text")
 
     print("\n\n💡 \033[1;93mSensible defaults are provided in [brackets]. See https://github.com/allenai/decon/blob/main/doc/simple.md for context.\033[0m\n")
 
-    # Mode-specific parameters
-    if mode == "simple":
-        print("\n--- SIMPLE Mode Configuration ---")
-        ngram_size = click.prompt("N-gram size (values < 4 not recommended)", type=int, default=4)
-        sample_every_m_tokens = click.prompt("Sample every M tokens (1 = no sampling)", type=int, default=10)
-        toxic_overlap_threshold = click.prompt("Overlap ratio threshold (Matches must have (num_unique_ngrams_matched / num_unique_ngrams_in_eval) > threshold)", type=float, default=0.85)
-        toxic_score_threshold = click.prompt("IDF score threshold (Matches must have sum matched n-gram IDF > threshold)", type=float, default=2.0)
-    else:
-        # Use defaults for other modes
-        ngram_size = 4
-        sample_every_m_tokens = 10
-        toxic_overlap_threshold = 0.8
-        toxic_score_threshold = 2.0
+    # Mode-specific parameters - always use simple mode configuration
+    # if mode == "simple":
+    print("\n--- SIMPLE Mode Configuration ---")
+    ngram_size = click.prompt("N-gram size (values < 4 not recommended)", type=int, default=4)
+    sample_every_m_tokens = click.prompt("Sample every M tokens (1 = no sampling)", type=int, default=10)
+    toxic_overlap_threshold = click.prompt("Overlap ratio threshold (Matches must have (num_unique_ngrams_matched / num_unique_ngrams_in_eval) > threshold)", type=float, default=0.85)
+    toxic_score_threshold = click.prompt("IDF score threshold (Matches must have sum matched n-gram IDF > threshold)", type=float, default=2.0)
+    # else:
+    #     # Use defaults for other modes
+    #     ngram_size = 4
+    #     sample_every_m_tokens = 10
+    #     toxic_overlap_threshold = 0.8
+    #     toxic_score_threshold = 2.0
 
     # Tokenizer
     print("\nTokenizer options:")
