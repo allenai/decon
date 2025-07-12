@@ -421,13 +421,19 @@ EVAL_CONFIG = {
         'mbpp_plus': {
             'hf_path': 'evalplus/mbppplus',
             'splits': ['test'],
-            'transform': 'auto'
+            'transform': {
+                'text_field': 'prompt',
+                'answer_field': 'code'
+            }
         },
 
         'mbpp': {
             'hf_path': 'google-research-datasets/mbpp',
             'splits': ['train', 'test', 'validation'],
-            'transform': 'auto'
+            'transform': {
+                'text_field': 'text',
+                'answer_field': 'code'
+            }
         },
 
         'nq_open': {
