@@ -4,12 +4,14 @@ use rayon::prelude::*;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::fs::{create_dir_all, File, OpenOptions};
-use std::io::{BufRead, BufWriter, Write};
+use std::io::{BufRead, BufWriter, Read, Write};
 use std::panic::catch_unwind;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+use flate2::read::GzDecoder;
+use zstd::stream::read::Decoder as ZstdDecoder;
 
 use mj_io::{build_pbar, expand_dirs, read_pathbuf_to_mem, write_mem_to_pathbuf};
 
@@ -17,6 +19,29 @@ use crate::{
     clean_text, get_nested_json_val, get_results_filename, preprocess_text, write_purified_file,
     Config, OmniTokenizer,
 };
+
+// Helper function to read compressed files (supporting .gz and .zst)
+fn read_compressed_file(path: &PathBuf) -> Result<Vec<u8>, Error> {
+    let mut file = File::open(path)?;
+    let mut buffer = Vec::new();
+    
+    match path.extension().and_then(|s| s.to_str()) {
+        Some("gz") => {
+            let mut decoder = GzDecoder::new(file);
+            decoder.read_to_end(&mut buffer)?;
+        }
+        Some("zst") => {
+            let mut decoder = ZstdDecoder::new(file)?;
+            decoder.read_to_end(&mut buffer)?;
+        }
+        _ => {
+            // No compression, read file directly
+            file.read_to_end(&mut buffer)?;
+        }
+    }
+    
+    Ok(buffer)
+}
 
 // Simple mode structures
 type NgramToIdMap = DashMap<u64, u64>; // Maps n-gram hash to unique ID
@@ -341,7 +366,7 @@ fn detect_simple_contamination(
     // Find all training files
     let training_files = expand_dirs(
         vec![config.local_input.clone()],
-        Some(vec![".jsonl", ".gz"].as_slice()),
+        Some(vec![".jsonl", ".gz", ".zst"].as_slice()),
     )?;
 
     // println!("Found {} training files to process", training_files.len()); //debug
@@ -597,20 +622,23 @@ pub fn process_simple_training_file(
     id_to_ngram_tokens: &IdToNgramTokens,
     _eval_text_snippets: &EvalTextSnippets,
 ) -> Result<usize, Error> {
-    let data = read_pathbuf_to_mem(file_path)?;
+    let data = read_compressed_file(file_path)?;
 
-    let file_name = if file_path.extension().and_then(|s| s.to_str()) == Some("gz") {
-        file_path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("unknown")
-            .to_string()
-    } else {
-        file_path
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("unknown")
-            .to_string()
+    let file_name = match file_path.extension().and_then(|s| s.to_str()) {
+        Some("gz") | Some("zst") => {
+            file_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string()
+        }
+        _ => {
+            file_path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string()
+        }
     };
 
     // println!("Processing training file: {}", file_name); //debug
@@ -795,20 +823,23 @@ pub fn process_simple_training_file_streaming(
     total_contaminations: &Arc<AtomicU32>,
     contaminated_files: &Arc<DashMap<String, HashSet<usize>>>,
 ) -> Result<usize, Error> {
-    let data = read_pathbuf_to_mem(file_path)?;
+    let data = read_compressed_file(file_path)?;
 
-    let file_name = if file_path.extension().and_then(|s| s.to_str()) == Some("gz") {
-        file_path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("unknown")
-            .to_string()
-    } else {
-        file_path
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("unknown")
-            .to_string()
+    let file_name = match file_path.extension().and_then(|s| s.to_str()) {
+        Some("gz") | Some("zst") => {
+            file_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string()
+        }
+        _ => {
+            file_path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .to_string()
+        }
     };
 
     let mut lines_processed = 0;
@@ -1575,18 +1606,21 @@ fn create_purified_files(
     // Process each training file that has contamination
     for file_path in training_files {
         // Match the same logic used in process_training_file
-        let file_name = if file_path.extension().and_then(|s| s.to_str()) == Some("gz") {
-            file_path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown")
-                .to_string()
-        } else {
-            file_path
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown")
-                .to_string()
+        let file_name = match file_path.extension().and_then(|s| s.to_str()) {
+            Some("gz") | Some("zst") => {
+                file_path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unknown")
+                    .to_string()
+            }
+            _ => {
+                file_path
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unknown")
+                    .to_string()
+            }
         };
 
         // Check if this file has any contamination
@@ -1636,18 +1670,21 @@ fn create_purified_files_streaming(
     // Process each training file that has contamination
     for file_path in training_files {
         // Match the same logic used in process_training_file
-        let file_name = if file_path.extension().and_then(|s| s.to_str()) == Some("gz") {
-            file_path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown")
-                .to_string()
-        } else {
-            file_path
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown")
-                .to_string()
+        let file_name = match file_path.extension().and_then(|s| s.to_str()) {
+            Some("gz") | Some("zst") => {
+                file_path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unknown")
+                    .to_string()
+            }
+            _ => {
+                file_path
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unknown")
+                    .to_string()
+            }
         };
 
         // Check if this file has any contamination
