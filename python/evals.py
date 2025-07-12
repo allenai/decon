@@ -1189,16 +1189,13 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                         global_config['jsonl_format']['split_field']: split,
                     }
 
-                    # Add text-only record
-                    record_text = record.copy()
-                    record_text[global_config['jsonl_format']['text_field']] = text
-                    records_to_write.append(record_text)
-
-                    # Add text + answer record if we found a second text
+                    # If we have an answer, create record with text + answer
+                    # Otherwise just use text
                     if answer_value is not None:
-                        record_with_answer = record.copy()
-                        record_with_answer[global_config['jsonl_format']['text_field']] = text + " " + answer_value
-                        records_to_write.append(record_with_answer)
+                        record[global_config['jsonl_format']['text_field']] = text + " " + answer_value
+                    else:
+                        record[global_config['jsonl_format']['text_field']] = text
+                    records_to_write.append(record)
 
                 else:
                     # Use the existing manual extraction logic
@@ -1277,12 +1274,6 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                         answer_field = eval_config['transform']['answer_field']
                         answer_value = get_nested_field(example, answer_field)
                         if answer_value is not None:
-
-                            # Always create a question-only record first
-                            record_question_only = create_record_template()
-                            record_question_only[global_config['jsonl_format']['text_field']] = text
-                            records_to_write.append(record_question_only)
-
                             # Handle different answer field types
                             if isinstance(answer_value, list):
                                 # Array of answers - just take the first one
@@ -1290,12 +1281,16 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                                     record = create_record_template()
                                     record[global_config['jsonl_format']['text_field']] = text + " " + str(answer_value[0])
                                     records_to_write.append(record)
+                                else:
+                                    # Empty or None answer list - just use question
+                                    record = create_record_template()
+                                    record[global_config['jsonl_format']['text_field']] = text
+                                    records_to_write.append(record)
                             else:
                                 # Single answer - create record with question + answer
-                                if answer_value is not None:  # Skip None answers
-                                    record = create_record_template()
-                                    record[global_config['jsonl_format']['text_field']] = text + " " + str(answer_value)
-                                    records_to_write.append(record)
+                                record = create_record_template()
+                                record[global_config['jsonl_format']['text_field']] = text + " " + str(answer_value)
+                                records_to_write.append(record)
                         else:
                             # No answer value found - just use question
                             record = create_record_template()
