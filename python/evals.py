@@ -673,10 +673,11 @@ EVAL_CONFIG = {
 
         'gsm_plus': {
             'hf_path': 'qintongli/GSM-Plus',
-            'splits': ['test'],
+            'splits': ['test', 'testmini'],
             'transform': {
                 'text_field': 'question',
-                'answer_field': 'solution'
+                'answer_field': 'solution',
+                'extra_fields': ['perturbation_type']
             }
         },
 
@@ -883,6 +884,246 @@ EVAL_CONFIG = {
             }
         },
 
+        # New datasets from TARGET_TO_EVAL_MAPPING
+        # Note: cais/hle is a gated dataset requiring access approval
+        'mmlu_pro': {
+            'hf_path': 'TIGER-Lab/MMLU-Pro',
+            'splits': ['test', 'validation'],
+            'transform': {
+                'text_field': 'question',
+                'answer_field': 'answer',
+                'choices_field': 'options',
+                'extra_fields': ['category']
+            }
+        },
+
+        'super_gpqa': {
+            'hf_path': 'm-a-p/SuperGPQA',
+            'splits': ['train'],
+            'transform': {
+                'text_field': 'question',
+                'answer_field': 'answer',
+                'choices_field': 'options',
+                'extra_fields': ['discipline', 'field', 'subfield']
+            }
+        },
+
+        'bbeh': {
+            'hf_path': 'hubert233/BigBenchExtraHard',
+            'splits': ['boardgame_qa', 'boolean_expressions', 'buggy_tables', 'causal_understanding', 
+                      'disambiguation_qa', 'dyck_languages', 'geometric_shapes', 'hyperbaton', 'linguini', 
+                      'movie_recommendation', 'multistep_arithmetic', 'nycc', 'object_counting', 
+                      'object_properties', 'sarc_triples', 'shuffled_objects', 'spatial_reasoning', 
+                      'sportqa', 'temporal_sequence', 'time_arithmetic', 'web_of_lies', 'word_sorting', 
+                      'zebra_puzzles'],
+            'transform': {
+                'text_field': 'input',
+                'answer_field': 'target'
+            }
+        },
+
+        'aime_2025_i': {
+            'hf_path': 'opencompass/AIME2025',
+            'hf_config': 'AIME2025-I',
+            'splits': ['test'],
+            'transform': {
+                'text_field': 'question',
+                'answer_field': 'answer'
+            }
+        },
+
+        'aime_2025_ii': {
+            'hf_path': 'opencompass/AIME2025',
+            'hf_config': 'AIME2025-II',
+            'splits': ['test'],
+            'transform': {
+                'text_field': 'question',
+                'answer_field': 'answer'
+            }
+        },
+
+        'humaneval_pro': {
+            'hf_path': 'CodeEval-Pro/humaneval-pro',
+            'splits': ['train'],
+            'transform': {
+                'text_field': 'new_problem',
+                'answer_field': 'new_solution'
+            }
+        },
+
+        'mbpp_pro': {
+            'hf_path': 'CodeEval-Pro/mbpp-pro',
+            'splits': ['train'],
+            'transform': {
+                'text_field': 'new_problem',
+                'answer_field': 'new_solution'
+            }
+        },
+
+        'codeforces': {
+            'hf_path': 'open-r1/codeforces',
+            'splits': ['test'],  # Only decontaminate test split as requested
+            'transform': {
+                'text_field': 'description',
+                'context_field': 'title',
+                'extra_fields': ['contest_name', 'rating', 'tags']
+            }
+        },
+
+        'ifbench_multiturn_constraints': {
+            'hf_path': 'allenai/IFBench_multi-turn',
+            'hf_config': 'ifbench_constraints',
+            'splits': ['test'],
+            'transform': {
+                'text_field': 'prompt'
+            }
+        },
+
+        'ifbench_multiturn_ifeval': {
+            'hf_path': 'allenai/IFBench_multi-turn',
+            'hf_config': 'ifeval_constraints',
+            'splits': ['test'],
+            'transform': {
+                'text_field': 'prompt'
+            }
+        },
+
+        'truthfulqa': {
+            'hf_path': 'domenicrosati/TruthfulQA',
+            'splits': ['train'],
+            'transform': {
+                'text_field': 'Question',
+                'answer_field': 'Best Answer',
+                'extra_fields': ['Type', 'Category']
+            }
+        },
+
+        'lbpp': {
+            'hf_path': 'CohereLabs/lbpp',
+            'splits': ['test'],
+            'transform': {
+                'text_field': 'instruction',
+                'answer_field': 'completion'
+            }
+        },
+
+        'repobench_python_cross_file_first': {
+            'hf_path': 'tianyang/repobench_python_v1.1',
+            'splits': ['cross_file_first'],
+            'transform': {
+                'text_field': 'cropped_code',
+                'answer_field': 'next_line',
+                'extra_fields': ['repo_name', 'file_path', 'level']
+            }
+        },
+
+        'repobench_python_cross_file_random': {
+            'hf_path': 'tianyang/repobench_python_v1.1',
+            'splits': ['cross_file_random'],
+            'transform': {
+                'text_field': 'cropped_code',
+                'answer_field': 'next_line',
+                'extra_fields': ['repo_name', 'file_path', 'level']
+            }
+        },
+
+        'repobench_python_in_file': {
+            'hf_path': 'tianyang/repobench_python_v1.1',
+            'splits': ['in_file'],
+            'transform': {
+                'text_field': 'cropped_code',
+                'answer_field': 'next_line',
+                'extra_fields': ['repo_name', 'file_path', 'level']
+            }
+        },
+
+        'xstest': {
+            'hf_path': 'walledai/XSTest',
+            'splits': ['test'],
+            'transform': {
+                'text_field': 'prompt',
+                'extra_fields': ['focus', 'type', 'label']
+            }
+        },
+
+        'harmbench_contextual': {
+            'hf_path': 'walledai/HarmBench',
+            'hf_config': 'contextual',
+            'splits': ['train'],
+            'transform': {
+                'text_field': 'prompt',
+                'context_field': 'context',
+                'extra_fields': ['category']
+            }
+        },
+
+        'harmbench_copyright': {
+            'hf_path': 'walledai/HarmBench',
+            'hf_config': 'copyright',
+            'splits': ['train'],
+            'transform': {
+                'text_field': 'prompt',
+                'extra_fields': ['tags']
+            }
+        },
+
+        'harmbench_standard': {
+            'hf_path': 'walledai/HarmBench',
+            'hf_config': 'standard',
+            'splits': ['train'],
+            'transform': {
+                'text_field': 'prompt',
+                'extra_fields': ['category']
+            }
+        },
+
+        'tulu3_do_anything_now': {
+            'hf_path': 'allenai/tulu-3-do-anything-now-eval',
+            'splits': ['test'],
+            'transform': {
+                'text_field': 'adversarial',
+                'extra_fields': ['vanilla', 'jailbreak', 'platform', 'source']
+            }
+        },
+
+        'tulu3_trustllm_jailbreak': {
+            'hf_path': 'allenai/tulu-3-trustllm-jailbreaktrigger-eval',
+            'splits': ['test'],
+            'transform': {
+                'text_field': 'prompt',
+                'extra_fields': ['label', 'source']
+            }
+        },
+
+        'wildjailbreak_train': {
+            'hf_path': 'allenai/wildjailbreak',
+            'hf_config': 'train',
+            'splits': ['train'],
+            'transform': {
+                'text_field': 'vanilla',
+                'extra_fields': ['data_type']
+            }
+        },
+
+        'wildjailbreak_eval': {
+            'hf_path': 'allenai/wildjailbreak',
+            'hf_config': 'eval',
+            'splits': ['train'],
+            'transform': {
+                'text_field': 'adversarial',
+                'extra_fields': ['label', 'data_type']
+            }
+        },
+
+        'wildguardtest': {
+            'hf_path': 'walledai/WildGuardTest',
+            'splits': ['train'],
+            'transform': {
+                'text_field': 'prompt',
+                'extra_fields': ['adversarial', 'label']
+            }
+        },
+
         # AGIEval English datasets (loaded from local files)
         'agi_eval_aqua_rat': {
             'local_path': 'fixtures/reference-static/aqua-rat.jsonl',
@@ -995,30 +1236,6 @@ EVAL_CONFIG = {
     }
 }
 
-# TODO: Add these
-# - MMLU Pro: https://huggingface.co/datasets/TIGER-Lab/MMLU-Pro
-# - HLE: https://huggingface.co/datasets/cais/hle
-# - SuperGPQA: https://huggingface.co/datasets/m-a-p/SuperGPQA
-# - BBEH: https://huggingface.co/datasets/hubert233/BigBenchExtraHard
-# - AIME 2025: https://huggingface.co/datasets/opencompass/AIME2025
-# - LCB v6: https://huggingface.co/datasets/livecodebench/code_generation_lite/tree/main
-#        - This comes out in versions. We are versions v3 and below. So, only need to decontam `test(4|5|6).jsonl`
-# - HumanEval‑Pro: https://huggingface.co/datasets/CodeEval-Pro/humaneval-pro
-# - MBPP‑Pro: https://huggingface.co/datasets/CodeEval-Pro/mbpp-pro
-# - CodeForces: https://huggingface.co/datasets/open-r1/codeforces
-#        - Only need to decontam the test split for this dataset
-# - IFBench: https://huggingface.co/datasets/allenai/IFBench_multi-turn
-# - TQA: https://huggingface.co/datasets/domenicrosati/TruthfulQA
-# - GSM+: https://huggingface.co/datasets/qintongli/GSM-Plus
-# - LBPP: https://huggingface.co/datasets/CohereLabs/lbpp
-# - RepoBench: https://huggingface.co/datasets/tianyang/repobench_python_v1.1 (edited)
-# https://github.com/Aider-AI/polyglot-benchmark
-# - https://huggingface.co/datasets/walledai/XSTest
-# - https://huggingface.co/datasets/walledai/HarmBench
-# - https://huggingface.co/datasets/allenai/tulu-3-do-anything-now-eval
-# - https://huggingface.co/datasets/allenai/tulu-3-trustllm-jailbreaktrigger-eval
-# - https://huggingface.co/datasets/allenai/wildjailbreak
-# - https://huggingface.co/datasets/walledai/WildGuardTest
 
 def split_document(text, threshold):
     """Split a document into chunks if it exceeds the threshold.
@@ -1202,7 +1419,7 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                     # Extract text field
                     text_field = eval_config['transform']['text_field']
                     text = get_nested_field(example, text_field)
-                    
+
                     # Skip if field not found
                     if text is None:
                         continue

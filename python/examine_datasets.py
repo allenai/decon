@@ -10,165 +10,161 @@ import sys
 
 # Mapping from TARGET_EVAL_DATASETS patterns to EVAL_PATHS entries
 TARGET_TO_EVAL_MAPPING = {
-    # ARC variants
-    "arc_*:mc::xlarge": "ai2_arc",
-    "arc_*:bpb::full": "ai2_arc",
-    "arc_*:rc::olmes:full": "ai2_arc",
+    # "arc_*:mc::xlarge": "ai2_arc",
+    # "arc_*:bpb::full": "ai2_arc",
+    # "arc_*:rc::olmes:full": "ai2_arc",
 
-    # MMLU variants
-    "mmlu_*:mc::olmes": "cais/mmlu",
-    "mmlu_*:cot::hamish_zs_reasoning": "cais/mmlu",
-    "mmlu_*:bpb": "cais/mmlu",
-    "mmlu_*:rc::olmes": "cais/mmlu",
+    # "mmlu_*:mc::olmes": "cais/mmlu",
+    # "mmlu_*:cot::hamish_zs_reasoning": "cais/mmlu",
+    # "mmlu_*:bpb": "cais/mmlu",
+    # "mmlu_*:rc::olmes": "cais/mmlu",
 
-    # CommonsenseQA variants
-    "csqa:mc::xlarge": "commonsense_qa",
-    "csqa:bpb::olmes:full": "commonsense_qa",
-    "csqa:rc::olmes:full": "commonsense_qa",
+    # "csqa:mc::xlarge": "commonsense_qa",
+    # "csqa:bpb::olmes:full": "commonsense_qa",
+    # "csqa:rc::olmes:full": "commonsense_qa",
 
-    # PIQA variants
-    "piqa:mc::xlarge": "piqa",
-    "piqa:bpb::olmes:full": "piqa",
-    "piqa:rc::olmes:full": "piqa",
+    # "piqa:mc::xlarge": "piqa",
+    # "piqa:bpb::olmes:full": "piqa",
+    # "piqa:rc::olmes:full": "piqa",
 
-    # SocialIQA variants
-    "socialiqa:mc::xlarge": "social_i_qa",
-    "socialiqa:bpb::olmes:full": "social_i_qa",
-    "socialiqa:rc::olmes:full": "social_i_qa",
+    # "socialiqa:mc::xlarge": "social_i_qa",
+    # "socialiqa:bpb::olmes:full": "social_i_qa",
+    # "socialiqa:rc::olmes:full": "social_i_qa",
 
-    # DROP variants
-    "drop:mc::gen2mc": "allenai/drop_mc",
-    "drop::xlarge": "EleutherAI/drop",
-    "drop:bpb::gen2mc": "allenai/drop_mc",
-    "drop:rc::gen2mc": "allenai/drop_mc",
+    # "drop:mc::gen2mc": "allenai/drop_mc",
+    # "drop::xlarge": "EleutherAI/drop",
+    # "drop:bpb::gen2mc": "allenai/drop_mc",
+    # "drop:rc::gen2mc": "allenai/drop_mc",
 
-    # Jeopardy variants
-    "jeopardy:mc::gen2mc": "allenai/jeopardy_mc",
-    "jeopardy::xlarge": "soldni/jeopardy",
-    "jeopardy:bpb::gen2mc": "allenai/jeopardy_mc",
-    "jeopardy:rc::gen2mc": "allenai/jeopardy_mc",
+    # "jeopardy:mc::gen2mc": "allenai/jeopardy_mc",
+    # "jeopardy::xlarge": "soldni/jeopardy",
+    # "jeopardy:bpb::gen2mc": "allenai/jeopardy_mc",
+    # "jeopardy:rc::gen2mc": "allenai/jeopardy_mc",
 
-    # Natural Questions variants
-    "naturalqs:mc::gen2mc": "allenai/nq_open_mc",
-    "naturalqs::xlarge": "google-research-datasets/nq_open",
-    "naturalqs:bpb::gen2mc": "allenai/nq_open_mc",
-    "naturalqs:rc::gen2mc": "allenai/nq_open_mc",
+    # "naturalqs:mc::gen2mc": "allenai/nq_open_mc",
+    # "naturalqs::xlarge": "google-research-datasets/nq_open",
+    # "naturalqs:bpb::gen2mc": "allenai/nq_open_mc",
+    # "naturalqs:rc::gen2mc": "allenai/nq_open_mc",
 
-    # SQuAD variants
-    "squad:mc::gen2mc": "allenai/squad_mc",
-    "squad::xlarge": "rajpurkar/squad",
-    "squad:bpb::gen2mc": "allenai/squad_mc",
-    "squad:rc::gen2mc": "allenai/squad_mc",
+    # "squad:mc::gen2mc": "allenai/squad_mc",
+    # "squad::xlarge": "rajpurkar/squad",
+    # "squad:bpb::gen2mc": "allenai/squad_mc",
+    # "squad:rc::gen2mc": "allenai/squad_mc",
 
-    # CoQA variants
-    "coqa:mc::gen2mc": "allenai/coqa_mc",
-    "coqa::xlarge": "EleutherAI/coqa",
-    "coqa:bpb::gen2mc": "allenai/coqa_mc",
-    "coqa:rc::gen2mc": "allenai/coqa_mc",
+    # "coqa:mc::gen2mc": "allenai/coqa_mc",
+    # "coqa::xlarge": "EleutherAI/coqa",
+    # "coqa:bpb::gen2mc": "allenai/coqa_mc",
+    # "coqa:rc::gen2mc": "allenai/coqa_mc",
 
-    # Basic Skills variants
-    "basic_skills_*:mc::olmes": "allenai/basic-skills",
-    "basic_skills_*:rc::olmes": "allenai/basic-skills",
-    "basic_skills:bpb::olmes": "allenai/basic-skills",
+    # "basic_skills_*:mc::olmes": "allenai/basic-skills",
+    # "basic_skills_*:rc::olmes": "allenai/basic-skills",
+    # "basic_skills:bpb::olmes": "allenai/basic-skills",
 
-    # Medical datasets
-    "medmcqa:mc::none": "openlifescienceai/medmcqa",
-    "medmcqa:bpb::none": "openlifescienceai/medmcqa",
-    "medmcqa:rc::none": "openlifescienceai/medmcqa",
-    "medqa_en:mc::none": "davidheineman/medqa-en",
-    "medqa_en:bpb::none": "davidheineman/medqa-en",
-    "medqa_en:rc::none": "davidheineman/medqa-en",
+    # "medmcqa:mc::none": "openlifescienceai/medmcqa",
+    # "medmcqa:bpb::none": "openlifescienceai/medmcqa",
+    # "medmcqa:rc::none": "openlifescienceai/medmcqa",
+    # "medqa_en:mc::none": "davidheineman/medqa-en",
+    # "medqa_en:bpb::none": "davidheineman/medqa-en",
+    # "medqa_en:rc::none": "davidheineman/medqa-en",
 
-    # Science datasets
-    "sciq:mc::xlarge": "sciq",
-    "sciq:bpb::olmo3": "sciq",
-    "sciq:rc::olmo3": "sciq",
+    # "sciq:mc::xlarge": "sciq",
+    # "sciq:bpb::olmo3": "sciq",
+    # "sciq:rc::olmo3": "sciq",
 
-    # HellaSwag variants
-    "hellaswag:rc::xlarge": "hellaswag",
-    "hellaswag:bpb::olmes:full": "hellaswag",
-    "hellaswag:rc::olmes:full": "hellaswag",
+    # "hellaswag:rc::xlarge": "hellaswag",
+    # "hellaswag:bpb::olmes:full": "hellaswag",
+    # "hellaswag:rc::olmes:full": "hellaswag",
 
-    # Winogrande variants
-    "winogrande:rc::xlarge": "winogrande",
-    "winogrande:bpb::olmes:full": "winogrande",
-    "winogrande:rc::olmes:full": "winogrande",
+    # "winogrande:rc::xlarge": "winogrande",
+    # "winogrande:bpb::olmes:full": "winogrande",
+    # "winogrande:rc::olmes:full": "winogrande",
 
-    # Lambda variants
-    "lambada": "EleutherAI/lambada_openai",
-    "lambada:bpb": "EleutherAI/lambada_openai",
+    # "lambada": "EleutherAI/lambada_openai",
+    # "lambada:bpb": "EleutherAI/lambada_openai",
 
-    # GSM8K variants
-    "gsm8k::olmes": "gsm8k",
-    "gsm8k::zs_cot_latex": "gsm8k",
+    # "gsm8k::olmes": "gsm8k",
+    # "gsm8k::zs_cot_latex": "gsm8k",
 
-    # GSM Symbolic
-    "gsm_symbolic*::olmo3": "apple/GSM-Symbolic",
+    # "gsm_symbolic*::olmo3": "apple/GSM-Symbolic",
 
-    # Math datasets
-    "minerva_math_*::olmes": "EleutherAI/hendrycks_math",
-    "minerva_math_*::hamish_zs_reasoning": "EleutherAI/hendrycks_math",
-    "minerva_math_500::hamish_zs_reasoning": "HuggingFaceH4/MATH-500",
-    "minerva_*:bpb::olmes": "EleutherAI/hendrycks_math",
-    "aime::hamish_zs_reasoning": "AI-MO/aimo-validation-aime",
+    # "minerva_math_*::olmes": "EleutherAI/hendrycks_math",
+    # "minerva_math_*::hamish_zs_reasoning": "EleutherAI/hendrycks_math",
+    # "minerva_math_500::hamish_zs_reasoning": "HuggingFaceH4/MATH-500",
+    # "minerva_*:bpb::olmes": "EleutherAI/hendrycks_math",
+    # "aime::hamish_zs_reasoning": "AI-MO/aimo-validation-aime",
 
-    # Code datasets
-    "bigcodebench:3shot::olmo3": "bigcode/bigcodebench",
-    "codex_humaneval:3shot::olmo3": "openai_humaneval",
-    "codex_humaneval:3shot:bpb::none": "openai_humaneval",
-    "codex_humanevalfim_single:temp0.2": "loubnabnl/humaneval_infilling",
-    "codex_humanevalfim_multi:temp0.2": "loubnabnl/humaneval_infilling",
-    "codex_humanevalfim_random:temp0.2": "loubnabnl/humaneval_infilling",
-    "codex_humanevalplus:0-shot-chat::tulu-thinker": "evalplus/humanevalplus",
-    "deepseek_leetcode::olmo3": "davidheineman/deepseek-leetcode",
-    "ds1000:3shot::olmo3": "xlangai/DS-1000",
-    "mbpp:3shot::olmo3": "google-research-datasets/mbpp",
-    "mbpp:3shot:bpb::none": "google-research-datasets/mbpp",
-    "mbppplus:0-shot-chat::tulu-thinker": "evalplus/mbppplus",
-    "multipl_e_humaneval:*::olmo3": "nuprl/MultiPL-E",
-    "multipl_e_mbpp:*::olmo3": "nuprl/MultiPL-E",
-    "mt_mbpp_v2fix:*": "google-research-datasets/mbpp",
-    "livecodebench_codegeneration::tulu-thinker": "livecodebench/code_generation_lite",
+    # "bigcodebench:3shot::olmo3": "bigcode/bigcodebench",
+    # "codex_humaneval:3shot::olmo3": "openai_humaneval",
+    # "codex_humaneval:3shot:bpb::none": "openai_humaneval",
+    # "codex_humanevalfim_single:temp0.2": "loubnabnl/humaneval_infilling",
+    # "codex_humanevalfim_multi:temp0.2": "loubnabnl/humaneval_infilling",
+    # "codex_humanevalfim_random:temp0.2": "loubnabnl/humaneval_infilling",
+    # "codex_humanevalplus:0-shot-chat::tulu-thinker": "evalplus/humanevalplus",
+    # "deepseek_leetcode::olmo3": "davidheineman/deepseek-leetcode",
+    # "ds1000:3shot::olmo3": "xlangai/DS-1000",
+    # "mbpp:3shot::olmo3": "google-research-datasets/mbpp",
+    # "mbpp:3shot:bpb::none": "google-research-datasets/mbpp",
+    # "mbppplus:0-shot-chat::tulu-thinker": "evalplus/mbppplus",
+    # "multipl_e_humaneval:*::olmo3": "nuprl/MultiPL-E",
+    # "multipl_e_mbpp:*::olmo3": "nuprl/MultiPL-E",
+    # "mt_mbpp_v2fix:*": "google-research-datasets/mbpp",
+    # "livecodebench_codegeneration::tulu-thinker": "livecodebench/code_generation_lite",
 
-    # Evaluation datasets
-    "alpaca_eval_v3::hamish_zs_reasoning": "tatsu-lab/alpaca_eval",
-    "styled_alpacaeval::tulu-thinker": "tatsu-lab/alpaca_eval",
-    "multiturn_alpacaeval_*::tulu": "tatsu-lab/alpaca_eval",
-    "ifeval::hamish_zs_reasoning": "HuggingFaceH4/ifeval",
-    "ifeval_ood::tulu-thinker": "HuggingFaceH4/ifeval",
-    "ifeval_mt_*::tulu": "HuggingFaceH4/ifeval",
+    # "alpaca_eval_v3::hamish_zs_reasoning": "tatsu-lab/alpaca_eval",
+    # "styled_alpacaeval::tulu-thinker": "tatsu-lab/alpaca_eval",
+    # "multiturn_alpacaeval_*::tulu": "tatsu-lab/alpaca_eval",
+    # "ifeval::hamish_zs_reasoning": "HuggingFaceH4/ifeval",
+    # "ifeval_ood::tulu-thinker": "HuggingFaceH4/ifeval",
+    # "ifeval_mt_*::tulu": "HuggingFaceH4/ifeval",
 
-    # Logic and reasoning datasets
-    "zebralogic::hamish_zs_reasoning": "allenai/ZebraLogicBench-private",
-    "popqa::hamish_zs_reasoning": "akariasai/PopQA",
-    "styled_popqa::tulu-thinker": "akariasai/PopQA",
-    "bbh_*:cot::hamish_zs_reasoning": "lukaemon/bbh",
-    "gpqa:0shot_cot::hamish_zs_reasoning": "Idavidrein/gpqa",
-    "agi_eval_*:0shot_cot::hamish_zs_reasoning": None,  # Local files
+    # "zebralogic::hamish_zs_reasoning": "allenai/ZebraLogicBench-private",
+    # "popqa::hamish_zs_reasoning": "akariasai/PopQA",
+    # "styled_popqa::tulu-thinker": "akariasai/PopQA",
+    # "bbh_*:cot::hamish_zs_reasoning": "lukaemon/bbh",
+    # "gpqa:0shot_cot::hamish_zs_reasoning": "Idavidrein/gpqa",
+    # "agi_eval_*:0shot_cot::hamish_zs_reasoning": None,  # Local files
 
-    # Omega datasets
-    "omega_*:0-shot-chat": ["allenai/omega-compositional", "allenai/omega-explorative", "allenai/omega-transformative"],
+    # "omega_*:0-shot-chat": ["allenai/omega-compositional", "allenai/omega-explorative", "allenai/omega-transformative"],
 
-    # Other datasets
-    "simpleqa::tulu-thinker": "lighteval/SimpleQA",
-    "styled_math500::tulu-thinker": "HuggingFaceH4/MATH-500",
-    "qasper_yesno:bpb::olmes": "allenai/qasper-yesno",
-    "qasper_yesno:rc::olmes": "allenai/qasper-yesno",
-    "sciriff_yesno:bpb::olmes": "allenai/sciriff-yesno",
-    "sciriff_yesno:rc::olmes": "allenai/sciriff-yesno",
+    # "simpleqa::tulu-thinker": "lighteval/SimpleQA",
+    # "styled_math500::tulu-thinker": "HuggingFaceH4/MATH-500",
+    # "qasper_yesno:bpb::olmes": "allenai/qasper-yesno",
+    # "qasper_yesno:rc::olmes": "allenai/qasper-yesno",
+    # "sciriff_yesno:bpb::olmes": "allenai/sciriff-yesno",
+    # "sciriff_yesno:rc::olmes": "allenai/sciriff-yesno",
 
-    # LAB-Bench datasets
-    "lab_bench_dbqa:bpb": "futurehouse/lab-bench",
-    "lab_bench_dbqa": "futurehouse/lab-bench",
-    "lab_bench_protocolqa:bpb": "futurehouse/lab-bench",
-    "lab_bench_protocolqa": "futurehouse/lab-bench",
+    # "lab_bench_dbqa:bpb": "futurehouse/lab-bench",
+    # "lab_bench_dbqa": "futurehouse/lab-bench",
+    # "lab_bench_protocolqa:bpb": "futurehouse/lab-bench",
+    # "lab_bench_protocolqa": "futurehouse/lab-bench",
 
-    # Chat datasets
-    "ultrachat_masked_ppl": "HuggingFaceH4/ultrachat_200k",
-    "wildchat_masked_ppl": "allenai/WildChat",
+    # "ultrachat_masked_ppl": "HuggingFaceH4/ultrachat_200k",
+    # "wildchat_masked_ppl": "allenai/WildChat",
 
     # AGI EVAL handled separate
     # agi_eval_*:0shot_cot::hamish_zs_reasoning
+
+    # Additional datasets from TODO list
+    "mmlu_pro": "TIGER-Lab/MMLU-Pro",
+    # "hle": "cais/hle",  # Gated dataset - requires access approval
+    "super_gpqa": "m-a-p/SuperGPQA",
+    "bbeh": "hubert233/BigBenchExtraHard",
+    "aime_2025": "opencompass/AIME2025",
+    "lcb_v6": "livecodebench/code_generation_lite",
+    "humaneval_pro": "CodeEval-Pro/humaneval-pro",
+    "mbpp_pro": "CodeEval-Pro/mbpp-pro",
+    "codeforces": "open-r1/codeforces",
+    "ifbench_multiturn": "allenai/IFBench_multi-turn",
+    "truthfulqa": "domenicrosati/TruthfulQA",
+    "gsm_plus": "qintongli/GSM-Plus",
+    "lbpp": "CohereLabs/lbpp",
+    "repobench_python": "tianyang/repobench_python_v1.1",
+    "xstest": "walledai/XSTest",
+    "harmbench": "walledai/HarmBench",
+    "tulu3_do_anything_now": "allenai/tulu-3-do-anything-now-eval",
+    "tulu3_trustllm_jailbreak": "allenai/tulu-3-trustllm-jailbreaktrigger-eval",
+    "wildjailbreak": "allenai/wildjailbreak",
+    "wildguardtest": "walledai/WildGuardTest",
 }
 
 
