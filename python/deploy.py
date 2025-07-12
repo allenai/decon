@@ -351,38 +351,102 @@ def cli():
 
 @cli.command()
 def wizard():
+    # Clear the screen for a clean interface
+    os.system('clear' if os.name == 'posix' else 'cls')
     print("\n\n💡 \033[1;93mSensible defaults are provided in [brackets]. Press Enter to accept.\033[0m\n")
 
+    # Dataset configuration first
+    print("=== Dataset Configuration ===\n")
+
+    while True:
+        remote_file_input = click.prompt(
+            "S3 path for input data to decontaminate (e.g., s3://bucket/training-data)",
+            type=str
+        )
+        # Validate that it starts with s3://
+        if remote_file_input.startswith("s3://"):
+            break
+        else:
+            print("❌ Error: Input data path must start with 's3://'. Please try again.")
+
+    # Extract dataset name from S3 path by removing s3:// prefix and replacing / with -
+    dataset_name = remote_file_input[5:].replace('/', '-').strip('-')
+    if dataset_name.endswith('.jsonl') or dataset_name.endswith('.json'):
+        # Remove file extension if present
+        dataset_name = dataset_name.rsplit('.', 1)[0]
+
+    # Data purification question immediately after
+    print("\n\nDecon always produces contamination report files including per-file contamination matches and scores.")
+    # Report output configuration
+    default_report_path = f"s3://ai2-decon-reports/{dataset_name}"
+    remote_report_output_dir = click.prompt(
+        "S3 path for contamination reports",
+        default=default_report_path,
+        type=str
+    )
+
+    purify = click.confirm("\nWould you like to also create a clean copy of the dataset with contaminated documents removed?", default=False)
+
+    remote_cleaned_output_dir = None
+    if purify:
+        # Ask for cleaned dataset destination immediately after purification question
+        while True:
+            remote_cleaned_output_dir = click.prompt(
+                "S3 bucket for cleaned dataset copy (e.g., s3://bucket/cleaned)",
+                type=str
+            )
+            # Validate that it starts with s3://
+            if remote_cleaned_output_dir.startswith("s3://"):
+                break
+            else:
+                print("❌ Error: Cleaned dataset destination must start with 's3://'. Please try again.")
+
+
+    # Validate that it starts with s3://
+    while not remote_report_output_dir.startswith("s3://"):
+        print("❌ Error: Report output path must start with 's3://'. Please try again.")
+        remote_report_output_dir = click.prompt(
+            "S3 path for contamination reports",
+            default=default_report_path,
+            type=str
+        )
+
     # Basic cluster configuration
-    print("=== Cluster Configuration ===")
-    cluster_name = click.prompt("Cluster name", type=str)
-    owner = click.prompt("Owner (your username)", type=str)
+    print("\n=== Poorman Ray Cluster Configuration ===")
+    cluster_name = click.prompt("Cluster name", default=dataset_name, type=str)
+
+    # Get current username as default for owner
+    import getpass
+    default_owner = getpass.getuser()
+    owner = click.prompt("Owner", default=default_owner, type=str)
     instance_count = click.prompt("Number of instances", type=int, default=2)
     instance_type = click.prompt("Instance type", default="i4i.2xlarge")
     ssh_key = click.prompt("SSH key path", default="~/.ssh/id_rsa")
-    github_token = click.prompt("GitHub token (only read access for private decon required)")
+    github_token = click.prompt("GitHub token (only read access for private decon repo required)")
 
     # Detection configuration
     print("\n=== Detection Configuration ===")
 
     # Detection mode
     print("\nDetection modes:")
-    print("  simple  - Fast n-gram matching (recommended for exact contamination, only tested and supported option currently)")
+    print("  simple  - Fast n-gram matching (other options might run, but are works in progress and will not outperform simple)")
     print("  minhash - Near-duplicate detection using MinHash")
-    print("  toxic   - Semantic similarity using word embeddings")
+    print("  toxic   - Semantic similarity using word embeddings\n")
     mode = click.prompt("Detection mode", default="simple",
                        type=click.Choice(['simple', 'minhash', 'toxic']))
 
     # Common parameters
     content_key = click.prompt("JSON field containing text in jsonl files to decontaminate", default="text")
 
+    print("\n\n💡 \033[1;93mSensible defaults are provided in [brackets]. See https://github.com/allenai/decon/blob/main/doc/simple.md for context.\033[0m\n")
+
     # Mode-specific parameters
     if mode == "simple":
         print("\n--- SIMPLE Mode Configuration ---")
         ngram_size = click.prompt("N-gram size (values < 4 not recommended)", type=int, default=4)
         sample_every_m_tokens = click.prompt("Sample every M tokens (1 = no sampling)", type=int, default=10)
-        toxic_overlap_threshold = click.prompt("Overlap ratio threshold (not contaminated if (num_unique_ngrams_matched / num_unique_ngrams_in_eval) < threshold)", type=float, default=0.8)
-        toxic_score_threshold = click.prompt("Toxic score threshold (based on IDF of matched n-grams not contaminated if < threshold)", type=float, default=2.0)
+        toxic_overlap_threshold = click.prompt("Overlap ratio threshold (Matches must have (num_unique_ngrams_matched / num_unique_ngrams_in_eval) > threshold)", type=float, default=0.85)
+        toxic_score_threshold = click.prompt("IDF score threshold (Matches must have sum matched n-gram IDF > threshold)", type=float, default=2.0)
     else:
         # Use defaults for other modes
         ngram_size = 4
@@ -400,43 +464,7 @@ def wizard():
 
     # Other options
     debug = False  # Debug mode hardcoded to false
-    purify = click.confirm("Enable data purification (create full copy of dataset with contaminated documents removed)?", default=False)
-
-    remote_cleaned_output_dir = None
-    if purify:
-        # Ask for cleaned dataset destination immediately after purification question
-        while True:
-            remote_cleaned_output_dir = click.prompt(
-                "S3 bucket for cleaned dataset copy (e.g., s3://bucket/cleaned)",
-                type=str
-            )
-            # Validate that it starts with s3://
-            if remote_cleaned_output_dir.startswith("s3://"):
-                break
-            else:
-                print("❌ Error: Cleaned dataset destination must start with 's3://'. Please try again.")
-
     daemon_port = 8080  # Daemon port hardcoded to default
-
-    # Orchestrator configuration
-    print("\n=== Orchestrator Configuration ===")
-    print("Configure S3 paths for distributed processing.")
-    print("Leave empty to skip orchestrator setup.\n")
-
-    remote_file_input = click.prompt(
-        "S3 path for input data (e.g., s3://bucket/training-data)",
-        default="",
-        show_default=False
-    )
-
-    remote_report_output_dir = None
-
-    if remote_file_input:
-        default_report_path = f"s3://ai2-decon-reports/{cluster_name}"
-        remote_report_output_dir = click.prompt(
-            "S3 path for contamination reports",
-            default=default_report_path
-        )
 
     # Force local work directory to /mnt/decon-work
     local_work_dir = "/mnt/decon-work"
