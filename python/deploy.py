@@ -402,7 +402,7 @@ def wizard():
         else:
             # Fallback if path is too short
             default_cleaned_path = f"{remote_file_input.rstrip('/')}-decon"
-        
+
         # Ask for cleaned dataset destination immediately after purification question
         while True:
             remote_cleaned_output_dir = click.prompt(
@@ -585,12 +585,9 @@ def wizard():
     print("\n" + "━" * 80)
     print("📝 USEFUL COMMANDS".center(80))
     print("━" * 80)
-    print(f"\n  Check status:       make deploy-status NAME={cluster_name}")
     print(f"  View daemon logs:   make deploy-logs NAME={cluster_name} LOG=daemon")
-    print(f"  View orchestrator:  make deploy-logs NAME={cluster_name} LOG=orchestrator")
+    print(f"  View orchestrator logs:  make deploy-logs NAME={cluster_name} LOG=orchestrator")
     print(f"  Auto-terminate:     make polling-auto-terminate NAME={cluster_name}")
-    print(f"  Manual terminate:   make deploy-terminate NAME={cluster_name}")
-    print("\n💡 Tip: Use polling-auto-terminate to automatically shut down the cluster when work completes")
     print("⚠️  Remember to terminate your cluster when done to avoid unnecessary charges\n")
 
 
