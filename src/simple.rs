@@ -1610,10 +1610,9 @@ fn create_purified_files(
                 contaminated_lines.len()
             );
         } else {
-            println!(
-                "No contamination found for {} - skipping clean file creation",
-                file_name
-            );
+            // Copy the clean file as-is
+            write_purified_file(file_path, cleaned_dir, &HashSet::new())?;
+            println!("Copied clean file: {}", file_name);
         }
     }
 
@@ -1667,10 +1666,9 @@ fn create_purified_files_streaming(
                 contaminated_lines.len()
             );
         } else {
-            println!(
-                "No contamination found for {} - skipping clean file creation",
-                file_name
-            );
+            // Copy the clean file as-is
+            write_purified_file(file_path, cleaned_dir, &HashSet::new())?;
+            println!("Copied clean file: {}", file_name);
         }
     }
 
