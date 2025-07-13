@@ -892,32 +892,6 @@ fn short_answer_tokens(
     }
 }
 
-fn short_answer_one_gram_overlap_ratio(
-    answer_token_set: &HashSet<usize>,
-    cluster: &SimpleContaminationCluster,
-    training_tokens: &[usize],
-    config: &Config,
-) -> f32 {
-    // If answer is empty (shouldn't happen based on our logic, but be safe)
-    if answer_token_set.is_empty() {
-        return 0.0;
-    }
-
-    // Get matching tokens
-    let matching_tokens = short_answer_tokens(answer_token_set, cluster, training_tokens, config);
-    let matches = matching_tokens.len();
-
-    let match_ratio = matches as f32 / answer_token_set.len() as f32;
-
-    if config.debug {
-        println!("    Short answer validation: {} of {} tokens found (ratio: {:.2})",
-                 matches, answer_token_set.len(), match_ratio);
-    }
-
-    match_ratio
-}
-
-
 #[derive(Clone)]
 pub(crate) struct SimpleContaminationCluster {
     start_idx: usize,

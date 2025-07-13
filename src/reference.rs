@@ -6,6 +6,8 @@
 // - Deduplication is performed on the combination of question + answer
 // - The original JSON structure with all three fields is preserved in the output
 
+#![allow(dead_code)]
+
 use anyhow::{Error, Result};
 use dashmap::DashMap;
 use rayon::prelude::*;
