@@ -349,7 +349,6 @@ fn process_single_file(
             let (
                 ngram_to_id,
                 id_to_question_docs,
-                _id_to_answer_docs,
                 id_to_short_answer,
                 eval_documents,
                 id_to_ngram_tokens,

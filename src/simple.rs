@@ -46,8 +46,7 @@ fn read_compressed_file(path: &PathBuf) -> Result<Vec<u8>, Error> {
 // Simple mode structures
 type NgramToIdMap = DashMap<u64, u64>; // Maps n-gram hash to unique ID
 type IdToQuestionDocsMap = DashMap<u64, HashSet<u32>>; // Maps n-gram ID to set of document IDs (for questions)
-type IdToAnswerDocsMap = DashMap<u64, HashSet<u32>>; // Maps n-gram ID to set of document IDs (for long answers)
-type IdToShortAnswerMap = DashMap<u32, HashSet<usize>>; // Maps doc_id to set of token IDs (for short answers)
+type IdToShortAnswerMap = DashMap<u32, HashSet<usize>>; // Maps doc_id to set of token IDs (for answers)
 type EvalDocuments = DashMap<u32, (String, usize, usize, usize)>; // Maps doc_id to (eval_name, line_num, total_ngrams, unique_ngrams)
 type EvalTextSnippets = DashMap<(String, usize), String>; // Maps (eval_name, line_num) to text snippet (first 1000 words)
 type IdToNgramTokens = DashMap<u64, Vec<usize>>; // Maps unique ID to token IDs for display
@@ -86,7 +85,6 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
     let (
         ngram_to_id,
         id_to_question_docs,
-        id_to_answer_docs,
         id_to_short_answer,
         eval_documents,
         id_to_ngram_tokens,
@@ -107,7 +105,6 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
         config,
         &ngram_to_id,
         &id_to_question_docs,
-        &id_to_answer_docs,
         &id_to_short_answer,
         &eval_documents,
         &id_to_ngram_tokens,
@@ -129,7 +126,6 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
 pub type SimpleIndex = (
     NgramToIdMap,
     IdToQuestionDocsMap,
-    IdToAnswerDocsMap,
     IdToShortAnswerMap,
     EvalDocuments,
     IdToNgramTokens,
@@ -140,7 +136,6 @@ pub type SimpleIndex = (
 pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
     let ngram_to_id: NgramToIdMap = DashMap::new();
     let id_to_question_docs: IdToQuestionDocsMap = DashMap::new();
-    let id_to_answer_docs: IdToAnswerDocsMap = DashMap::new();
     let id_to_short_answer: IdToShortAnswerMap = DashMap::new();
     let eval_documents: EvalDocuments = DashMap::new();
     let id_to_ngram_tokens: IdToNgramTokens = DashMap::new();
@@ -167,7 +162,6 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
             config,
             &ngram_to_id,
             &id_to_question_docs,
-            &id_to_answer_docs,
             &id_to_short_answer,
             &eval_documents,
             &next_ngram_id,
@@ -186,7 +180,6 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
     Ok((
         ngram_to_id,
         id_to_question_docs,
-        id_to_answer_docs,
         id_to_short_answer,
         eval_documents,
         id_to_ngram_tokens,
@@ -200,7 +193,6 @@ fn process_simple_reference_file(
     config: &Config,
     ngram_to_id: &NgramToIdMap,
     id_to_question_docs: &IdToQuestionDocsMap,
-    id_to_answer_docs: &IdToAnswerDocsMap,
     id_to_short_answer: &IdToShortAnswerMap,
     eval_documents: &EvalDocuments,
     next_ngram_id: &std::sync::atomic::AtomicU64,
@@ -272,11 +264,7 @@ fn process_simple_reference_file(
                     doc_id,
                     config,
                     tokenizer,
-                    ngram_to_id,
-                    id_to_answer_docs,
                     id_to_short_answer,
-                    &next_ngram_id,
-                    id_to_ngram_tokens,
                 )?;
             }
         }
@@ -328,13 +316,6 @@ fn get_or_create_ngram_id(
 
 fn add_doc_to_ngram(ngram_id: u64, doc_id: u32, id_to_docs: &IdToQuestionDocsMap) {
     id_to_docs
-        .entry(ngram_id)
-        .or_insert_with(HashSet::new)
-        .insert(doc_id);
-}
-
-fn add_doc_to_answer_ngram(ngram_id: u64, doc_id: u32, id_to_answer_docs: &IdToAnswerDocsMap) {
-    id_to_answer_docs
         .entry(ngram_id)
         .or_insert_with(HashSet::new)
         .insert(doc_id);
@@ -461,11 +442,7 @@ fn process_answer_field(
     doc_id: u32,
     config: &Config,
     tokenizer: &OmniTokenizer,
-    ngram_to_id: &NgramToIdMap,
-    id_to_answer_docs: &IdToAnswerDocsMap,
     id_to_short_answer: &IdToShortAnswerMap,
-    next_ngram_id: &std::sync::atomic::AtomicU64,
-    id_to_ngram_tokens: &IdToNgramTokens,
 ) -> Result<(), Error> {
     // Clean text for both tokenizer types
     let cleaned = clean_text(answer, &config.punctuation_chars);
@@ -502,7 +479,6 @@ fn detect_simple_contamination(
     config: &Config,
     ngram_to_id: &NgramToIdMap,
     id_to_question_docs: &IdToQuestionDocsMap,
-    _id_to_answer_docs: &IdToAnswerDocsMap,
     id_to_short_answer: &IdToShortAnswerMap,
     eval_documents: &EvalDocuments,
     id_to_ngram_tokens: &IdToNgramTokens,
