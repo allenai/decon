@@ -379,8 +379,8 @@ pub struct Config {
     pub window_step_size: Option<usize>,
 
     // Short answer detection parameters
-    #[serde(default = "default_max_short_answer_distance")]
-    pub max_short_answer_distance: usize,
+    #[serde(default = "default_min_short_answer_distance")]
+    pub min_short_answer_distance: usize,
     #[serde(default = "default_short_answer_contamination_threshold")]
     pub short_answer_contamination_threshold: f32,
     #[serde(default)]
@@ -473,7 +473,7 @@ fn default_eval_min_word_count() -> usize {
     10 // Default minimum word count for eval file indexing
 }
 
-fn default_max_short_answer_distance() -> usize {
+fn default_min_short_answer_distance() -> usize {
     30 // Default maximum token distance to search for short answers
 }
 
@@ -722,7 +722,7 @@ impl OmniTokenizer {
         // For now, return placeholder - we'll need to modify the approach
         vec![]
     }
-    
+
     pub fn get_word(&self, id: u32) -> Option<String> {
         if self.tokenizer_name == "word" {
             let id_to_word = self.id_to_word.lock().unwrap();

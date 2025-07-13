@@ -809,20 +809,20 @@ impl SimpleContaminationEntry {
                     training_tokens,
                     config,
                 );
-                
+
                 // Calculate overlap ratio
                 let answer_overlap_ratio = if answer_token_set.is_empty() {
                     0.0
                 } else {
                     matching_tokens.len() as f32 / answer_token_set.len() as f32
                 };
-                
+
                 // Convert matching token IDs to text
                 let matched_token_strings: Vec<String> = matching_tokens
                     .iter()
                     .filter_map(|&token_id| tokenizer.get_word(token_id as u32))
                     .collect();
-                
+
                 if config.debug {
                     println!("    Short answer validation: {} of {} tokens found (ratio: {:.2})",
                              matching_tokens.len(), answer_token_set.len(), answer_overlap_ratio);
@@ -844,30 +844,34 @@ fn short_answer_tokens(
     training_tokens: &[usize],
     config: &Config,
 ) -> HashSet<usize> {
+    // Calculate window size as max(answer_length*2, min_short_answer_distance)
+    let answer_length = answer_token_set.len();
+    let window_size = std::cmp::max(answer_length * 2, config.min_short_answer_distance);
+    
     if config.exclude_question_from_answer_sweep {
         // When excluding question tokens, search in prefix and suffix regions
-        let prefix_search_start = cluster.start_idx.saturating_sub(config.max_short_answer_distance);
+        let prefix_search_start = cluster.start_idx.saturating_sub(window_size);
         let prefix_search_end = cluster.start_idx;
         let suffix_search_start = cluster.end_idx;
-        let suffix_search_end = (cluster.end_idx + config.max_short_answer_distance).min(training_tokens.len());
-        
+        let suffix_search_end = (cluster.end_idx + window_size).min(training_tokens.len());
+
         // Collect tokens from both regions
         let mut training_token_set = HashSet::new();
-        
+
         // Add prefix tokens
         if prefix_search_start < prefix_search_end {
             training_token_set.extend(
                 training_tokens[prefix_search_start..prefix_search_end].iter().copied()
             );
         }
-        
+
         // Add suffix tokens
         if suffix_search_start < suffix_search_end {
             training_token_set.extend(
                 training_tokens[suffix_search_start..suffix_search_end].iter().copied()
             );
         }
-        
+
         // Find matching tokens
         answer_token_set
             .iter()
@@ -876,8 +880,8 @@ fn short_answer_tokens(
             .collect()
     } else {
         // Original behavior: search entire window including the question
-        let search_start = cluster.start_idx.saturating_sub(config.max_short_answer_distance);
-        let search_end = (cluster.end_idx + config.max_short_answer_distance).min(training_tokens.len());
+        let search_start = cluster.start_idx.saturating_sub(window_size);
+        let search_end = (cluster.end_idx + window_size).min(training_tokens.len());
 
         // Extract training tokens in the search window
         let training_window = &training_tokens[search_start..search_end];
@@ -1065,9 +1069,9 @@ pub fn process_simple_training_file(
                     entry.length_penalty = Some(entry.calculate_length_penalty());
 
                     // Check if this entry represents contamination using score threshold
-                    let (is_contaminated, answer_overlap_ratio, matched_answer_tokens) = 
+                    let (is_contaminated, answer_overlap_ratio, matched_answer_tokens) =
                         entry.is_contaminated(*doc_id, id_to_short_answer, &cluster, &word_tokens, config, tokenizer);
-                    
+
                     if is_contaminated {
                         // Extract the overlapping text with context
                         let training_overlap_text = extract_overlap_with_context(
@@ -1226,9 +1230,9 @@ pub fn process_simple_training_file_streaming(
                     temp_entry.length_penalty = Some(temp_entry.calculate_length_penalty());
 
                     // Check if this entry represents contamination using score threshold
-                    let (is_contaminated, answer_overlap_ratio, matched_answer_tokens) = 
+                    let (is_contaminated, answer_overlap_ratio, matched_answer_tokens) =
                         temp_entry.is_contaminated(*doc_id, id_to_short_answer, &cluster, &word_tokens, config, tokenizer);
-                    
+
                     if is_contaminated {
                         // Extract the overlapping text with context
                         let training_overlap_text = extract_overlap_with_context(
@@ -1267,7 +1271,7 @@ pub fn process_simple_training_file_streaming(
                         if let Some(ref overlap_text) = training_overlap_text {
                             result["training_overlap_text"] = json!(overlap_text);
                         }
-                        
+
                         // Add answer contamination fields
                         if let Some(ratio) = answer_overlap_ratio {
                             result["answer_overlap_ratio"] = json!(ratio);

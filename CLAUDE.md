@@ -92,3 +92,5 @@ Set larger timeouts like 3 minutes when running detect.
 ### Changes
 
 Please favor simplicity and focused changes.
+
+Do not create test scripts unless explicitly asked to do so.

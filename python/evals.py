@@ -248,8 +248,10 @@ EVAL_CONFIG = {
             'hf_config': 'mc_mode',
             'splits': ['test'],
             'transform': {
-                'text_field': 'puzzle',
-                'answer_field': 'solution'
+                'combine_context_and_question': True,
+                'context_field': 'puzzle',
+                'text_field': 'question',
+                'answer_field': 'answer'
             }
         },
 
@@ -286,8 +288,11 @@ EVAL_CONFIG = {
             'transform': {
                 'text_field': 'question',
                 'context_field': 'context',
-                'answer_field': 'answer'
-            }
+                'answer_field': 'answer',  # This is now ignored when answer_prefix is set
+                'answer_key_field': 'label',
+                'answer_prefix': 'answer'
+            },
+            'no_answer_splits': ['test']
         },
 
         'cruxeval': {
@@ -304,7 +309,8 @@ EVAL_CONFIG = {
             'splits': ['test'],
             'transform': {
                 'text_field': 'prompt'
-            }
+            },
+            'no_answer_splits': ['test']
         },
 
         'medqa_en': {
@@ -327,7 +333,8 @@ EVAL_CONFIG = {
             'splits': ['train', 'validation'],
             'transform': {
                 'text_field': 'question',
-                'context_field': 'passage'
+                'context_field': 'passage',
+                'answer_field': 'answer.spans.0'
             }
         },
 
@@ -406,7 +413,8 @@ EVAL_CONFIG = {
             'splits': ['test'],
             'transform': {
                 'text_field': 'text'
-            }
+            },
+            'no_answer_splits': ['test']
         },
 
         'humaneval_plus': {
@@ -461,7 +469,8 @@ EVAL_CONFIG = {
             'splits': ['train'],
             'transform': {
                 'text_field': 'prompt'
-            }
+            },
+            'no_answer_splits': ['train']
         },
 
         'math_500': {
@@ -498,7 +507,8 @@ EVAL_CONFIG = {
             'splits': ['test'],
             'transform': {
                 'text_field': 'question_content'
-            }
+            },
+            'no_answer_splits': ['test']
         },
 
         'humaneval_infilling_multiline': {
@@ -609,7 +619,8 @@ EVAL_CONFIG = {
             'transform': {
                 'text_field': 'question',
                 'answer_field': 'answer.value'
-            }
+            },
+            'no_answer_splits': ['test']
         },
 
         'multipl_e_humaneval_python': {
@@ -677,7 +688,8 @@ EVAL_CONFIG = {
             'transform': {
                 'text_field': 'question',
                 'answer_field': 'exp'
-            }
+            },
+            'no_answer_splits': ['test']
         },
 
         'gsm_plus': {
@@ -737,7 +749,10 @@ EVAL_CONFIG = {
             'splits': ['train', 'validation'],
             'transform': {
                 'context_field': 'context',
-                'text_field': 'question'
+                'text_field': 'question',
+                'answer_key_field': 'label',
+                'answer_prefix': 'answer',
+                'answer_label_transform': 'numbers_to_letters'
             }
         },
 
@@ -756,8 +771,10 @@ EVAL_CONFIG = {
             'hf_config': 'qasper',
             'splits': ['validation', 'test'],
             'transform': {
-                'text_field': 'input'
-            }
+                'text_field': 'input',
+                'answer_field': 'output'
+            },
+            'no_answer_splits': ['test']
         },
 
         'mt_eval_refinement': {
@@ -772,7 +789,9 @@ EVAL_CONFIG = {
             'hf_config': 'winogrande_l',
             'splits': ['train', 'test', 'validation'],
             'transform': {
-                'text_field': 'sentence'
+                'text_field': 'sentence',
+                'answer_key_field': 'answer',
+                'answer_prefix': 'option',
             }
         },
 
@@ -781,7 +800,7 @@ EVAL_CONFIG = {
             'splits': ['test'],
             'transform': {
                 'text_field': 'prompt',
-                'answer': 'reference_code'
+                'answer_field': 'reference_code'
             }
         },
 
@@ -819,7 +838,8 @@ EVAL_CONFIG = {
             'transform': {
                 'text_field': 'ctx',
                 'answer_field': 'label'
-            }
+            },
+            'no_answer_splits': ['test']  # TODO: has answer options, but none labeled.
         },
 
         'piqa': {
@@ -991,7 +1011,8 @@ EVAL_CONFIG = {
             'hf_config': 'ifbench_constraints',
             'splits': ['test'],
             'transform': {
-                'text_field': 'prompt'
+                'text_field': 'prompt',
+                'answer_field': 'messages.1.content'
             }
         },
 
@@ -1029,7 +1050,9 @@ EVAL_CONFIG = {
             'transform': {
                 'text_field': 'cropped_code',
                 'answer_field': 'next_line',
-                'extra_fields': ['repo_name', 'file_path', 'level']
+                'extra_fields': ['repo_name', 'file_path', 'level'],
+                'strip_python_comments': True
+
             }
         },
 
@@ -1039,7 +1062,8 @@ EVAL_CONFIG = {
             'transform': {
                 'text_field': 'cropped_code',
                 'answer_field': 'next_line',
-                'extra_fields': ['repo_name', 'file_path', 'level']
+                'extra_fields': ['repo_name', 'file_path', 'level'],
+                'strip_python_comments': True
             }
         },
 
@@ -1049,7 +1073,8 @@ EVAL_CONFIG = {
             'transform': {
                 'text_field': 'cropped_code',
                 'answer_field': 'next_line',
-                'extra_fields': ['repo_name', 'file_path', 'level']
+                'extra_fields': ['repo_name', 'file_path', 'level'],
+                'strip_python_comments': True
             }
         },
 
@@ -1058,10 +1083,11 @@ EVAL_CONFIG = {
             'splits': ['test'],
             'transform': {
                 'text_field': 'prompt',
-                'extra_fields': ['focus', 'type', 'label']
+                'answer_field': 'label',
+                'extra_fields': ['focus', 'type']
             }
         },
-
+        # TODO: Review whether to include these?
         'harmbench_contextual': {
             'hf_path': 'walledai/HarmBench',
             'hf_config': 'contextual',
@@ -1070,7 +1096,8 @@ EVAL_CONFIG = {
                 'text_field': 'prompt',
                 'context_field': 'context',
                 'extra_fields': ['category']
-            }
+            },
+            'no_answer_splits': ['train']
         },
 
         'harmbench_copyright': {
@@ -1080,7 +1107,8 @@ EVAL_CONFIG = {
             'transform': {
                 'text_field': 'prompt',
                 'extra_fields': ['tags']
-            }
+            },
+            'no_answer_splits': ['train']
         },
 
         'harmbench_standard': {
@@ -1090,7 +1118,8 @@ EVAL_CONFIG = {
             'transform': {
                 'text_field': 'prompt',
                 'extra_fields': ['category']
-            }
+            },
+            'no_answer_splits': ['train']
         },
 
         'tulu3_do_anything_now': {
@@ -1099,7 +1128,8 @@ EVAL_CONFIG = {
             'transform': {
                 'text_field': 'adversarial',
                 'extra_fields': ['vanilla', 'jailbreak', 'platform', 'source']
-            }
+            },
+            'no_answer_splits': ['test']
         },
 
         'tulu3_trustllm_jailbreak': {
@@ -1108,7 +1138,8 @@ EVAL_CONFIG = {
             'transform': {
                 'text_field': 'prompt',
                 'extra_fields': ['label', 'source']
-            }
+            },
+            'no_answer_splits': ['test']
         },
 
         'wildjailbreak_train': {
@@ -1128,7 +1159,8 @@ EVAL_CONFIG = {
             'transform': {
                 'text_field': 'adversarial',
                 'extra_fields': ['label', 'data_type']
-            }
+            },
+            'no_answer_splits': ['train']
         },
 
         'wildguardtest': {
@@ -1136,7 +1168,8 @@ EVAL_CONFIG = {
             'splits': ['train'],
             'transform': {
                 'text_field': 'prompt',
-                'extra_fields': ['adversarial', 'label']
+                'answer_field': 'label',
+                'extra_fields': ['adversarial']
             }
         },
 
@@ -1336,6 +1369,43 @@ def is_answer_empty(answer):
     if isinstance(answer, str):
         return answer.strip() == '' or answer.strip() == '<unk>'
     return False
+
+
+def strip_python_comments(text):
+    """Remove lines that start with # from the text"""
+    if not isinstance(text, str):
+        return text
+
+    lines = text.split('\n')
+    filtered_lines = []
+
+    for line in lines:
+        # Check if line starts with # (after stripping whitespace)
+        if not line.strip().startswith('#'):
+            filtered_lines.append(line)
+
+    return '\n'.join(filtered_lines)
+
+
+def transform_answer_label(label, transform_type):
+    """Transform answer labels based on the specified transform type"""
+    if transform_type == 'numbers_to_letters':
+        # Convert "1" -> "A", "2" -> "B", "3" -> "C", etc.
+        try:
+            # Handle both string and int labels
+            label_int = int(label)
+            # Convert 1-based to 0-based, then to letter
+            if label_int >= 1:
+                return chr(ord('A') + label_int - 1)
+            else:
+                # If label is 0, use 'A'
+                return 'A'
+        except (ValueError, TypeError):
+            # If conversion fails, return original label
+            return label
+
+    # Add more transform types here as needed
+    return label
 
 
 def download_and_transform_eval(eval_name, eval_config, global_config, document_id_counter, stats, datasets_without_answers):
@@ -1562,17 +1632,41 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
 
                     # Extract answer field if configured
                     answer = None
-                    if 'answer_field' in eval_config['transform']:
+                    
+                    # Check if we should use answer_prefix + answer_key_field directly (without answer_field)
+                    if 'answer_key_field' in eval_config['transform'] and 'answer_prefix' in eval_config['transform']:
+                        answer_key_field = eval_config['transform']['answer_key_field']
+                        answer_key = get_nested_field(example, answer_key_field)
+                        
+                        if answer_key is not None:
+                            # Apply label transformation if configured
+                            transformed_key = answer_key
+                            if 'answer_label_transform' in eval_config['transform']:
+                                transform_type = eval_config['transform']['answer_label_transform']
+                                transformed_key = transform_answer_label(answer_key, transform_type)
+                            
+                            # Construct field name using prefix + transformed key value
+                            answer_prefix = eval_config['transform']['answer_prefix']
+                            answer_field_name = f"{answer_prefix}{transformed_key}"
+                            # Get the answer from the constructed field name
+                            answer_value = get_nested_field(example, answer_field_name)
+                            if answer_value is not None:
+                                answer = str(answer_value)
+                            else:
+                                # No answer at that field, skip answer
+                                answer = None
+                    
+                    elif 'answer_field' in eval_config['transform']:
                         answer_field = eval_config['transform']['answer_field']
                         answer_value = get_nested_field(example, answer_field)
-                        
+
                         # Check if we need to use answer_key to index into the answer value
-                        if 'answer_key_field' in eval_config['transform']:
+                        if 'answer_key_field' in eval_config['transform'] and answer_value is not None:
                             answer_key_field = eval_config['transform']['answer_key_field']
                             answer_key = get_nested_field(example, answer_key_field)
-                            
-                            if answer_key is not None and answer_value is not None:
-                                # answer_key is an integer index into answer_value
+
+                            if answer_key is not None:
+                                # Original logic: answer_key is an integer index into answer_value
                                 if isinstance(answer_value, list) and isinstance(answer_key, int):
                                     if 0 <= answer_key < len(answer_value):
                                         answer = str(answer_value[answer_key])
@@ -1580,7 +1674,7 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                                         # Invalid index, skip this answer
                                         answer = None
                                 else:
-                                    # If answer_value is not a list or answer_key is not int, 
+                                    # If answer_value is not a list or answer_key is not int,
                                     # try to use it as-is
                                     answer = str(answer_value) if answer_value is not None else None
                         elif answer_value is not None:
@@ -1595,6 +1689,19 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                     # Skip if no question found
                     if not question or question.strip() == '':
                         continue
+
+                    # Combine context and question if configured
+                    if eval_config['transform'].get('combine_context_and_question', False):
+                        if context and context.strip():
+                            # Combine context and question with a space separator
+                            question = f"{context} {question}"
+
+                    # Apply strip_python_comments if configured
+                    if eval_config['transform'].get('strip_python_comments', False):
+                        if question:
+                            question = strip_python_comments(question)
+                        if answer:
+                            answer = strip_python_comments(answer)
 
                     # Create record with separate fields
                     record = {
@@ -1669,8 +1776,13 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                             # Handle choices structure: {'text': [...], 'label': [...]}
                             if isinstance(choices, dict) and 'text' in choices:
                                 for choice_text in choices['text']:
+                                    choice_answer = str(choice_text)
+                                    # Apply strip_python_comments to choice if configured
+                                    if eval_config['transform'].get('strip_python_comments', False):
+                                        choice_answer = strip_python_comments(choice_answer)
+
                                     choice_record = record.copy()
-                                    choice_record["answer"] = str(choice_text)  # Use choice as answer
+                                    choice_record["answer"] = choice_answer  # Use choice as answer
                                     choice_record['doc_id'] = document_id_counter[0]
                                     document_id_counter[0] += 1
 
@@ -1679,7 +1791,7 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                                         dataset_stats["question_chars"] += len(question)
                                     if context:
                                         dataset_stats["context_chars"] += len(context)
-                                    dataset_stats["answer_chars"] += len(str(choice_text))
+                                    dataset_stats["answer_chars"] += len(choice_answer)
                                     dataset_stats["records"] += 1
 
                                     # Open questions-only file if not already open
@@ -1709,8 +1821,13 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                             elif isinstance(choices, list):
                                 # Handle simple list of choices
                                 for choice in choices:
+                                    choice_answer = str(choice)
+                                    # Apply strip_python_comments to choice if configured
+                                    if eval_config['transform'].get('strip_python_comments', False):
+                                        choice_answer = strip_python_comments(choice_answer)
+
                                     choice_record = record.copy()
-                                    choice_record["answer"] = str(choice)  # Use choice as answer
+                                    choice_record["answer"] = choice_answer  # Use choice as answer
                                     choice_record['doc_id'] = document_id_counter[0]
                                     document_id_counter[0] += 1
 
@@ -1719,7 +1836,7 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                                         dataset_stats["question_chars"] += len(question)
                                     if context:
                                         dataset_stats["context_chars"] += len(context)
-                                    dataset_stats["answer_chars"] += len(str(choice))
+                                    dataset_stats["answer_chars"] += len(choice_answer)
                                     dataset_stats["records"] += 1
 
                                     # Open questions-only file if not already open
@@ -1755,7 +1872,16 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                 f_with_answers.close()
 
         # Log missing fields loudly (only for question and answer)
-        important_fields = ["question", "answer"]
+        # Check if this split is expected to have no answers
+        no_answer_splits = eval_config.get('no_answer_splits', [])
+        is_no_answer_split = split in no_answer_splits
+        
+        # Determine which fields to check based on no_answer_splits
+        if is_no_answer_split:
+            important_fields = ["question"]  # Only check question for no_answer_splits
+        else:
+            important_fields = ["question", "answer"]
+        
         important_missing = sum(missing_fields_count[field] for field in important_fields if field in missing_fields_count)
         if important_missing > 0:
             print(f"\n⚠️  WARNING: Missing fields detected in {eval_name} {split}:")
