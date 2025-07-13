@@ -139,6 +139,7 @@ pub fn review_contamination(
     tp: bool,
     tn: bool,
     stats: bool,
+    all: bool,
     min_overlap_ratio: Option<f32>,
     min_idf_score: Option<f32>,
     min_length: Option<usize>,
@@ -250,8 +251,26 @@ pub fn review_contamination(
             return Ok(());
         }
 
-        // If neither stats nor step, just show summary
-        println!("Use --stats to see statistics or --step to review cases interactively.");
+        // Display all results at once if --all flag is set or if no specific flag is set
+        if all || (!stats && !step) {
+            println!("=== DISPLAYING ALL CONTAMINATION CASES ===\n");
+
+            // Review each contamination case without stepping
+            for (idx, result) in all_results.iter().enumerate() {
+                println!("{}", "=".repeat(80));
+                println!("CONTAMINATION #{} of {}", idx + 1, all_results.len());
+                println!("{}", "=".repeat(80));
+
+                display_contamination_case_without_config(result)?;
+                println!();
+            }
+
+            println!("=== END OF RESULTS ===");
+            return Ok(());
+        }
+
+        // If no flag is set, show summary
+        println!("Use --stats to see statistics, --step to review cases interactively, or --all to see all results.");
         return Ok(());
     }
 
@@ -378,6 +397,12 @@ pub fn review_contamination(
     );
 
     // Review each contamination case
+    if step {
+        println!("=== REVIEWING ALL CONTAMINATION CASES ===\n");
+    } else {
+        println!("=== DISPLAYING ALL CONTAMINATION CASES ===\n");
+    }
+
     for (idx, result) in filtered_results.iter().enumerate() {
         if step && idx > 0 {
             // Wait for user input before showing next case
@@ -397,7 +422,11 @@ pub fn review_contamination(
         println!();
     }
 
-    println!("=== REVIEW COMPLETE ===");
+    if step {
+        println!("=== REVIEW COMPLETE ===");
+    } else {
+        println!("=== END OF RESULTS ===");
+    }
     Ok(())
 }
 

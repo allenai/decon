@@ -182,6 +182,12 @@ enum Commands {
 
         #[arg(
             long,
+            help = "Display all contamination results at once (without stepping through)"
+        )]
+        all: bool,
+
+        #[arg(
+            long,
             help = "Minimum overlap ratio to include in results (filters by jaccard_similarity/overlap_ratio)"
         )]
         min_overlap_ratio: Option<f32>,
@@ -993,6 +999,7 @@ fn main() -> Result<(), Error> {
             tp,
             tn,
             stats,
+            all,
             min_overlap_ratio,
             min_idf_score,
             min_length,
@@ -1009,6 +1016,7 @@ fn main() -> Result<(), Error> {
             *tp,
             *tn,
             *stats,
+            *all,
             *min_overlap_ratio,
             *min_idf_score,
             *min_length,
