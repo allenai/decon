@@ -14,6 +14,7 @@ min_short_answer_distance: 30 # The minimum window on either side of a question 
 exclude_question_from_answer_sweep: false
 
 toxic_overlap_threshold: 0.8 # Documents below this will not be considered contaminated
+simple_contamination_score_threshold: 0.79 # Contamination score threshold for SIMPLE mode (default: 0.79)
 
 eval_min_word_count: 10  # Minimum post-cleaning word count necessary to include for eval file indexing
 punctuation_chars: "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~”“"  # (uses default if not specified)

@@ -92,6 +92,9 @@ enum Commands {
         )]
         max_consecutive_misses: Option<usize>,
 
+        #[arg(long, help = "Contamination score threshold for SIMPLE mode")]
+        simple_contamination_score_threshold: Option<f32>,
+
         // MinHash mode specific
         #[arg(long, help = "Number of bands for MinHash LSH")]
         num_bands: Option<usize>,
@@ -256,6 +259,9 @@ enum Commands {
         )]
         max_consecutive_misses: Option<usize>,
 
+        #[arg(long, help = "Contamination score threshold for SIMPLE mode")]
+        simple_contamination_score_threshold: Option<f32>,
+
         // MinHash mode specific
         #[arg(long, help = "Number of bands for MinHash LSH")]
         num_bands: Option<usize>,
@@ -385,6 +391,10 @@ pub struct Config {
     pub short_answer_contamination_threshold: f32,
     #[serde(default)]
     pub exclude_question_from_answer_sweep: bool,
+    
+    // Simple mode contamination score threshold
+    #[serde(default = "default_simple_contamination_score_threshold")]
+    pub simple_contamination_score_threshold: f32,
 
     // Purify option - create cleaned files with contaminated lines removed
     #[serde(default)]
@@ -479,6 +489,10 @@ fn default_min_short_answer_distance() -> usize {
 
 fn default_short_answer_contamination_threshold() -> f32 {
     0.8 // Default threshold for short answer contamination
+}
+
+fn default_simple_contamination_score_threshold() -> f32 {
+    0.79 // Default contamination score threshold for SIMPLE mode
 }
 
 pub fn read_config(config_path: &PathBuf) -> Result<Config, Error> {
@@ -877,6 +891,7 @@ fn main() -> Result<(), Error> {
             ngram_size,
             sample_every_m_tokens,
             max_consecutive_misses,
+            simple_contamination_score_threshold,
             num_bands,
             band_size,
             jaccard_similarity_threshold,
@@ -928,6 +943,9 @@ fn main() -> Result<(), Error> {
             }
             if let Some(mcm) = max_consecutive_misses {
                 loaded_config.max_consecutive_misses = *mcm;
+            }
+            if let Some(scst) = simple_contamination_score_threshold {
+                loaded_config.simple_contamination_score_threshold = *scst;
             }
 
             // MinHash mode overrides
@@ -1013,6 +1031,7 @@ fn main() -> Result<(), Error> {
             ngram_size,
             sample_every_m_tokens,
             max_consecutive_misses,
+            simple_contamination_score_threshold,
             num_bands,
             band_size,
             jaccard_similarity_threshold,
@@ -1064,6 +1083,9 @@ fn main() -> Result<(), Error> {
             }
             if let Some(mcm) = max_consecutive_misses {
                 loaded_config.max_consecutive_misses = *mcm;
+            }
+            if let Some(scst) = simple_contamination_score_threshold {
+                loaded_config.simple_contamination_score_threshold = *scst;
             }
 
             // MinHash mode overrides

@@ -52,17 +52,7 @@ type EvalTextSnippets = DashMap<(String, usize), String>; // Maps (eval_name, li
 type IdToNgramTokens = DashMap<u64, Vec<usize>>; // Maps unique ID to token IDs for display
 
 
-// This is the minimum contamination score to be considered a match.
-// We also use this as C in  P(L) = 1.0 - C * e^(-k*L^n) such that documents
-// with length L < X need perfect scores. k and n are tuned for L=~10
-const CONTAMINATION_SCORE_THRESHOLD: f32 = 0.79;  // 0.81
-
-// This is the minimum penalty factor applied for very short texts (L<~10).
-// A value of 0.6 means a 40% penalty (score multiplied by 0.6).
-// This is set to the CONTAMINATION_SCORE_THRESHOLD because any penalty
-// factor beyond this gaurantees it's not a match. When applied on the
-// curve set by LENGTH_PENALTY_DECAY_RATE, it makes it so that below
-const MIN_LENGTH_PENALTY: f32 = CONTAMINATION_SCORE_THRESHOLD;
+// Note: CONTAMINATION_SCORE_THRESHOLD is now configurable via Config.simple_contamination_score_threshold
 
 // This is the 'k' in the formula P(L) = 1.0 - e^(-k*L^n).
 // It controls how quickly the penalty rises from 0 toward 1.0 as length increases.
@@ -740,16 +730,16 @@ pub struct SimpleContaminationEntry {
 
 impl SimpleContaminationEntry {
     /// Calculate the length penalty factor for this entry
-    pub fn calculate_length_penalty(&self) -> f32 {
+    pub fn calculate_length_penalty(&self, min_length_penalty: f32) -> f32 {
         let l = self.eval_unique_ngrams as f32;
         let mut length_penalty = 1.0 - (-LENGTH_PENALTY_DECAY_RATE * l.powf(LENGTH_PENALTY_POWER_N)).exp();
-        length_penalty = length_penalty.max(MIN_LENGTH_PENALTY);
+        length_penalty = length_penalty.max(min_length_penalty);
         length_penalty
     }
 
     /// Calculate contamination score based on overlap ratio and IDF, with length penalty
     /// Returns a score between 0.0 and 1.0, where higher scores indicate more likely contamination
-    pub fn score_question_contamination(&self) -> f32 {
+    pub fn score_question_contamination(&self, min_length_penalty: f32) -> f32 {
         // Basically we reject anything with less than 80% overlap. Just on principle.
         // TODO review
         if self.overlap_ratio < 0.8 {
@@ -780,13 +770,13 @@ impl SimpleContaminationEntry {
 
         // Apply length penalty - shorter texts need to have higher scores to survive.
         // They need to be more exact and have more salient tokens.
-        let length_penalty = self.calculate_length_penalty();
+        let length_penalty = self.calculate_length_penalty(min_length_penalty);
 
         // Final score with length penalty applied
         base_score * length_penalty
     }
 
-    /// Check if this entry represents contamination (score >= 0.78)
+    /// Check if this entry represents contamination (score >= threshold)
     /// Returns (is_contaminated, answer_overlap_ratio, matched_answer_tokens)
     pub fn is_contaminated(
         &self,
@@ -797,7 +787,7 @@ impl SimpleContaminationEntry {
         config: &Config,
         tokenizer: &OmniTokenizer,
     ) -> (bool, Option<f32>, Option<Vec<String>>) {
-        let question_contam = self.score_question_contamination() >= CONTAMINATION_SCORE_THRESHOLD;
+        let question_contam = self.score_question_contamination(config.simple_contamination_score_threshold) >= config.simple_contamination_score_threshold;
 
         if question_contam {
             // Check if this document has a short answer
@@ -1066,7 +1056,7 @@ pub fn process_simple_training_file(
                     };
 
                     // Calculate and store the length penalty
-                    entry.length_penalty = Some(entry.calculate_length_penalty());
+                    entry.length_penalty = Some(entry.calculate_length_penalty(config.simple_contamination_score_threshold));
 
                     // Check if this entry represents contamination using score threshold
                     let (is_contaminated, answer_overlap_ratio, matched_answer_tokens) =
@@ -1227,7 +1217,7 @@ pub fn process_simple_training_file_streaming(
                     };
 
                     // Calculate and store the length penalty
-                    temp_entry.length_penalty = Some(temp_entry.calculate_length_penalty());
+                    temp_entry.length_penalty = Some(temp_entry.calculate_length_penalty(config.simple_contamination_score_threshold));
 
                     // Check if this entry represents contamination using score threshold
                     let (is_contaminated, answer_overlap_ratio, matched_answer_tokens) =
@@ -1256,7 +1246,7 @@ pub fn process_simple_training_file_streaming(
                             "max_idf": max_idf,
                             "ngram_match_cnt": unique_matches,
                             "eval_unique_ngrams": unique_ngrams,
-                            "contamination_score": temp_entry.score_question_contamination(),
+                            "contamination_score": temp_entry.score_question_contamination(config.simple_contamination_score_threshold),
                             "length_penalty": temp_entry.length_penalty.unwrap_or(0.0),
                             "method": "simple"
                         });
@@ -1873,8 +1863,8 @@ pub fn save_contamination_results_toxic_format_with_filename_and_eval_text(
                 "max_idf": contamination_entry.max_idf,
                 "ngram_match_cnt": contamination_entry.ngram_match_cnt,
                 "eval_unique_ngrams": contamination_entry.eval_unique_ngrams,
-                "contamination_score": contamination_entry.score_question_contamination(),
-                "length_penalty": contamination_entry.length_penalty.unwrap_or_else(|| contamination_entry.calculate_length_penalty()),
+                "contamination_score": contamination_entry.score_question_contamination(config.simple_contamination_score_threshold),
+                "length_penalty": contamination_entry.length_penalty.unwrap_or_else(|| contamination_entry.calculate_length_penalty(config.simple_contamination_score_threshold)),
                 "method": "simple"
             });
 

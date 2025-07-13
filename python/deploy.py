@@ -52,8 +52,7 @@ class DeploymentConfig:
     content_key: str = "text"
     ngram_size: int = 4
     sample_every_m_tokens: int = 10
-    toxic_overlap_threshold: float = 0.8
-    toxic_score_threshold: float = 2.0
+    simple_contamination_score_threshold: float = 0.79
     tokenizer_str: str = "word"
     debug: bool = False
     purify: bool = False
@@ -72,6 +71,10 @@ class DeploymentConfig:
             self.config_path = os.path.expanduser(self.config_path)
         if self.orchestration_config:
             self.orchestration_config = os.path.expanduser(self.orchestration_config)
+        
+        # Validate simple_contamination_score_threshold
+        if not 0.0 <= self.simple_contamination_score_threshold <= 1.0:
+            raise ValueError(f"simple_contamination_score_threshold must be between 0 and 1, got {self.simple_contamination_score_threshold}")
 
 
 class PoorManRayError(Exception):
@@ -170,8 +173,7 @@ class DeploymentManager:
         daemon_cmd += f" --content-key {self.config.content_key}"
         daemon_cmd += f" --ngram-size {self.config.ngram_size}"
         daemon_cmd += f" --sample-every-m-tokens {self.config.sample_every_m_tokens}"
-        daemon_cmd += f" --toxic-overlap-threshold {self.config.toxic_overlap_threshold}"
-        daemon_cmd += f" --toxic-score-threshold {self.config.toxic_score_threshold}"
+        daemon_cmd += f" --simple-contamination-score-threshold {self.config.simple_contamination_score_threshold}"
         daemon_cmd += f" --tokenizer {self.config.tokenizer_str}"
         daemon_cmd += f" --reference-input {self.config.reference_input}"
 
@@ -463,14 +465,17 @@ def wizard():
     print("\n--- SIMPLE Mode Configuration ---")
     ngram_size = click.prompt("N-gram size (values < 4 not recommended)", type=int, default=4)
     sample_every_m_tokens = click.prompt("Sample every M tokens (1 = no sampling)", type=int, default=10)
-    toxic_overlap_threshold = click.prompt("Overlap ratio threshold (Matches must have (num_unique_ngrams_matched / num_unique_ngrams_in_eval) > threshold)", type=float, default=0.85)
-    toxic_score_threshold = click.prompt("IDF score threshold (Matches must have sum matched n-gram IDF > threshold)", type=float, default=2.0)
+    while True:
+        simple_contamination_score_threshold = click.prompt("Simple contamination score threshold [0-1] (lower = more matches)", type=float, default=0.79)
+        if 0.0 <= simple_contamination_score_threshold <= 1.0:
+            break
+        else:
+            print("❌ Error: Threshold must be between 0 and 1. Please try again.")
     # else:
     #     # Use defaults for other modes
     #     ngram_size = 4
     #     sample_every_m_tokens = 10
-    #     toxic_overlap_threshold = 0.8
-    #     toxic_score_threshold = 2.0
+    #     simple_contamination_score_threshold = 2.0
 
     # Tokenizer
     print("\nTokenizer options:")
@@ -520,8 +525,7 @@ def wizard():
         content_key=content_key,
         ngram_size=ngram_size,
         sample_every_m_tokens=sample_every_m_tokens,
-        toxic_overlap_threshold=toxic_overlap_threshold,
-        toxic_score_threshold=toxic_score_threshold,
+        simple_contamination_score_threshold=simple_contamination_score_threshold,
         tokenizer_str=tokenizer_str,
         debug=debug,
         purify=purify,
@@ -578,8 +582,7 @@ def wizard():
     print("    --config examples/simple.yaml \\")
     print(f"    --mode {mode} --content-key {content_key} \\")
     print(f"    --ngram-size {ngram_size} --sample-every-m-tokens {sample_every_m_tokens} \\")
-    print(f"    --toxic-overlap-threshold {toxic_overlap_threshold} \\")
-    print(f"    --toxic-score-threshold {toxic_score_threshold} \\")
+    print(f"    --simple-contamination-score-threshold {simple_contamination_score_threshold} \\")
     print(f"    --tokenizer {tokenizer_str} \\")
     print(f"    --reference-input {reference_input} \\")
     print(f"    --report-output-dir {local_work_dir}/results \\")
@@ -628,8 +631,7 @@ def wizard():
 @click.option("--content-key", default="text", help="JSON field containing text")
 @click.option("--ngram-size", default=4, type=int, help="N-gram size")
 @click.option("--sample-every-m-tokens", default=10, type=int, help="Sampling rate")
-@click.option("--toxic-overlap-threshold", default=0.8, type=float, help="Overlap threshold")
-@click.option("--toxic-score-threshold", default=2.0, type=float, help="Toxic score threshold")
+@click.option("--simple-contamination-score-threshold", default=0.79, type=float, help="Simple contamination score threshold [0-1]")
 @click.option("--tokenizer", default="word", type=click.Choice(['word', 'p50k', 'cl100k']), help="Tokenizer")
 @click.option("--debug/--no-debug", default=False, help="Enable debug mode")
 @click.option("--purify/--no-purify", default=False, help="Enable data purification")
@@ -640,7 +642,7 @@ def wizard():
 @click.option("--local-work-dir", default="/mnt/decon-work", help="Local working directory for orchestrator")
 def deploy(name, owner, instances, instance_type, ssh_key, github_token, daemon_port,
           mode, content_key, ngram_size, sample_every_m_tokens,
-          toxic_overlap_threshold, toxic_score_threshold, tokenizer,
+          simple_contamination_score_threshold, tokenizer,
           debug, purify, remote_file_input, remote_report_output_dir,
           remote_cleaned_output_dir, local_work_dir):
     """Deploy Decon cluster (non-interactive)"""
@@ -657,8 +659,7 @@ def deploy(name, owner, instances, instance_type, ssh_key, github_token, daemon_
         content_key=content_key,
         ngram_size=ngram_size,
         sample_every_m_tokens=sample_every_m_tokens,
-        toxic_overlap_threshold=toxic_overlap_threshold,
-        toxic_score_threshold=toxic_score_threshold,
+        simple_contamination_score_threshold=simple_contamination_score_threshold,
         tokenizer_str=tokenizer,
         debug=debug,
         purify=purify,
