@@ -541,7 +541,7 @@ pub fn write_purified_file(
 
     // Open input file with streaming reader
     let file = File::open(input_path)?;
-    let reader: Box<dyn BufRead> = if input_path.extension().and_then(|s| s.to_str()) == Some("gz")
+    let mut reader: Box<dyn BufRead> = if input_path.extension().and_then(|s| s.to_str()) == Some("gz")
     {
         Box::new(BufReader::new(GzDecoder::new(file)))
     } else {
@@ -554,15 +554,44 @@ pub fn write_purified_file(
     let mut writer = BufWriter::new(gz_encoder);
 
     let mut removed_count = 0;
-    for (line_num, line) in reader.lines().enumerate() {
+    let mut encoding_errors = 0;
+    
+    // Work with raw bytes to handle encoding issues
+    let mut line_num = 0;
+    let mut line_buffer = Vec::new();
+    
+    loop {
+        line_buffer.clear();
+        let bytes_read = reader.read_until(b'\n', &mut line_buffer)?;
+        if bytes_read == 0 { break; }
+        
         if !contaminated_lines.contains(&line_num) {
-            writeln!(writer, "{}", line?)?;
+            // Try to validate as UTF-8
+            match std::str::from_utf8(&line_buffer) {
+                Ok(_) => {
+                    // Valid UTF-8, write as-is
+                    writer.write_all(&line_buffer)?;
+                }
+                Err(_) => {
+                    // Invalid UTF-8 - convert lossily and write
+                    // This replaces invalid UTF-8 sequences with �
+                    let lossy = String::from_utf8_lossy(&line_buffer);
+                    writer.write_all(lossy.as_bytes())?;
+                    encoding_errors += 1;
+                }
+            }
         } else {
             removed_count += 1;
         }
+        line_num += 1;
     }
-
+    
     writer.flush()?;
+    
+    if encoding_errors > 0 {
+        eprintln!("Warning: {} lines had encoding issues and were converted lossily (invalid UTF-8 replaced with �)", encoding_errors);
+    }
+    
     println!(
         "Created purified file: {:?} (removed {} contaminated lines)",
         purified_path, removed_count
