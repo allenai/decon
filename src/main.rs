@@ -720,6 +720,24 @@ impl OmniTokenizer {
         // For now, return placeholder - we'll need to modify the approach
         vec![]
     }
+    
+    pub fn get_word(&self, id: u32) -> Option<String> {
+        if self.tokenizer_name == "word" {
+            let id_to_word = self.id_to_word.lock().unwrap();
+            id_to_word.get(&id).cloned()
+        } else {
+            // For BPE tokenizers, decode the token ID
+            if let Some(ref tokenizer) = self.inner {
+                if let Ok(text) = tokenizer.decode(vec![id as usize]) {
+                    Some(text)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+    }
 }
 
 pub fn hash_object<T: Hash>(obj: &T) -> usize {

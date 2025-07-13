@@ -733,6 +733,9 @@ pub struct SimpleContaminationEntry {
     ngram_match_cnt: usize,    // Number of unique n-gram matches
     eval_unique_ngrams: usize, // Total unique n-grams in the eval document
     length_penalty: Option<f32>, // Length penalty factor applied during scoring
+    // Answer contamination fields
+    answer_overlap_ratio: Option<f32>, // Overlap ratio for answer tokens
+    matched_answer_tokens: Option<Vec<String>>, // Matched answer tokens as text
 }
 
 impl SimpleContaminationEntry {
@@ -784,6 +787,7 @@ impl SimpleContaminationEntry {
     }
 
     /// Check if this entry represents contamination (score >= 0.78)
+    /// Returns (is_contaminated, answer_overlap_ratio, matched_answer_tokens)
     pub fn is_contaminated(
         &self,
         doc_id: u32,
@@ -791,26 +795,69 @@ impl SimpleContaminationEntry {
         cluster: &SimpleContaminationCluster,
         training_tokens: &[usize],
         config: &Config,
-    ) -> bool {
+        tokenizer: &OmniTokenizer,
+    ) -> (bool, Option<f32>, Option<Vec<String>>) {
         let question_contam = self.score_question_contamination() >= CONTAMINATION_SCORE_THRESHOLD;
 
         if question_contam {
             // Check if this document has a short answer
             if let Some(answer_token_set) = id_to_short_answer.get(&doc_id) {
-                let answer_overlap_ratio = short_answer_one_gram_overlap_ratio(
+                // Get matching tokens first
+                let matching_tokens = short_answer_tokens(
                     answer_token_set.value(),
                     cluster,
                     training_tokens,
                     config,
                 );
+                
+                // Calculate overlap ratio
+                let answer_overlap_ratio = if answer_token_set.is_empty() {
+                    0.0
+                } else {
+                    matching_tokens.len() as f32 / answer_token_set.len() as f32
+                };
+                
+                // Convert matching token IDs to text
+                let matched_token_strings: Vec<String> = matching_tokens
+                    .iter()
+                    .filter_map(|&token_id| tokenizer.get_word(token_id as u32))
+                    .collect();
+                
+                if config.debug {
+                    println!("    Short answer validation: {} of {} tokens found (ratio: {:.2})",
+                             matching_tokens.len(), answer_token_set.len(), answer_overlap_ratio);
+                }
 
                 // Require both question and answer contamination
-                return question_contam && answer_overlap_ratio >= config.short_answer_contamination_threshold;
+                let is_contaminated = question_contam && answer_overlap_ratio >= config.short_answer_contamination_threshold;
+                return (is_contaminated, Some(answer_overlap_ratio), Some(matched_token_strings));
             }
         }
 
-        question_contam
+        (question_contam, None, None)
     }
+}
+
+fn short_answer_tokens(
+    answer_token_set: &HashSet<usize>,
+    cluster: &SimpleContaminationCluster,
+    training_tokens: &[usize],
+    config: &Config,
+) -> HashSet<usize> {
+    // Define search window
+    let search_start = cluster.start_idx.saturating_sub(config.max_short_answer_distance);
+    let search_end = (cluster.end_idx + config.max_short_answer_distance).min(training_tokens.len());
+
+    // Extract training tokens in the search window
+    let training_window = &training_tokens[search_start..search_end];
+    let training_token_set: HashSet<usize> = training_window.iter().copied().collect();
+
+    // Find matching tokens
+    answer_token_set
+        .iter()
+        .filter(|token| training_token_set.contains(token))
+        .copied()
+        .collect()
 }
 
 fn short_answer_one_gram_overlap_ratio(
@@ -824,19 +871,9 @@ fn short_answer_one_gram_overlap_ratio(
         return 0.0;
     }
 
-    // Define search window
-    let search_start = cluster.start_idx.saturating_sub(config.max_short_answer_distance);
-    let search_end = (cluster.end_idx + config.max_short_answer_distance).min(training_tokens.len());
-
-    // Extract training tokens in the search window
-    let training_window = &training_tokens[search_start..search_end];
-    let training_token_set: HashSet<usize> = training_window.iter().copied().collect();
-
-    // Count how many answer tokens are present in the training window
-    let matches: usize = answer_token_set
-        .iter()
-        .filter(|token| training_token_set.contains(token))
-        .count();
+    // Get matching tokens
+    let matching_tokens = short_answer_tokens(answer_token_set, cluster, training_tokens, config);
+    let matches = matching_tokens.len();
 
     let match_ratio = matches as f32 / answer_token_set.len() as f32;
 
@@ -1014,13 +1051,18 @@ pub fn process_simple_training_file(
                         ngram_match_cnt: unique_matches,
                         eval_unique_ngrams: *unique_ngrams,
                         length_penalty: None, // Will be calculated and set below
+                        answer_overlap_ratio: None,
+                        matched_answer_tokens: None,
                     };
 
                     // Calculate and store the length penalty
                     entry.length_penalty = Some(entry.calculate_length_penalty());
 
                     // Check if this entry represents contamination using score threshold
-                    if entry.is_contaminated(*doc_id, id_to_short_answer, &cluster, &word_tokens, config) {
+                    let (is_contaminated, answer_overlap_ratio, matched_answer_tokens) = 
+                        entry.is_contaminated(*doc_id, id_to_short_answer, &cluster, &word_tokens, config, tokenizer);
+                    
+                    if is_contaminated {
                         // Extract the overlapping text with context
                         let training_overlap_text = extract_overlap_with_context(
                             &cleaned_text,
@@ -1033,6 +1075,8 @@ pub fn process_simple_training_file(
 
                         let mut entry_with_text = entry;
                         entry_with_text.training_overlap_text = training_overlap_text;
+                        entry_with_text.answer_overlap_ratio = answer_overlap_ratio;
+                        entry_with_text.matched_answer_tokens = matched_answer_tokens;
                         cluster_results.push(entry_with_text);
 
                         // println!("Found contamination: train_line={}, eval={}:{}, overlap={:.3} (>={:.3}), idf_sum={:.3} (>={:.3})", //debug
@@ -1168,13 +1212,18 @@ pub fn process_simple_training_file_streaming(
                         ngram_match_cnt: unique_matches,
                         eval_unique_ngrams: *unique_ngrams,
                         length_penalty: None, // Will be calculated and set below
+                        answer_overlap_ratio: None,
+                        matched_answer_tokens: None,
                     };
 
                     // Calculate and store the length penalty
                     temp_entry.length_penalty = Some(temp_entry.calculate_length_penalty());
 
                     // Check if this entry represents contamination using score threshold
-                    if temp_entry.is_contaminated(*doc_id, id_to_short_answer, &cluster, &word_tokens, config) {
+                    let (is_contaminated, answer_overlap_ratio, matched_answer_tokens) = 
+                        temp_entry.is_contaminated(*doc_id, id_to_short_answer, &cluster, &word_tokens, config, tokenizer);
+                    
+                    if is_contaminated {
                         // Extract the overlapping text with context
                         let training_overlap_text = extract_overlap_with_context(
                             &cleaned_text,
@@ -1211,6 +1260,14 @@ pub fn process_simple_training_file_streaming(
                         }
                         if let Some(ref overlap_text) = training_overlap_text {
                             result["training_overlap_text"] = json!(overlap_text);
+                        }
+                        
+                        // Add answer contamination fields
+                        if let Some(ratio) = answer_overlap_ratio {
+                            result["answer_overlap_ratio"] = json!(ratio);
+                        }
+                        if let Some(ref tokens) = matched_answer_tokens {
+                            result["matched_answer_tokens"] = json!(tokens);
                         }
 
                         // Look up eval text snippet

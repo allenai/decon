@@ -46,6 +46,10 @@ pub struct ContaminationResult {
     pub contamination_score: Option<f32>,
     #[serde(default)]
     pub length_penalty: Option<f32>,
+    #[serde(default)]
+    pub answer_overlap_ratio: Option<f32>,
+    #[serde(default)]
+    pub matched_answer_tokens: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -639,6 +643,8 @@ fn filter_contamination_results(
                     eval_unique_ngrams: None,
                     contamination_score: None,
                     length_penalty: None,
+                    answer_overlap_ratio: None,
+                    matched_answer_tokens: None,
                 };
                 filtered.push(placeholder);
             }
@@ -731,7 +737,7 @@ fn filter_contamination_results_by_thresholds(
                     return false;
                 }
             }
-            
+
             // Skip exact matches if requested
             if skip_exact {
                 if let Some(score) = result.contamination_score {
@@ -819,6 +825,17 @@ fn display_contamination_case_internal(result: &ContaminationResult) -> Result<(
             if let Some(penalty) = result.length_penalty {
                 println!("📏 LENGTH PENALTY: {:.3}", penalty);
             }
+
+            // Display answer contamination information
+            if let Some(answer_ratio) = result.answer_overlap_ratio {
+                println!("🎯 ANSWER OVERLAP RATIO: {:.3}", answer_ratio);
+            }
+            if let Some(ref answer_tokens) = result.matched_answer_tokens {
+                if !answer_tokens.is_empty() {
+                    println!("📝 MATCHED ANSWER TOKENS: {}", answer_tokens.join(" "));
+                }
+            }
+
             println!();
         }
     }
