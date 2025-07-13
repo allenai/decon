@@ -59,8 +59,10 @@ EVAL_CONFIG = {
             'splits': ['train', 'test', 'validation'],
             'transform': {
                 'text_field': 'question',
-                'answer_field': 'answerKey',
-                'choices_field': 'choices'
+                'answer_field': 'choices.text',
+                'answer_key_field': 'answerKey',
+                'choices_field': 'choices',
+                'answer_lookup_field': 'choices.label'
             }
         },
 
@@ -70,8 +72,10 @@ EVAL_CONFIG = {
             'splits': ['train', 'test', 'validation'],
             'transform': {
                 'text_field': 'question',
-                'answer_field': 'answerKey',
-                'choices_field': 'choices'
+                'answer_field': 'choices.text',
+                'answer_key_field': 'answerKey',
+                'choices_field': 'choices',
+                'answer_lookup_field': 'choices.label'
             }
         },
 
@@ -954,7 +958,8 @@ EVAL_CONFIG = {
             'splits': ['test', 'validation'],
             'transform': {
                 'text_field': 'question',
-                'answer_field': 'answer',
+                'answer_field': 'options',
+                'answer_key_field': 'answer_index',
                 'choices_field': 'options',
                 'extra_fields': ['category']
             }
@@ -1808,8 +1813,32 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                             answer_key = get_nested_field(example, answer_key_field)
 
                             if answer_key is not None:
+                                # Check if we need to look up the answer key in a lookup field
+                                if 'answer_lookup_field' in eval_config['transform']:
+                                    lookup_field = eval_config['transform']['answer_lookup_field']
+                                    lookup_values = get_nested_field(example, lookup_field)
+                                    
+                                    if isinstance(lookup_values, list) and isinstance(answer_value, list):
+                                        # Find the index of answer_key in lookup_values
+                                        try:
+                                            # Convert answer_key to string for comparison
+                                            answer_key_str = str(answer_key)
+                                            # Find matching index in lookup values
+                                            for idx, lookup_val in enumerate(lookup_values):
+                                                if str(lookup_val) == answer_key_str:
+                                                    if 0 <= idx < len(answer_value):
+                                                        answer = str(answer_value[idx])
+                                                        break
+                                            else:
+                                                # No match found
+                                                answer = None
+                                        except (ValueError, IndexError):
+                                            answer = None
+                                    else:
+                                        # Fallback to original logic
+                                        answer = str(answer_value) if answer_value is not None else None
                                 # Original logic: answer_key is an integer index into answer_value
-                                if isinstance(answer_value, list) and isinstance(answer_key, int):
+                                elif isinstance(answer_value, list) and isinstance(answer_key, int):
                                     if 0 <= answer_key < len(answer_value):
                                         answer = str(answer_value[answer_key])
                                     else:

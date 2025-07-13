@@ -968,60 +968,6 @@ pub fn process_simple_training_file(
                         0.0
                     };
 
-                    // Debug output for overlap ratios > 1
-                    if overlap_ratio > 1.0 {
-                        println!("\nWARNING: Overlap ratio > 1.0 detected!");
-                        println!("  Training file: {}", file_name);
-                        println!("  Eval: {}:{}", eval_name, eval_line);
-                        println!(
-                            "  unique_matches={}, unique_ngrams={}, ratio={:.3}",
-                            unique_matches, unique_ngrams, overlap_ratio
-                        );
-                        println!(
-                            "  Cluster indices: start={}, end={}",
-                            cluster.start_idx, cluster.end_idx
-                        );
-
-                        // Print first 10 matched ngram IDs for debugging
-                        let id_vec: Vec<_> = matched_ngram_ids.iter().take(10).collect();
-                        println!("  First 10 matched ngram IDs: {:?}", id_vec);
-                        if matched_ngram_ids.len() > 10 {
-                            println!("  ... and {} more", matched_ngram_ids.len() - 10);
-                        }
-
-                        // Try to understand what's happening
-                        println!(
-                            "  This means we found {} unique n-grams in the training cluster",
-                            unique_matches
-                        );
-                        println!(
-                            "  But the eval document only has {} unique n-grams total",
-                            unique_ngrams
-                        );
-                        println!("  This should be impossible - investigating...");
-
-                        // Additional validation
-                        // Check if any of the matched ngram IDs are NOT in the eval document's ngrams
-                        let mut invalid_matches = 0;
-                        for ngram_id in matched_ngram_ids {
-                            if let Some(doc_set) = id_to_question_docs.get(ngram_id) {
-                                if !doc_set.contains(&doc_id) {
-                                    invalid_matches += 1;
-                                    println!("    ERROR: ngram_id {} is not associated with doc_id {} in id_to_question_docs!", ngram_id, doc_id);
-                                }
-                            } else {
-                                println!(
-                                    "    ERROR: ngram_id {} not found in id_to_question_docs at all!",
-                                    ngram_id
-                                );
-                            }
-                        }
-                        if invalid_matches > 0 {
-                            println!("  Found {} invalid ngram matches!", invalid_matches);
-                        }
-                        println!();
-                    }
-
                     // Calculate IDF scores
                     let (idf_sum, max_idf) = calculate_simple_toxic_score(
                         &cluster.matching_ngrams,
