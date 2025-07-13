@@ -1209,11 +1209,11 @@ EVAL_CONFIG = {
             'transform': {
                 'text_field': 'question',
                 'context_field': 'passage',
-                'answer_field': 'label',
-                'choices_field': 'options'
+                'answer_field': 'other.solution',
             }
         },
 
+        # TODO: needs regexp to extract
         'agi_eval_gaokao_english': {
             'local_path': 'fixtures/reference-static/gaokao-english.jsonl',
             'splits': ['train'],
@@ -1221,7 +1221,7 @@ EVAL_CONFIG = {
                 'text_field': 'question',
                 'context_field': 'passage',
                 'answer_field': 'label',
-                'choices_field': 'options'
+                'combine_context_and_question': True,
             }
         },
 
@@ -1232,7 +1232,8 @@ EVAL_CONFIG = {
                 'text_field': 'question',
                 'context_field': 'passage',
                 'answer_field': 'label',
-                'choices_field': 'options'
+                'choices_field': 'options',
+                'combine_context_and_question': True,
             }
         },
 
@@ -1254,7 +1255,7 @@ EVAL_CONFIG = {
                 'text_field': 'question',
                 'context_field': 'passage',
                 'answer_field': 'label',
-                'choices_field': 'options'
+                'combine_context_and_question': True,
             }
         },
 
@@ -1265,7 +1266,7 @@ EVAL_CONFIG = {
                 'text_field': 'question',
                 'context_field': 'passage',
                 'answer_field': 'label',
-                'choices_field': 'options'
+                'combine_context_and_question': True,
             }
         },
 
@@ -1274,8 +1275,7 @@ EVAL_CONFIG = {
             'splits': ['train'],
             'transform': {
                 'text_field': 'question',
-                'context_field': 'passage',
-                'answer_field': 'answer'
+                'answer_field': 'other.solution'
             }
         },
 
@@ -1285,8 +1285,7 @@ EVAL_CONFIG = {
             'transform': {
                 'text_field': 'question',
                 'context_field': 'passage',
-                'answer_field': 'label',
-                'choices_field': 'options'
+                'answer_field': 'other.solution'
             }
         },
 
@@ -1295,9 +1294,8 @@ EVAL_CONFIG = {
             'splits': ['train'],
             'transform': {
                 'text_field': 'question',
-                'context_field': 'passage',
                 'answer_field': 'label',
-                'choices_field': 'options'
+                'answer_field': 'other.solution'
             }
         },
 
@@ -1307,8 +1305,7 @@ EVAL_CONFIG = {
             'transform': {
                 'text_field': 'question',
                 'context_field': 'passage',
-                'answer_field': 'label',
-                'choices_field': 'options'
+                'answer_field': 'other.solution'
             }
         }
     }
@@ -1612,7 +1609,7 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                         # Write headers when opening file
                         for line in header_lines:
                             f_best_available.write(line)
-                    
+
                     # For best-available, we keep answers if they exist, remove if empty
                     best_available_record = record.copy()
                     if is_answer_empty(answer):
@@ -1707,13 +1704,13 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                                 question_only_record.pop('answer', None)
                                 question_only_record.pop('context', None)
                                 f_question_only.write(json.dumps(question_only_record) + '\n')
-                                
+
                                 # Always write to best-available file
                                 if f_best_available is None:
                                     f_best_available = open(output_file_best_available, 'w')
                                     for line in header_lines:
                                         f_best_available.write(line)
-                                
+
                                 best_available_record = record.copy()
                                 if is_answer_empty(answer):
                                     best_available_record.pop('answer', None)
@@ -1905,7 +1902,7 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                         # Write headers when opening file
                         for line in header_lines:
                             f_best_available.write(line)
-                    
+
                     # For best-available, we keep answers if they exist, remove if empty
                     best_available_record = record.copy()
                     if is_answer_empty(answer):

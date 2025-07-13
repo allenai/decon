@@ -813,11 +813,6 @@ impl SimpleContaminationEntry {
                     .filter_map(|&token_id| tokenizer.get_word(token_id as u32))
                     .collect();
 
-                if config.debug {
-                    println!("    Short answer validation: {} of {} tokens found (ratio: {:.2})",
-                             matching_tokens.len(), answer_token_set.len(), answer_overlap_ratio);
-                }
-
                 // Require both question and answer contamination
                 let is_contaminated = question_contam && answer_overlap_ratio >= config.short_answer_contamination_threshold;
                 return (is_contaminated, Some(answer_overlap_ratio), Some(matched_token_strings));
@@ -1070,7 +1065,7 @@ pub fn process_simple_training_file(
                             cluster.start_idx,
                             cluster.end_idx,
                             tokenizer,
-                            30, // context words (tripled from 10)
+                            60,
                         );
 
                         let mut entry_with_text = entry;
@@ -1231,7 +1226,7 @@ pub fn process_simple_training_file_streaming(
                             cluster.start_idx,
                             cluster.end_idx,
                             tokenizer,
-                            30, // context words (tripled from 10)
+                            60, // context words (tripled from 10)
                         );
 
                         // Create JSON entry

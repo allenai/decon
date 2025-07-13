@@ -5,10 +5,9 @@ SIMPLE is a contamination detection approach that uses n-gram indexing with inte
 ## How SIMPLE Works
 
 ### 1. N-gram Index Construction
-- Processes evaluation datasets to build an n-gram index
+- Processes evaluation datasets to build an n-gram index of eval questions
 - Each n-gram is assigned a unique ID and mapped to document IDs
 - Supports both word-level and subword tokenization
-- Handles short documents (< n-gram size) by using all available tokens
 
 ### 2. Sampling Strategy
 - Training data is processed with configurable sampling (default: every M n-grams)
@@ -26,32 +25,19 @@ SIMPLE is a contamination detection approach that uses n-gram indexing with inte
 - Tracks unique n-grams matched per evaluation document
 - Overlap ratio = (unique matched n-grams) / (total unique n-grams in doc)
 - Provides document-level granularity for contamination assessment
+- Weights IDF of the matched tokens
 
-### 5. Toxic Score Integration
-- Calculates IDF-based toxic scores similar to TOXIC mode
+### 5. Answer Evaluation
+- When running against a question and answer evaluation set performs an answer sweep
+- Only marks contamination if the answer is present near the contamination cluster
+- Window defaults to 2 times answer length, with a minimum set by `min_short_answer_distance`
+
+### 6. Contamination Calling
+
+- Calculates IDF-based weighted score with match overlap
+- Penalizes short questions using exponential decay over the length of the question
 - Weights n-grams by their inverse document frequency
 - Rare n-grams contribute more to the contamination score
-- Requires both overlap ratio and toxic score to exceed thresholds
-
-### 6. Efficient Memory Management
-- Uses concurrent data structures (DashMap) for parallel processing
-- Maintains separate mappings for display vs computation
-- Atomic ID generation for thread-safe n-gram indexing
-
-## Key Parameters
-
-- **`ngram_size`**: Size of n-gram window (default: 13)
-- **`sample_every_m_tokens`**: Sampling rate for training data (default: 50)
-- **`max_consecutive_misses`**: Gap tolerance during expansion (default: 3)
-- **`toxic_overlap_threshold`**: Minimum overlap ratio (default: 0.5)
-- **`toxic_score_threshold`**: Minimum toxic score (default: 0.5)
-- **`tokenizer_str`**: Tokenization method ("word", "p50k", "cl100k", etc.)
-
-## Algorithm Complexity
-
-- **Time**: O(T/M × E × C) where T=training tokens, M=sample rate, E=expansion length, C=cluster operations
-- **Space**: O(N + D) where N=unique n-grams, D=document metadata
-- **Sampling benefit**: Reduces time complexity by factor of M while maintaining accuracy
 
 ## Strengths
 
@@ -73,7 +59,7 @@ SIMPLE is a contamination detection approach that uses n-gram indexing with inte
 
 **Excellent for detecting:**
 - **Large-scale contamination**: Efficiently finds substantial overlaps
-- **Verbatim copying**: Exact text reuse between datasets  
+- **Verbatim copying**: Exact text reuse between datasets
 - **Performance-critical scenarios**: When speed matters more than semantic detection
 - **Token-level precision**: When exact token sequences matter
 
@@ -81,52 +67,3 @@ SIMPLE is a contamination detection approach that uses n-gram indexing with inte
 - **Paraphrased content**: Reworded but semantically similar text
 - **Very short overlaps**: Smaller than sampling window
 - **Semantic plagiarism**: Same ideas, different expression
-
-## Configuration Example
-
-```yaml
-mode: simple
-debug: false
-content_key: text
-local_input: /path/to/training/data
-reference_input: /path/to/eval/data
-report_output_dir: /path/to/output
-
-ngram_size: 13
-sample_every_m_tokens: 50
-max_consecutive_misses: 3
-toxic_overlap_threshold: 0.5
-toxic_score_threshold: 0.5
-tokenizer_str: cl100k
-```
-
-## Output Format
-
-Results saved to `simple_contamination_results.jsonl`:
-```json
-{
-  "training_file": "train_batch_1.jsonl",
-  "training_line": 42,
-  "eval_dataset": "mmlu_dev", 
-  "eval_line": 156,
-  "overlap_ratio": 0.82,
-  "toxic_score": 3.45,
-  "contamination_start_idx": 125,
-  "contamination_end_idx": 287,
-  "method": "simple"
-}
-```
-
-## Advanced Features
-
-### Intersection-Based Walking
-The cluster expansion algorithm maintains active document sets and uses intersection logic to determine when documents no longer match, preventing false positive expansion.
-
-### Word Vocabulary Building
-In word tokenization mode, builds vocabulary dynamically from the reference set, enabling consistent word-to-ID mapping across processing.
-
-### Position Recovery
-Tracks token indices for contamination regions, enabling precise location of matching content within documents for further analysis.
-
-### Sampling Philosophy
-"Sample sparsely, expand thoroughly" - the algorithm samples at intervals but exhaustively explores around detected matches to capture complete contamination regions.
