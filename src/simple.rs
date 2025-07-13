@@ -1019,12 +1019,6 @@ pub fn process_simple_training_file(
                         entry_with_text.answer_overlap_ratio = answer_overlap_ratio;
                         entry_with_text.matched_answer_tokens = matched_answer_tokens;
                         cluster_results.push(entry_with_text);
-
-                        // println!("Found contamination: train_line={}, eval={}:{}, overlap={:.3} (>={:.3}), idf_sum={:.3} (>={:.3})", //debug
-                        //          line_num, eval_name, eval_line, overlap_ratio, config.toxic_overlap_threshold, idf_sum, config.toxic_score_threshold);
-                    } else {
-                        // println!("Below threshold: train_line={}, eval={}:{}, overlap={:.3} < {:.3} OR idf_sum={:.3} < {:.3}", //debug
-                        //          line_num, eval_name, eval_line, overlap_ratio, config.toxic_overlap_threshold, idf_sum, config.toxic_score_threshold);
                     }
                 }
             }
@@ -1036,13 +1030,8 @@ pub fn process_simple_training_file(
                     .extend(cluster_results);
             }
         }
-
-        // if lines_processed % 10000 == 0 {
-        //     println!("Processed {} lines from {}", lines_processed, file_name); //debug
-        // }
     }
 
-    // println!("Finished processing {}: {} lines", file_name, lines_processed); //debug
     Ok(lines_processed)
 }
 
