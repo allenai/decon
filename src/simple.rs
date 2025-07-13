@@ -847,7 +847,7 @@ fn short_answer_tokens(
     // Calculate window size as max(answer_length*2, min_short_answer_distance)
     let answer_length = answer_token_set.len();
     let window_size = std::cmp::max(answer_length * 2, config.min_short_answer_distance);
-    
+
     if config.exclude_question_from_answer_sweep {
         // When excluding question tokens, search in prefix and suffix regions
         let prefix_search_start = cluster.start_idx.saturating_sub(window_size);

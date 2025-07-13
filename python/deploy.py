@@ -57,6 +57,7 @@ class DeploymentConfig:
     tokenizer_str: str = "word"
     debug: bool = False
     purify: bool = False
+    reference_input: str = "fixtures/reference-best-available"
 
     # Orchestrator configuration
     remote_file_input: Optional[str] = None
@@ -172,6 +173,7 @@ class DeploymentManager:
         daemon_cmd += f" --toxic-overlap-threshold {self.config.toxic_overlap_threshold}"
         daemon_cmd += f" --toxic-score-threshold {self.config.toxic_score_threshold}"
         daemon_cmd += f" --tokenizer {self.config.tokenizer_str}"
+        daemon_cmd += f" --reference-input {self.config.reference_input}"
 
         # Set output directories within the local work directory mount
         daemon_cmd += f" --report-output-dir {self.config.local_work_dir}/results"
@@ -478,6 +480,25 @@ def wizard():
     tokenizer_str = click.prompt("Tokenizer", default="word",
                                 type=click.Choice(['word', 'p50k', 'cl100k']))
 
+    # Reference dataset selection
+    print("\n--- Reference Dataset Selection ---")
+    print("\nChoose which evaluation dataset to use for contamination detection:")
+    print("  questions              - All question prompts from covered evals (likely many reference/context 'fp')")
+    print("  questions-and-answers  - All eval entries that have both a question and answer")
+    print("  best-available         - All entries from covered evals with answer evaluated if present, otherwise question matches\n")
+
+    reference_choice = click.prompt("Reference dataset",
+                                   default="questions-and-answers",
+                                   type=click.Choice(['questions', 'questions-and-answers', 'best-available']))
+
+    # Map choice to actual directory path
+    reference_input_map = {
+        'questions': 'fixtures/reference-questions',
+        'questions-and-answers': 'fixtures/reference-questions-and-answers',
+        'best-available': 'fixtures/reference-best-available'
+    }
+    reference_input = reference_input_map[reference_choice]
+
     # Other options
     debug = False  # Debug mode hardcoded to false
     daemon_port = 8080  # Daemon port hardcoded to default
@@ -504,6 +525,7 @@ def wizard():
         tokenizer_str=tokenizer_str,
         debug=debug,
         purify=purify,
+        reference_input=reference_input,
         # Orchestrator settings
         remote_file_input=remote_file_input if remote_file_input else None,
         remote_report_output_dir=remote_report_output_dir if remote_report_output_dir else None,
@@ -516,6 +538,7 @@ def wizard():
     print(f"  Cluster: {deploy_config.cluster_name} ({deploy_config.instance_count} x {deploy_config.instance_type})")
     print(f"  Mode: {deploy_config.mode}")
     print(f"  Tokenizer: {deploy_config.tokenizer_str}")
+    print(f"  Reference dataset: {reference_choice}")
     print(f"  N-gram size: {deploy_config.ngram_size}")
     print(f"  Sampling: every {deploy_config.sample_every_m_tokens} tokens")
     print(f"  Purification: {'enabled' if deploy_config.purify else 'disabled'}")
@@ -558,6 +581,7 @@ def wizard():
     print(f"    --toxic-overlap-threshold {toxic_overlap_threshold} \\")
     print(f"    --toxic-score-threshold {toxic_score_threshold} \\")
     print(f"    --tokenizer {tokenizer_str} \\")
+    print(f"    --reference-input {reference_input} \\")
     print(f"    --report-output-dir {local_work_dir}/results \\")
     print(f"    --cleaned-output-dir {local_work_dir}/cleaned", end="")
     if purify:
