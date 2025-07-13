@@ -844,20 +844,52 @@ fn short_answer_tokens(
     training_tokens: &[usize],
     config: &Config,
 ) -> HashSet<usize> {
-    // Define search window
-    let search_start = cluster.start_idx.saturating_sub(config.max_short_answer_distance);
-    let search_end = (cluster.end_idx + config.max_short_answer_distance).min(training_tokens.len());
+    if config.exclude_question_from_answer_sweep {
+        // When excluding question tokens, search in prefix and suffix regions
+        let prefix_search_start = cluster.start_idx.saturating_sub(config.max_short_answer_distance);
+        let prefix_search_end = cluster.start_idx;
+        let suffix_search_start = cluster.end_idx;
+        let suffix_search_end = (cluster.end_idx + config.max_short_answer_distance).min(training_tokens.len());
+        
+        // Collect tokens from both regions
+        let mut training_token_set = HashSet::new();
+        
+        // Add prefix tokens
+        if prefix_search_start < prefix_search_end {
+            training_token_set.extend(
+                training_tokens[prefix_search_start..prefix_search_end].iter().copied()
+            );
+        }
+        
+        // Add suffix tokens
+        if suffix_search_start < suffix_search_end {
+            training_token_set.extend(
+                training_tokens[suffix_search_start..suffix_search_end].iter().copied()
+            );
+        }
+        
+        // Find matching tokens
+        answer_token_set
+            .iter()
+            .filter(|token| training_token_set.contains(token))
+            .copied()
+            .collect()
+    } else {
+        // Original behavior: search entire window including the question
+        let search_start = cluster.start_idx.saturating_sub(config.max_short_answer_distance);
+        let search_end = (cluster.end_idx + config.max_short_answer_distance).min(training_tokens.len());
 
-    // Extract training tokens in the search window
-    let training_window = &training_tokens[search_start..search_end];
-    let training_token_set: HashSet<usize> = training_window.iter().copied().collect();
+        // Extract training tokens in the search window
+        let training_window = &training_tokens[search_start..search_end];
+        let training_token_set: HashSet<usize> = training_window.iter().copied().collect();
 
-    // Find matching tokens
-    answer_token_set
-        .iter()
-        .filter(|token| training_token_set.contains(token))
-        .copied()
-        .collect()
+        // Find matching tokens
+        answer_token_set
+            .iter()
+            .filter(|token| training_token_set.contains(token))
+            .copied()
+            .collect()
+    }
 }
 
 fn short_answer_one_gram_overlap_ratio(

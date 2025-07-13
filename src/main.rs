@@ -383,6 +383,8 @@ pub struct Config {
     pub max_short_answer_distance: usize,
     #[serde(default = "default_short_answer_contamination_threshold")]
     pub short_answer_contamination_threshold: f32,
+    #[serde(default)]
+    pub exclude_question_from_answer_sweep: bool,
 
     // Purify option - create cleaned files with contaminated lines removed
     #[serde(default)]
