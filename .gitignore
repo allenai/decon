@@ -10,6 +10,7 @@ fixtures/big_input
 fixtures/dumps
 fixtures/reference-download-questions
 fixtures/reference-download-questions-and-answers
+fixtures/reference-download-best-available
 fixtures/reference-questions
 fixtures/reference-questions-and-answers
 tests/output

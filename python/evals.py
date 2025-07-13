@@ -17,6 +17,7 @@ import shutil
 EVAL_CONFIG = {
     'output_dir': 'fixtures/reference-download-questions-and-answers',
     'output_dir_question_only': 'fixtures/reference-download-questions',
+    'output_dir_best_available': 'fixtures/reference-download-best-available',
     'jsonl_format': {
         'eval_field': 'eval_name',
         'index_field': 'index',
@@ -1466,8 +1467,10 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
     project_root = Path(__file__).parent.parent
     output_dir = project_root / global_config['output_dir']
     output_dir_question_only = project_root / global_config['output_dir_question_only']
+    output_dir_best_available = project_root / global_config['output_dir_best_available']
     output_dir.mkdir(parents=True, exist_ok=True)
     output_dir_question_only.mkdir(parents=True, exist_ok=True)
+    output_dir_best_available.mkdir(parents=True, exist_ok=True)
 
     # Process each split
     for split in eval_config['splits']:
@@ -1480,6 +1483,7 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
         # Output file paths (same filename in different directories)
         output_file = output_dir / f"{eval_name}_{split}.jsonl"
         output_file_question_only = output_dir_question_only / f"{eval_name}_{split}.jsonl"
+        output_file_best_available = output_dir_best_available / f"{eval_name}_{split}.jsonl"
 
         # Track seen contexts to avoid duplicates
         seen_contexts = set()
@@ -1547,6 +1551,7 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
         # Lazy file handles - only opened when needed
         f_with_answers = None
         f_question_only = None
+        f_best_available = None
 
         try:
             for idx, example in enumerate(dataset[split]):
@@ -1600,6 +1605,19 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                     question_only_record.pop('answer', None)
                     question_only_record.pop('context', None)
                     f_question_only.write(json.dumps(question_only_record) + '\n')
+
+                    # Always write to best-available file (includes answer if available)
+                    if f_best_available is None:
+                        f_best_available = open(output_file_best_available, 'w')
+                        # Write headers when opening file
+                        for line in header_lines:
+                            f_best_available.write(line)
+                    
+                    # For best-available, we keep answers if they exist, remove if empty
+                    best_available_record = record.copy()
+                    if is_answer_empty(answer):
+                        best_available_record.pop('answer', None)
+                    f_best_available.write(json.dumps(best_available_record) + '\n')
 
                     # Also write to with-answers file if answer is not empty
                     if not is_answer_empty(answer):
@@ -1689,6 +1707,17 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                                 question_only_record.pop('answer', None)
                                 question_only_record.pop('context', None)
                                 f_question_only.write(json.dumps(question_only_record) + '\n')
+                                
+                                # Always write to best-available file
+                                if f_best_available is None:
+                                    f_best_available = open(output_file_best_available, 'w')
+                                    for line in header_lines:
+                                        f_best_available.write(line)
+                                
+                                best_available_record = record.copy()
+                                if is_answer_empty(answer):
+                                    best_available_record.pop('answer', None)
+                                f_best_available.write(json.dumps(best_available_record) + '\n')
 
                                 if not is_answer_empty(answer):
                                     if f_with_answers is None:
@@ -1870,6 +1899,19 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                     question_only_record.pop('context', None)
                     f_question_only.write(json.dumps(question_only_record) + '\n')
 
+                    # Always write to best-available file (includes answer if available)
+                    if f_best_available is None:
+                        f_best_available = open(output_file_best_available, 'w')
+                        # Write headers when opening file
+                        for line in header_lines:
+                            f_best_available.write(line)
+                    
+                    # For best-available, we keep answers if they exist, remove if empty
+                    best_available_record = record.copy()
+                    if is_answer_empty(answer):
+                        best_available_record.pop('answer', None)
+                    f_best_available.write(json.dumps(best_available_record) + '\n')
+
                     # Also write to with-answers file if answer is not empty
                     if not is_answer_empty(answer):
                         # Open with-answers file if not already open
@@ -1924,6 +1966,13 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                                     question_only_choice_record.pop('context', None)
                                     f_question_only.write(json.dumps(question_only_choice_record) + '\n')
 
+                                    # Always write to best-available file (choices always have answers)
+                                    if f_best_available is None:
+                                        f_best_available = open(output_file_best_available, 'w')
+                                        for line in header_lines:
+                                            f_best_available.write(line)
+                                    f_best_available.write(json.dumps(choice_record) + '\n')
+
                                     # Open with-answers file if not already open (choices always have answers)
                                     if f_with_answers is None:
                                         f_with_answers = open(output_file, 'w')
@@ -1969,6 +2018,13 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                                     question_only_choice_record.pop('context', None)
                                     f_question_only.write(json.dumps(question_only_choice_record) + '\n')
 
+                                    # Always write to best-available file (choices always have answers)
+                                    if f_best_available is None:
+                                        f_best_available = open(output_file_best_available, 'w')
+                                        for line in header_lines:
+                                            f_best_available.write(line)
+                                    f_best_available.write(json.dumps(choice_record) + '\n')
+
                                     # Open with-answers file if not already open (choices always have answers)
                                     if f_with_answers is None:
                                         f_with_answers = open(output_file, 'w')
@@ -1986,6 +2042,8 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                 f_question_only.close()
             if f_with_answers is not None:
                 f_with_answers.close()
+            if f_best_available is not None:
+                f_best_available.close()
 
         # Log missing fields loudly (only for question and answer)
         # Check if this split is expected to have no answers
@@ -2035,6 +2093,7 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
 
         if dataset_stats['records'] > 0:
             print(f"  - All questions: {dataset_stats['records']} records → {output_file_question_only}")
+            print(f"  - Best available: {dataset_stats['records']} records → {output_file_best_available}")
         if dataset_stats['records_with_answers'] > 0:
             print(f"  - With answers: {dataset_stats['records_with_answers']} records → {output_file}")
 
@@ -2053,6 +2112,7 @@ def download_all_evals():
     project_root = Path(__file__).parent.parent
     output_dir = project_root / EVAL_CONFIG['output_dir']
     output_dir_question_only = project_root / EVAL_CONFIG['output_dir_question_only']
+    output_dir_best_available = project_root / EVAL_CONFIG['output_dir_best_available']
 
     # Remove existing directories if they exist
     if output_dir.exists():
@@ -2061,10 +2121,14 @@ def download_all_evals():
     if output_dir_question_only.exists():
         print(f"Clearing existing directory: {output_dir_question_only}")
         shutil.rmtree(output_dir_question_only)
+    if output_dir_best_available.exists():
+        print(f"Clearing existing directory: {output_dir_best_available}")
+        shutil.rmtree(output_dir_best_available)
 
     # Create fresh directories
     output_dir.mkdir(parents=True, exist_ok=True)
     output_dir_question_only.mkdir(parents=True, exist_ok=True)
+    output_dir_best_available.mkdir(parents=True, exist_ok=True)
     print("Created fresh output directories")
 
     # Initialize global document ID counter (using list for mutable reference)
