@@ -109,16 +109,13 @@ evals:
 	python python/evals.py --download
 
 evals-s3:
-	mkdir -p fixtures/reference
-	s5cmd sync s3://decon-evals-questions/* fixtures/reference-questions
-	s5cmd sync s3://decon-evals-questions-and-answers/* fixtures/reference-questions-and-answers
-	s5cmd sync s3://decon-evals-best-available/* fixtures/reference-best-available
+	s5cmd sync s3://decon-evals/* fixtures/
 
 push-evals:
 	@echo "Syncing reference files to s3://decon-evals/ with deletion..."
-	s5cmd sync --delete fixtures/reference-questions s3://decon-evals-questions/
-	s5cmd sync --delete fixtures/reference-questions-and-answers s3://decon-evals-questions-and-answers/
-	s5cmd sync --delete fixtures/reference-best-available s3://decon-evals-best-available/
+	s5cmd sync --delete fixtures/reference-questions s3://decon-evals/
+	s5cmd sync --delete fixtures/reference-questions-and-answers s3://decon-evals/
+	s5cmd sync --delete fixtures/reference-best-available s3://decon-evals/
 	@echo "Push to S3 complete!"
 
 embeddings:
