@@ -45,7 +45,9 @@ fn read_compressed_file(path: &PathBuf) -> Result<Vec<u8>, Error> {
 
 // Simple mode structures
 type NgramToIdMap = DashMap<u64, u64>; // Maps n-gram hash to unique ID
-type IdToDocsMap = DashMap<u64, HashSet<u32>>; // Maps n-gram ID to set of document IDs
+type IdToQuestionDocsMap = DashMap<u64, HashSet<u32>>; // Maps n-gram ID to set of document IDs (for questions)
+type IdToAnswerDocsMap = DashMap<u64, HashSet<u32>>; // Maps n-gram ID to set of document IDs (for long answers)
+type IdToShortAnswerMap = DashMap<u32, HashSet<usize>>; // Maps doc_id to set of token IDs (for short answers)
 type EvalDocuments = DashMap<u32, (String, usize, usize, usize)>; // Maps doc_id to (eval_name, line_num, total_ngrams, unique_ngrams)
 type EvalTextSnippets = DashMap<(String, usize), String>; // Maps (eval_name, line_num) to text snippet (first 1000 words)
 type IdToNgramTokens = DashMap<u64, Vec<usize>>; // Maps unique ID to token IDs for display
@@ -83,7 +85,9 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
     let index_start = Instant::now();
     let (
         ngram_to_id,
-        id_to_docs,
+        id_to_question_docs,
+        _id_to_answer_docs,
+        _id_to_short_answer,
         eval_documents,
         id_to_ngram_tokens,
         tokenizer,
@@ -102,7 +106,7 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
     let total_contaminations = detect_simple_contamination(
         config,
         &ngram_to_id,
-        &id_to_docs,
+        &id_to_question_docs,
         &eval_documents,
         &id_to_ngram_tokens,
         &tokenizer,
@@ -122,7 +126,9 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
 // Public type for the index
 pub type SimpleIndex = (
     NgramToIdMap,
-    IdToDocsMap,
+    IdToQuestionDocsMap,
+    IdToAnswerDocsMap,
+    IdToShortAnswerMap,
     EvalDocuments,
     IdToNgramTokens,
     OmniTokenizer,
@@ -131,7 +137,9 @@ pub type SimpleIndex = (
 
 pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
     let ngram_to_id: NgramToIdMap = DashMap::new();
-    let id_to_docs: IdToDocsMap = DashMap::new();
+    let id_to_question_docs: IdToQuestionDocsMap = DashMap::new();
+    let id_to_answer_docs: IdToAnswerDocsMap = DashMap::new();
+    let id_to_short_answer: IdToShortAnswerMap = DashMap::new();
     let eval_documents: EvalDocuments = DashMap::new();
     let id_to_ngram_tokens: IdToNgramTokens = DashMap::new();
     let eval_text_snippets: EvalTextSnippets = DashMap::new();
@@ -156,7 +164,9 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
             file_path,
             config,
             &ngram_to_id,
-            &id_to_docs,
+            &id_to_question_docs,
+            &id_to_answer_docs,
+            &id_to_short_answer,
             &eval_documents,
             &next_ngram_id,
             &tokenizer,
@@ -173,7 +183,9 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
 
     Ok((
         ngram_to_id,
-        id_to_docs,
+        id_to_question_docs,
+        id_to_answer_docs,
+        id_to_short_answer,
         eval_documents,
         id_to_ngram_tokens,
         tokenizer,
@@ -185,7 +197,9 @@ fn process_simple_reference_file(
     file_path: &PathBuf,
     config: &Config,
     ngram_to_id: &NgramToIdMap,
-    id_to_docs: &IdToDocsMap,
+    id_to_question_docs: &IdToQuestionDocsMap,
+    id_to_answer_docs: &IdToAnswerDocsMap,
+    id_to_short_answer: &IdToShortAnswerMap,
     eval_documents: &EvalDocuments,
     next_ngram_id: &std::sync::atomic::AtomicU64,
     tokenizer: &OmniTokenizer,
@@ -205,67 +219,20 @@ fn process_simple_reference_file(
 
     let mut _lines_processed = 0;
     let mut _skipped_entries = 0;
-    let min_word_count = config.eval_min_word_count;
+    let _min_word_count = config.eval_min_word_count;
 
     for (line_num, line) in data.lines().enumerate() {
         let line = line?;
-        let json_obj: Value = serde_json::from_str(&line)?;
-        let line_text = get_nested_json_val(&json_obj, &config.content_key.to_string())?;
 
-        // Clean text for both tokenizer types
-        let cleaned = clean_text(&line_text, &config.punctuation_chars);
-
-        // Store eval text snippet (first 1000 words)
-        let snippet_words: Vec<&str> = cleaned.split_whitespace().take(1000).collect();
-        let text_snippet = snippet_words.join(" ");
-        eval_text_snippets.insert((eval_name.clone(), line_num), text_snippet);
-
-        // Use preprocess_text to get token IDs
-        let word_tokens = if config.tokenizer_str == "word" {
-            // For word mode, build vocabulary from reference set
-            let words: Vec<String> = cleaned
-                .split_whitespace()
-                .map(|s| s.to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-            // Add words to vocabulary and get IDs
-            words
-                .iter()
-                .map(|word| tokenizer.add_word(word) as usize)
-                .collect()
-        } else {
-            let Ok(tokens) =
-                catch_unwind(|| preprocess_text(&line_text, tokenizer, &config.punctuation_chars))
-            else {
-                println!(
-                    "Tokenization failed on {:?} | line {:?}",
-                    file_path, line_num
-                );
-                _skipped_entries += 1;
-                continue;
-            };
-            tokens
-        };
-        let word_count = word_tokens.len();
-
-        // Skip entries with insufficient tokens for meaningful n-gram analysis
-        if word_count < min_word_count {
-            _skipped_entries += 1;
+        // Skip comment lines
+        if line.starts_with('#') {
             continue;
         }
 
-        _lines_processed += 1;
+        let json_obj: Value = serde_json::from_str(&line)?;
 
-        // Calculate total n-grams for this document
-        let total_ngrams = if word_tokens.len() < config.ngram_size {
-            if word_tokens.is_empty() {
-                0
-            } else {
-                1
-            }
-        } else {
-            word_tokens.len() - config.ngram_size + 1
-        };
+        // Check if this is a Q&A dataset
+        let has_answer_fields = json_obj.get("answer").is_some();
 
         // Read document ID from JSON (generated by Python download script)
         let doc_id = json_obj
@@ -274,55 +241,43 @@ fn process_simple_reference_file(
             .ok_or_else(|| anyhow::anyhow!("Missing or invalid doc_id field in reference file"))?
             as u32;
 
-        // Track unique n-grams for this document
-        let mut unique_ngrams_set = HashSet::new();
 
-        // Process n-grams
-        if word_tokens.len() < config.ngram_size {
-            if !word_tokens.is_empty() {
-                // For documents shorter than ngram_size, use all tokens
-                let ngram_tokens = word_tokens.clone();
-                let ngram_id = get_or_create_ngram_id(
-                    &ngram_tokens,
-                    ngram_to_id,
-                    next_ngram_id,
-                    id_to_ngram_tokens,
-                );
-                unique_ngrams_set.insert(ngram_id);
-                add_doc_to_ngram(ngram_id, doc_id, id_to_docs);
-
-                // println!("Short doc ngram: '{:?}' -> ID: {}", ngram_tokens, ngram_id); //debug
-            }
-        } else {
-            for i in 0..=word_tokens.len() - config.ngram_size {
-                let ngram_slice = &word_tokens[i..i + config.ngram_size];
-                let ngram_tokens = ngram_slice.to_vec();
-                let ngram_id = get_or_create_ngram_id(
-                    &ngram_tokens,
-                    ngram_to_id,
-                    next_ngram_id,
-                    id_to_ngram_tokens,
-                );
-                unique_ngrams_set.insert(ngram_id);
-                add_doc_to_ngram(ngram_id, doc_id, id_to_docs);
-
-                // if i < 3 { // Only log first few for debugging
-                //     println!("Ngram {}: '{:?}' -> ID: {}", i, ngram_tokens, ngram_id); //debug
-                // }
-            }
+        // Process question field
+        if let Some(question) = json_obj.get("question").and_then(|v| v.as_str()) {
+            process_question_field(
+                question,
+                doc_id,
+                line_num,
+                &eval_name,
+                config,
+                tokenizer,
+                ngram_to_id,
+                id_to_question_docs,
+                eval_documents,
+                &next_ngram_id,
+                id_to_ngram_tokens,
+                eval_text_snippets,
+                &mut _lines_processed,
+                &mut _skipped_entries,
+            )?;
         }
 
-        let unique_ngrams = unique_ngrams_set.len();
-
-        // Store document metadata (no collision possible with sequential IDs)
-        eval_documents.insert(
-            doc_id,
-            (eval_name.clone(), line_num, total_ngrams, unique_ngrams),
-        );
-
-        // if _lines_processed % 1000 == 0 {
-        //     println!("Processed {} lines from {}, current n-gram vocab size: {}", _lines_processed, eval_name, ngram_to_id.len()); //debug
-        // }
+        if has_answer_fields {
+            // Process answer field
+            if let Some(answer) = json_obj.get("answer").and_then(|v| v.as_str()) {
+                process_answer_field(
+                    answer,
+                    doc_id,
+                    config,
+                    tokenizer,
+                    ngram_to_id,
+                    id_to_answer_docs,
+                    id_to_short_answer,
+                    &next_ngram_id,
+                    id_to_ngram_tokens,
+                )?;
+            }
+        }
     }
 
     // println!("Finished {}: processed {} lines, skipped {} short entries", eval_name, _lines_processed, _skipped_entries); //debug
@@ -369,17 +324,198 @@ fn get_or_create_ngram_id(
     }
 }
 
-fn add_doc_to_ngram(ngram_id: u64, doc_id: u32, id_to_docs: &IdToDocsMap) {
+fn add_doc_to_ngram(ngram_id: u64, doc_id: u32, id_to_docs: &IdToQuestionDocsMap) {
     id_to_docs
         .entry(ngram_id)
         .or_insert_with(HashSet::new)
         .insert(doc_id);
 }
 
+fn add_doc_to_answer_ngram(ngram_id: u64, doc_id: u32, id_to_answer_docs: &IdToAnswerDocsMap) {
+    id_to_answer_docs
+        .entry(ngram_id)
+        .or_insert_with(HashSet::new)
+        .insert(doc_id);
+}
+
+// Helper function to process question field
+fn process_question_field(
+    question: &str,
+    doc_id: u32,
+    line_num: usize,
+    eval_name: &str,
+    config: &Config,
+    tokenizer: &OmniTokenizer,
+    ngram_to_id: &NgramToIdMap,
+    id_to_question_docs: &IdToQuestionDocsMap,
+    eval_documents: &EvalDocuments,
+    next_ngram_id: &std::sync::atomic::AtomicU64,
+    id_to_ngram_tokens: &IdToNgramTokens,
+    eval_text_snippets: &EvalTextSnippets,
+    lines_processed: &mut usize,
+    skipped_entries: &mut usize,
+) -> Result<(), Error> {
+    // Clean text for both tokenizer types
+    let cleaned = clean_text(question, &config.punctuation_chars);
+
+    // Store eval text snippet (first 1000 words)
+    let snippet_words: Vec<&str> = cleaned.split_whitespace().take(1000).collect();
+    let text_snippet = snippet_words.join(" ");
+    eval_text_snippets.insert((eval_name.to_string(), line_num), text_snippet);
+
+    // Use preprocess_text to get token IDs
+    let word_tokens = if config.tokenizer_str == "word" {
+        // For word mode, build vocabulary from reference set
+        let words: Vec<String> = cleaned
+            .split_whitespace()
+            .map(|s| s.to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        // Add words to vocabulary and get IDs
+        words
+            .iter()
+            .map(|word| tokenizer.add_word(word) as usize)
+            .collect()
+    } else {
+        let Ok(tokens) =
+            catch_unwind(|| preprocess_text(question, tokenizer, &config.punctuation_chars))
+        else {
+            println!(
+                "Tokenization failed on question for doc_id {} | line {}",
+                doc_id, line_num
+            );
+            *skipped_entries += 1;
+            return Ok(());
+        };
+        tokens
+    };
+    let word_count = word_tokens.len();
+
+    // Skip entries with insufficient tokens for meaningful n-gram analysis
+    if word_count < config.eval_min_word_count {
+        *skipped_entries += 1;
+        return Ok(());
+    }
+
+    *lines_processed += 1;
+
+    // Calculate total n-grams for this document
+    let total_ngrams = if word_tokens.len() < config.ngram_size {
+        if word_tokens.is_empty() {
+            0
+        } else {
+            1
+        }
+    } else {
+        word_tokens.len() - config.ngram_size + 1
+    };
+
+    // Track unique n-grams for this document
+    let mut unique_ngrams_set = HashSet::new();
+
+    // Process n-grams
+    if word_tokens.len() < config.ngram_size {
+        if !word_tokens.is_empty() {
+            // For documents shorter than ngram_size, use all tokens
+            let ngram_tokens = word_tokens.clone();
+            let ngram_id = get_or_create_ngram_id(
+                &ngram_tokens,
+                ngram_to_id,
+                next_ngram_id,
+                id_to_ngram_tokens,
+            );
+            unique_ngrams_set.insert(ngram_id);
+            add_doc_to_ngram(ngram_id, doc_id, id_to_question_docs);
+        }
+    } else {
+        for i in 0..=word_tokens.len() - config.ngram_size {
+            let ngram_slice = &word_tokens[i..i + config.ngram_size];
+            let ngram_tokens = ngram_slice.to_vec();
+            let ngram_id = get_or_create_ngram_id(
+                &ngram_tokens,
+                ngram_to_id,
+                next_ngram_id,
+                id_to_ngram_tokens,
+            );
+            unique_ngrams_set.insert(ngram_id);
+            add_doc_to_ngram(ngram_id, doc_id, id_to_question_docs);
+        }
+    }
+
+    let unique_ngrams = unique_ngrams_set.len();
+
+    // Store document metadata (no collision possible with sequential IDs)
+    eval_documents.insert(
+        doc_id,
+        (eval_name.to_string(), line_num, total_ngrams, unique_ngrams),
+    );
+
+    Ok(())
+}
+
+// Helper function to process answer field
+fn process_answer_field(
+    answer: &str,
+    doc_id: u32,
+    config: &Config,
+    tokenizer: &OmniTokenizer,
+    ngram_to_id: &NgramToIdMap,
+    id_to_answer_docs: &IdToAnswerDocsMap,
+    id_to_short_answer: &IdToShortAnswerMap,
+    next_ngram_id: &std::sync::atomic::AtomicU64,
+    id_to_ngram_tokens: &IdToNgramTokens,
+) -> Result<(), Error> {
+    // Clean text for both tokenizer types
+    let cleaned = clean_text(answer, &config.punctuation_chars);
+
+    // Get token IDs
+    let word_tokens = if config.tokenizer_str == "word" {
+        let words: Vec<String> = cleaned
+            .split_whitespace()
+            .map(|s| s.to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        words
+            .iter()
+            .map(|word| tokenizer.add_word(word) as usize)
+            .collect()
+    } else {
+        let Ok(tokens) =
+            catch_unwind(|| preprocess_text(answer, tokenizer, &config.punctuation_chars))
+        else {
+            // Skip this answer if tokenization fails
+            return Ok(());
+        };
+        tokens
+    };
+
+    // Check if this is a short answer
+    if word_tokens.len() < config.ngram_size {
+        // Store in short answer map
+        let token_set: HashSet<usize> = word_tokens.into_iter().collect();
+        id_to_short_answer.insert(doc_id, token_set);
+    } else {
+        // Process as long answer with n-grams
+        for i in 0..=word_tokens.len() - config.ngram_size {
+            let ngram_slice = &word_tokens[i..i + config.ngram_size];
+            let ngram_tokens = ngram_slice.to_vec();
+            let ngram_id = get_or_create_ngram_id(
+                &ngram_tokens,
+                ngram_to_id,
+                next_ngram_id,
+                id_to_ngram_tokens,
+            );
+            add_doc_to_answer_ngram(ngram_id, doc_id, id_to_answer_docs);
+        }
+    }
+
+    Ok(())
+}
+
 fn detect_simple_contamination(
     config: &Config,
     ngram_to_id: &NgramToIdMap,
-    id_to_docs: &IdToDocsMap,
+    id_to_question_docs: &IdToQuestionDocsMap,
     eval_documents: &EvalDocuments,
     id_to_ngram_tokens: &IdToNgramTokens,
     tokenizer: &OmniTokenizer,
@@ -424,7 +560,7 @@ fn detect_simple_contamination(
             file_path,
             config,
             ngram_to_id,
-            id_to_docs,
+            id_to_question_docs,
             eval_documents,
             tokenizer,
             id_to_ngram_tokens,
@@ -700,7 +836,7 @@ pub fn process_simple_training_file(
     file_path: &PathBuf,
     config: &Config,
     ngram_to_id: &NgramToIdMap,
-    id_to_docs: &IdToDocsMap,
+    id_to_question_docs: &IdToQuestionDocsMap,
     eval_documents: &EvalDocuments,
     contamination_results: &ContaminationResults,
     tokenizer: &OmniTokenizer,
@@ -756,7 +892,7 @@ pub fn process_simple_training_file(
             &word_tokens,
             config,
             ngram_to_id,
-            id_to_docs,
+            id_to_question_docs,
             id_to_ngram_tokens,
         )?;
 
@@ -810,14 +946,14 @@ pub fn process_simple_training_file(
                         // Check if any of the matched ngram IDs are NOT in the eval document's ngrams
                         let mut invalid_matches = 0;
                         for ngram_id in &matched_ngram_ids {
-                            if let Some(doc_set) = id_to_docs.get(ngram_id) {
+                            if let Some(doc_set) = id_to_question_docs.get(ngram_id) {
                                 if !doc_set.contains(&doc_id) {
                                     invalid_matches += 1;
-                                    println!("    ERROR: ngram_id {} is not associated with doc_id {} in id_to_docs!", ngram_id, doc_id);
+                                    println!("    ERROR: ngram_id {} is not associated with doc_id {} in id_to_question_docs!", ngram_id, doc_id);
                                 }
                             } else {
                                 println!(
-                                    "    ERROR: ngram_id {} not found in id_to_docs at all!",
+                                    "    ERROR: ngram_id {} not found in id_to_question_docs at all!",
                                     ngram_id
                                 );
                             }
@@ -832,7 +968,7 @@ pub fn process_simple_training_file(
                     let (idf_sum, max_idf) = calculate_simple_toxic_score(
                         &cluster.matching_ngrams,
                         ngram_to_id,
-                        id_to_docs,
+                        id_to_question_docs,
                         total_docs,
                         id_to_ngram_tokens,
                     );
@@ -904,7 +1040,7 @@ pub fn process_simple_training_file_streaming(
     file_path: &PathBuf,
     config: &Config,
     ngram_to_id: &NgramToIdMap,
-    id_to_docs: &IdToDocsMap,
+    id_to_question_docs: &IdToQuestionDocsMap,
     eval_documents: &EvalDocuments,
     tokenizer: &OmniTokenizer,
     id_to_ngram_tokens: &IdToNgramTokens,
@@ -965,7 +1101,7 @@ pub fn process_simple_training_file_streaming(
             &word_tokens,
             config,
             ngram_to_id,
-            id_to_docs,
+            id_to_question_docs,
             id_to_ngram_tokens,
         )?;
 
@@ -985,7 +1121,7 @@ pub fn process_simple_training_file_streaming(
                     let (idf_sum, max_idf) = calculate_simple_toxic_score(
                         &cluster.matching_ngrams,
                         ngram_to_id,
-                        id_to_docs,
+                        id_to_question_docs,
                         total_docs,
                         id_to_ngram_tokens,
                     );
@@ -1101,7 +1237,7 @@ fn process_ngrams_with_simple_sampling(
     word_tokens: &[usize],
     config: &Config,
     ngram_to_id: &NgramToIdMap,
-    id_to_docs: &IdToDocsMap,
+    id_to_question_docs: &IdToQuestionDocsMap,
     id_to_ngram_tokens: &IdToNgramTokens,
 ) -> Result<Vec<SimpleContaminationCluster>, Error> {
     let mut clusters = Vec::new();
@@ -1136,7 +1272,7 @@ fn process_ngrams_with_simple_sampling(
 
         // Check this n-gram for contamination
         if let Some(document_ids) =
-            check_ngram_for_match(i, word_tokens, config, ngram_to_id, id_to_docs)
+            check_ngram_for_match(i, word_tokens, config, ngram_to_id, id_to_question_docs)
         {
             let ngram_tokens = if word_tokens.len() < config.ngram_size {
                 word_tokens.to_vec()
@@ -1152,7 +1288,7 @@ fn process_ngrams_with_simple_sampling(
                 word_tokens,
                 config,
                 ngram_to_id,
-                id_to_docs,
+                id_to_question_docs,
                 document_ids,
                 &ngram_tokens,
                 id_to_ngram_tokens,
@@ -1185,7 +1321,7 @@ fn check_ngram_for_match(
     word_tokens: &[usize],
     config: &Config,
     ngram_to_id: &NgramToIdMap,
-    id_to_docs: &IdToDocsMap,
+    id_to_question_docs: &IdToQuestionDocsMap,
 ) -> Option<HashSet<u32>> {
     let ngram_tokens = if word_tokens.len() < config.ngram_size {
         word_tokens.to_vec()
@@ -1203,7 +1339,7 @@ fn check_ngram_for_match(
     // Look up n-gram ID
     if let Some(ngram_id) = ngram_to_id.get(&ngram_hash) {
         // Look up documents containing this n-gram
-        if let Some(doc_set) = id_to_docs.get(&ngram_id) {
+        if let Some(doc_set) = id_to_question_docs.get(&ngram_id) {
             if !doc_set.is_empty() {
                 // println!("N-gram '{:?}' found in {} documents", ngram_tokens, doc_set.len()); //debug
                 return Some(doc_set.clone());
@@ -1219,7 +1355,7 @@ fn expand_simple_contamination_cluster(
     word_tokens: &[usize],
     config: &Config,
     ngram_to_id: &NgramToIdMap,
-    id_to_docs: &IdToDocsMap,
+    id_to_question_docs: &IdToQuestionDocsMap,
     initial_document_ids: HashSet<u32>,
     initial_training_ngram: &[usize],
     id_to_ngram_tokens: &IdToNgramTokens,
@@ -1274,7 +1410,7 @@ fn expand_simple_contamination_cluster(
         left_idx -= 1;
 
         if let Some(matched_docs) =
-            check_ngram_for_match(left_idx, word_tokens, config, ngram_to_id, id_to_docs)
+            check_ngram_for_match(left_idx, word_tokens, config, ngram_to_id, id_to_question_docs)
         {
             let ngram_tokens = if word_tokens.len() < config.ngram_size {
                 word_tokens.to_vec()
@@ -1373,7 +1509,7 @@ fn expand_simple_contamination_cluster(
         right_idx += 1;
 
         if let Some(matched_docs) =
-            check_ngram_for_match(right_idx, word_tokens, config, ngram_to_id, id_to_docs)
+            check_ngram_for_match(right_idx, word_tokens, config, ngram_to_id, id_to_question_docs)
         {
             let ngram_tokens = if word_tokens.len() < config.ngram_size {
                 word_tokens.to_vec()
@@ -1475,7 +1611,7 @@ fn expand_simple_contamination_cluster(
 fn calculate_simple_toxic_score(
     matching_ngrams: &[String],
     ngram_to_id: &NgramToIdMap,
-    id_to_docs: &IdToDocsMap,
+    id_to_question_docs: &IdToQuestionDocsMap,
     total_docs: f32,
     _id_to_ngram_tokens: &IdToNgramTokens,
 ) -> (f32, f32) {  // Returns (idf_sum, max_idf)
@@ -1498,7 +1634,7 @@ fn calculate_simple_toxic_score(
     let mut max_idf = 0.0f32;
 
     for ngram_id in &unique_ngram_ids {
-        if let Some(doc_set) = id_to_docs.get(ngram_id) {
+        if let Some(doc_set) = id_to_question_docs.get(ngram_id) {
             let doc_freq = doc_set.len() as f32;
             // Standard IDF formula: ln(N/doc_freq)
             let idf = (total_docs / doc_freq).ln();

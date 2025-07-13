@@ -348,7 +348,9 @@ fn process_single_file(
         IndexType::Simple(simple_index) => {
             let (
                 ngram_to_id,
-                id_to_docs,
+                id_to_question_docs,
+                _id_to_answer_docs,
+                _id_to_short_answer,
                 eval_documents,
                 id_to_ngram_tokens,
                 tokenizer,
@@ -365,7 +367,7 @@ fn process_single_file(
                 file_path,
                 config,
                 ngram_to_id,
-                id_to_docs,
+                id_to_question_docs,
                 eval_documents,
                 &contamination_results,
                 tokenizer,
