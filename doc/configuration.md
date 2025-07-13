@@ -45,7 +45,8 @@ report_output_dir: /path/to/reports
 # Optional: Separate directory for cleaned files (defaults to report_output_dir)
 cleaned_output_dir: /path/to/cleaned
 
-# Create cleaned versions of files with contaminated lines removed
+# Create cleaned versions of files with contaminated lines removed.
+# NOTE! This will also replace non-utf8 chars with mystery chars!
 purify: false
 ```
 
@@ -59,89 +60,23 @@ punctuation_chars: "!\"#&'(),./:;?@`{|}~"
 tokenizer_str: word  # Options: word, p50k, cl100k
 ```
 
-#### Performance
-```yaml
-# Number of worker threads for parallel processing (0 = use all cores)
-worker_threads: 0
-```
-
 ### SIMPLE Mode Options
 
 SIMPLE mode uses n-gram matching with intelligent sampling for efficient exact contamination detection.
 
 ```yaml
-# Size of n-grams to match
-ngram_size: 13
+ngram_size: 4  # Size of indexed n-grams scanned for question matches
+sample_every_m_tokens: 5  # sample for a question match this often
+max_consecutive_misses: 6 # How many misses to tolerate before short circuiting cluster expansion
+min_short_answer_distance: 30 # The minimum window on either side of a question to look for an answer. max(answer_length*2, min_short_answer_distance)
+exclude_question_from_answer_sweep: true # When verifying the presence of an answer, do not consider the question match itself.
 
-# Sample every M tokens for efficiency (1 = no sampling)
-sample_every_m_tokens: 10
+simple_contamination_score_threshold: 0.79 # Contamination score threshold for SIMPLE mode (default: 0.79)
 
-# Maximum consecutive non-matches before stopping cluster expansion
-max_consecutive_misses: 3
-
-# Minimum overlap ratio to consider as contamination
-toxic_overlap_threshold: 0.3
-
-# Minimum toxic score (IDF-weighted) to report contamination
-toxic_score_threshold: 0.0
+eval_min_word_count: 10  # Minimum post-cleaning word count necessary to include for eval file indexing.
+punctuation_chars: "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~”“"  # (uses default if not specified)
 ```
 
-### MinHash Mode Options
-
-MinHash mode uses locality-sensitive hashing for approximate matching.
-
-```yaml
-# Number of hash functions per band
-band_size: 5
-
-# Number of bands for LSH
-num_bands: 20
-
-# Size of n-grams for shingling
-ngram_size: 4
-
-# Minimum Jaccard similarity to consider as contamination
-jaccard_similarity_threshold: 0.5
-
-# Random seed for hash functions
-hash_seed: 0
-
-# Windowing options for handling different document sizes
-window_size_increment: 100
-num_windows: 5
-window_step_size: 50
-```
-
-### TOXIC Mode Options
-
-TOXIC mode uses semantic embeddings with "poison tokens" for robust detection of paraphrased content.
-
-```yaml
-# Path to word embeddings file (e.g., word2vec format)
-toxic_embedding_path: /path/to/embeddings.vec
-
-# Number of random hyperplanes for LSH
-toxic_hyperplanes: 64
-
-# Minimum overlap ratio to consider as contamination
-toxic_overlap_threshold: 0.85
-
-# Minimum toxic score to report contamination
-toxic_score_threshold: 2.0
-
-# Scale factor for poison tokens (numbers, proper nouns, etc.)
-toxic_poison_scale: 3.0
-
-# Skip LSH buckets with more than this many documents (-1 to disable)
-skip_hot_bucket_threshold: -1
-
-# Sampling parameters (same as SIMPLE mode)
-sample_every_m_tokens: 10
-max_consecutive_misses: 3
-
-# LRU cache size for n-gram to bucket mappings
-ngram_bucket_lru_cache: 1000
-```
 
 ## Orchestrator Configuration
 

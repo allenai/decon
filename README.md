@@ -35,8 +35,14 @@ For those that prefer explicitness, directness, and less abstraction, you can ru
 git clone https://github.com/allenai/decon
 cd decon
 
-# Download evaluation datasets. The cli will look for these in the configured reference (evals) directory. Below shows the defaults (recommended).
-s5cmd sync s3://decon-evals/* fixtures/reference
+# Download evaluation datasets. The cli will look for these in the configured reference directory.
+# Three pre-packaged options are available.
+# - Questions only.
+# - Questions and Answers -> validates answer presence
+# - Best Available -> Some evals don't have answers, so verifies answers when present
+s5cmd sync s3://decon-evals-questions/* fixtures/reference-questions
+s5cmd sync s3://decon-evals-questions-and-answers/* fixtures/reference-questions-and-answers
+s5cmd sync s3://decon-evals-best-available/* fixtures/reference-best-available
 
 # Download your data set to the directory of your choice.
 # NOTE: you will probably want a different location, this is just the default.
