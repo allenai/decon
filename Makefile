@@ -110,18 +110,22 @@ evals:
 
 evals-s3:
 	mkdir -p fixtures/reference
-	s5cmd sync s3://decon-evals/* fixtures/reference
+	s5cmd sync s3://decon-evals-questions/* fixtures/reference-questions
+	s5cmd sync s3://decon-evals-questions-and-answers/* fixtures/reference-questions-and-answers
+	s5cmd sync s3://decon-evals-best-available/* fixtures/reference-best-available
 
 push-evals:
 	@echo "Syncing reference files to s3://decon-evals/ with deletion..."
-	s5cmd sync --delete fixtures/reference/ s3://decon-evals/
+	s5cmd sync --delete fixtures/reference-questions s3://decon-evals-questions/
+	s5cmd sync --delete fixtures/reference-questions-and-answers s3://decon-evals-questions-and-answers/
+	s5cmd sync --delete fixtures/reference-best-available s3://decon-evals-best-available/
 	@echo "Push to S3 complete!"
 
 embeddings:
 	python python/prepare_embeddings.py
 
 refine:
-	cargo run --release refine-references 
+	cargo run --release refine-references
 
 daemon:
 	cargo run --release daemon --config examples/simple.yaml --port 8080
