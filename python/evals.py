@@ -325,7 +325,13 @@ EVAL_CONFIG = {
         'coqa': {
             'hf_path': 'EleutherAI/coqa',
             'splits': ['train', 'validation'],
-            'transform': 'auto'
+            'transform': {
+                'context_field': 'story',
+                'parallel_arrays': {
+                    'question_array': 'questions.input_text',
+                    'answer_array': 'answers.input_text'
+                }
+            }
         },
 
         'drop': {
@@ -623,46 +629,62 @@ EVAL_CONFIG = {
             'no_answer_splits': ['test']
         },
 
-        'multipl_e_humaneval_python': {
+        'multipl_e_humaneval_python': {  # Answers for humaneval appear to be in separate files?
             'hf_path': 'nuprl/MultiPL-E',
             'hf_config': 'humaneval-python',
             'splits': ['test'],
-            'transform': 'auto'
+            'transform': {
+                'text_field': 'prompt',
+            }
         },
 
         'multipl_e_humaneval_js': {
             'hf_path': 'nuprl/MultiPL-E',
             'hf_config': 'humaneval-js',
             'splits': ['test'],
-            'transform': 'auto'
+            'transform': {
+                'text_field': 'prompt',
+            },
+            'no_answer_splits': ['test']
         },
 
         'multipl_e_humaneval_java': {
             'hf_path': 'nuprl/MultiPL-E',
             'hf_config': 'humaneval-java',
             'splits': ['test'],
-            'transform': 'auto'
+            'transform': {
+                'text_field': 'prompt',
+            },
+            'no_answer_splits': ['test']
         },
 
         'multipl_e_humaneval_go': {
             'hf_path': 'nuprl/MultiPL-E',
             'hf_config': 'humaneval-go',
             'splits': ['test'],
-            'transform': 'auto'
+            'transform': {
+                'text_field': 'prompt',
+            },
+            'no_answer_splits': ['test']
         },
 
         'multipl_e_humaneval_cpp': {
             'hf_path': 'nuprl/MultiPL-E',
             'hf_config': 'humaneval-cpp',
             'splits': ['test'],
-            'transform': 'auto'
+            'transform': {
+                'text_field': 'prompt',
+            },
+            'no_answer_splits': ['test']
         },
 
         'multipl_e_mbpp_python': {
             'hf_path': 'nuprl/MultiPL-E',
             'hf_config': 'mbpp-python',
             'splits': ['test'],
-            'transform': 'auto'
+            'transform': {
+                'text_field': 'prompt',
+            }
         },
 
         # 'mrcr': {
@@ -783,7 +805,8 @@ EVAL_CONFIG = {
             'splits': ['test'],
             'transform': {
                 'text_field': 'conv.0.user'
-            }
+            },
+            'no_answer_splits': ['test']
         },
 
         'winogrande': { # Settled
@@ -807,23 +830,24 @@ EVAL_CONFIG = {
             }
         },
 
-        'omega_compositional': {
-            'hf_path': 'allenai/omega-compositional',
-            'splits': ['train', 'test'],
-            'transform': 'auto'
-        },
+        # These need configs selected
+        # 'omega_compositional': {
+        #     'hf_path': 'allenai/omega-compositional',
+        #     'splits': ['train', 'test'],
+        #     'transform': 'auto'
+        # },
 
-        'omega_explorative': {
-            'hf_path': 'allenai/omega-explorative',
-            'splits': ['train', 'test_in', 'test_out'],
-            'transform': 'auto'
-        },
+        # 'omega_explorative': {
+        #     'hf_path': 'allenai/omega-explorative',
+        #     'splits': ['train', 'test_in', 'test_out'],
+        #     'transform': 'auto'
+        # },
 
-        'omega_transformative': {
-            'hf_path': 'allenai/omega-transformative',
-            'splits': ['train', 'test'],
-            'transform': 'auto'
-        },
+        # 'omega_transformative': {
+        #     'hf_path': 'allenai/omega-transformative',
+        #     'splits': ['train', 'test'],
+        #     'transform': 'auto'
+        # },
 
         'commonsense_qa': {
             'hf_path': 'commonsense_qa',
@@ -1394,7 +1418,6 @@ def strip_python_comments(text):
 def transform_answer_label(label, transform_type):
     """Transform answer labels based on the specified transform type"""
     if transform_type == 'numbers_to_letters':
-        breakpoint()
         # Convert "1" -> "A", "2" -> "B", "3" -> "C", etc.
         try:
             # Handle both string and int labels
@@ -1593,6 +1616,94 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                         dataset_stats["records_without_answers"] += 1
 
                 else:
+                    # Check if we should use parallel arrays extraction
+                    if 'parallel_arrays' in eval_config['transform']:
+                        parallel_config = eval_config['transform']['parallel_arrays']
+
+                        # Get the arrays
+                        question_array = get_nested_field(example, parallel_config['question_array'])
+                        answer_array = get_nested_field(example, parallel_config['answer_array'])
+
+                        # Get context if specified
+                        context = None
+                        if 'context_field' in eval_config['transform']:
+                            context = get_nested_field(example, eval_config['transform']['context_field'])
+                            if context is not None and not isinstance(context, str):
+                                context = str(context)
+
+                        # Process each Q&A pair
+                        if question_array and answer_array:
+                            # Ensure both are lists
+                            if not isinstance(question_array, list):
+                                question_array = [question_array]
+                            if not isinstance(answer_array, list):
+                                answer_array = [answer_array]
+
+                            # Process pairs
+                            for q_idx, (q, a) in enumerate(zip(question_array, answer_array)):
+                                # Skip if question is empty
+                                if not q or (isinstance(q, str) and not q.strip()):
+                                    continue
+
+                                question = str(q) if q is not None else ""
+                                answer = str(a) if a is not None else None
+
+                                # Apply strip_python_comments if configured
+                                if eval_config['transform'].get('strip_python_comments', False):
+                                    if question:
+                                        question = strip_python_comments(question)
+                                    if answer:
+                                        answer = strip_python_comments(answer)
+
+                                # Create record
+                                record = {
+                                    global_config['jsonl_format']['eval_field']: eval_name,
+                                    global_config['jsonl_format']['index_field']: idx,
+                                    global_config['jsonl_format']['split_field']: split,
+                                    "question": question,
+                                    "context": context,
+                                    "answer": answer,
+                                    "sub_index": q_idx  # Track which Q&A pair within the example
+                                }
+
+                                # Add unique document ID
+                                record['doc_id'] = document_id_counter[0]
+                                document_id_counter[0] += 1
+
+                                # Track character statistics
+                                if question:
+                                    dataset_stats["question_chars"] += len(question)
+                                if context:
+                                    dataset_stats["context_chars"] += len(context)
+                                if answer:
+                                    dataset_stats["answer_chars"] += len(answer)
+                                dataset_stats["records"] += 1
+
+                                # Write to files
+                                if f_question_only is None:
+                                    f_question_only = open(output_file_question_only, 'w')
+                                    for line in header_lines:
+                                        f_question_only.write(line)
+
+                                question_only_record = record.copy()
+                                question_only_record.pop('answer', None)
+                                question_only_record.pop('context', None)
+                                f_question_only.write(json.dumps(question_only_record) + '\n')
+
+                                if not is_answer_empty(answer):
+                                    if f_with_answers is None:
+                                        f_with_answers = open(output_file, 'w')
+                                        for line in header_lines:
+                                            f_with_answers.write(line)
+
+                                    f_with_answers.write(json.dumps(record) + '\n')
+                                    dataset_stats["records_with_answers"] += 1
+                                else:
+                                    dataset_stats["records_without_answers"] += 1
+
+                        # Skip the rest of the normal processing
+                        continue
+
                     # Use the existing manual extraction logic, but extract fields separately
                     # Extract question field (previously text_field)
                     text_field = eval_config['transform']['text_field']
