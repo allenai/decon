@@ -781,7 +781,9 @@ EVAL_CONFIG = {
             'hf_path': 'wckwan/MT-Eval',
             'hf_config': 'refinement_single',
             'splits': ['test'],
-            'transform': 'auto'
+            'transform': {
+                'text_field': 'conv.0.user'
+            }
         },
 
         'winogrande': { # Settled
@@ -792,7 +794,8 @@ EVAL_CONFIG = {
                 'text_field': 'sentence',
                 'answer_key_field': 'answer',
                 'answer_prefix': 'option',
-            }
+            },
+            'no_answer_splits': ['test']
         },
 
         'ds_1000': { # Settled
@@ -1022,7 +1025,8 @@ EVAL_CONFIG = {
             'splits': ['test'],
             'transform': {
                 'text_field': 'prompt'
-            }
+            },
+            'no_answer_splits': ['test']
         },
 
         'truthfulqa': {
@@ -1390,6 +1394,7 @@ def strip_python_comments(text):
 def transform_answer_label(label, transform_type):
     """Transform answer labels based on the specified transform type"""
     if transform_type == 'numbers_to_letters':
+        breakpoint()
         # Convert "1" -> "A", "2" -> "B", "3" -> "C", etc.
         try:
             # Handle both string and int labels
@@ -1632,19 +1637,19 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
 
                     # Extract answer field if configured
                     answer = None
-                    
+
                     # Check if we should use answer_prefix + answer_key_field directly (without answer_field)
                     if 'answer_key_field' in eval_config['transform'] and 'answer_prefix' in eval_config['transform']:
                         answer_key_field = eval_config['transform']['answer_key_field']
                         answer_key = get_nested_field(example, answer_key_field)
-                        
+
                         if answer_key is not None:
                             # Apply label transformation if configured
                             transformed_key = answer_key
                             if 'answer_label_transform' in eval_config['transform']:
                                 transform_type = eval_config['transform']['answer_label_transform']
                                 transformed_key = transform_answer_label(answer_key, transform_type)
-                            
+
                             # Construct field name using prefix + transformed key value
                             answer_prefix = eval_config['transform']['answer_prefix']
                             answer_field_name = f"{answer_prefix}{transformed_key}"
@@ -1655,7 +1660,7 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                             else:
                                 # No answer at that field, skip answer
                                 answer = None
-                    
+
                     elif 'answer_field' in eval_config['transform']:
                         answer_field = eval_config['transform']['answer_field']
                         answer_value = get_nested_field(example, answer_field)
@@ -1875,13 +1880,13 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
         # Check if this split is expected to have no answers
         no_answer_splits = eval_config.get('no_answer_splits', [])
         is_no_answer_split = split in no_answer_splits
-        
+
         # Determine which fields to check based on no_answer_splits
         if is_no_answer_split:
             important_fields = ["question"]  # Only check question for no_answer_splits
         else:
             important_fields = ["question", "answer"]
-        
+
         important_missing = sum(missing_fields_count[field] for field in important_fields if field in missing_fields_count)
         if important_missing > 0:
             print(f"\n⚠️  WARNING: Missing fields detected in {eval_name} {split}:")
