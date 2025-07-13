@@ -120,21 +120,21 @@ fn process_reference_dataset(
     );
 
     // Phase 3: MinHash near-duplicate detection
-    println!("\nPhase 3: Detecting near-duplicates with MinHash...");
-    let (minhash_lines_to_keep, minhash_stats) =
-        detect_minhash_duplicates(&reference_files, &lines_to_keep)?;
-    display_minhash_stats(&minhash_stats, dry_run, reference_dir);
-    let lines_after_minhash: usize = minhash_lines_to_keep.values().map(|set| set.len()).sum();
-    println!(
-        "Lines remaining after MinHash deduplication: {} (removed {} near-duplicates)",
-        lines_after_minhash,
-        lines_after_dedup - lines_after_minhash
-    );
+    // println!("\nPhase 3: Detecting near-duplicates with MinHash...");
+    // let (minhash_lines_to_keep, minhash_stats) =
+    //     detect_minhash_duplicates(&reference_files, &lines_to_keep)?;
+    // display_minhash_stats(&minhash_stats, dry_run, reference_dir);
+    // let lines_after_minhash: usize = minhash_lines_to_keep.values().map(|set| set.len()).sum();
+    // println!(
+    //     "Lines remaining after MinHash deduplication: {} (removed {} near-duplicates)",
+    //     lines_after_minhash,
+    //     lines_after_dedup - lines_after_minhash
+    // );
 
     // Phase 4: Apply filters to analyze what would be removed
     println!("\nPhase 4: Analyzing filters...");
     let (filtered_lines_to_keep, filter_stats) =
-        apply_filters(&reference_files, &minhash_lines_to_keep)?;
+        apply_filters(&reference_files, &lines_to_keep)?;
     display_filter_stats(&filter_stats);
 
     // Phase 5: Write files (only if not dry run)
@@ -160,11 +160,11 @@ fn process_reference_dataset(
         lines_after_dedup,
         dedup_stats.total_lines - lines_after_dedup
     );
-    println!(
-        "After MinHash deduplication: {} (removed {} near-duplicates)",
-        lines_after_minhash,
-        lines_after_dedup - lines_after_minhash
-    );
+    // println!(
+    //     "After MinHash deduplication: {} (removed {} near-duplicates)",
+    //     lines_after_minhash,
+    //     lines_after_dedup - lines_after_minhash
+    // );
     println!(
         "After filtering: {} (removed {} by filters)",
         filter_stats.total_lines_after_filters,
