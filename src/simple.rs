@@ -749,7 +749,7 @@ impl SimpleContaminationEntry {
     pub fn score_question_contamination(&self) -> f32 {
         // Basically we reject anything with less than 80% overlap. Just on principle.
         // TODO review
-        if self.overlap_ratio < 0.7 {
+        if self.overlap_ratio < 0.8 {
             return 0.0;
         }
 
