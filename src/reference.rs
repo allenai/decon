@@ -1,6 +1,10 @@
 // Reference dataset post-processing module
 // This module handles various operations to refine and improve the quality of reference datasets,
 // including deduplication and other preprocessing steps.
+//
+// For the new evaluation format with separate question/context/answer fields:
+// - Deduplication is performed on the combination of question + answer
+// - The original JSON structure with all three fields is preserved in the output
 
 use anyhow::{Error, Result};
 use dashmap::DashMap;
@@ -24,13 +28,13 @@ use ndarray::Array1;
 use sha2::{Digest, Sha256};
 
 // Constants for filtering
-const MIN_LENGTH: usize = 50; // Minimum character count for text entries
+const MIN_LENGTH: usize = 25; // Minimum character count for text entries
 const MIN_UNIQUE_WORDS: usize = 4; // Minimum unique word count for text entries
 
 // Constants for MinHash deduplication
 const MINHASH_NUM_BANDS: usize = 7;
 const MINHASH_BAND_SIZE: usize = 8;
-const MINHASH_SIMILARITY_THRESHOLD: f32 = 0.98; // 98% similarity threshold for near-duplicates
+const MINHASH_SIMILARITY_THRESHOLD: f32 = 0.99; // 99.9% similarity threshold for near-duplicates
 const MINHASH_NGRAM_SIZE: usize = 5; // n-gram size for MinHash
 const MINHASH_SEED: usize = 42; // Random seed for MinHash
 
@@ -51,37 +55,59 @@ type MinHashSignatures = DashMap<(String, usize), MinHashSignature>; // Maps (fi
 pub fn refine_reference_files(dry_run: bool) -> Result<(), Error> {
     println!("Starting reference file refinement...");
 
-    // Fixed paths
-    let reference_dir = PathBuf::from("fixtures/reference-download");
-    let output_dir = PathBuf::from("fixtures/reference");
+    // Process both question-only and questions-and-answers datasets
+    let dataset_configs = vec![
+        ("fixtures/reference-download-questions", "fixtures/reference-questions"),
+        ("fixtures/reference-download-questions-and-answers", "fixtures/reference-questions-and-answers"),
+    ];
 
-    // Check if reference directory exists
-    if !reference_dir.exists() {
-        return Err(anyhow::anyhow!(
-            "Reference directory not found: {:?}",
-            reference_dir
-        ));
+    for (input_dir, output_dir) in dataset_configs {
+        println!("\n{}", "=".repeat(80));
+        println!("Processing dataset: {}", input_dir);
+        println!("{}", "=".repeat(80));
+
+        let reference_dir = PathBuf::from(input_dir);
+        let output_dir = PathBuf::from(output_dir);
+
+        // Check if reference directory exists
+        if !reference_dir.exists() {
+            println!("Reference directory not found: {:?}, skipping...", reference_dir);
+            continue;
+        }
+
+        // Find all reference files
+        let reference_files = expand_dirs(
+            vec![reference_dir.clone()],
+            Some(vec![".jsonl", ".gz"].as_slice()),
+        )?;
+
+        if reference_files.is_empty() {
+            println!("No reference files found in {:?}, skipping...", reference_dir);
+            continue;
+        }
+
+        println!("Found {} reference files to process", reference_files.len());
+
+        // Process this dataset
+        process_reference_dataset(&reference_files, &reference_dir, &output_dir, dry_run)?;
     }
 
-    // Find all reference files
-    let reference_files = expand_dirs(
-        vec![reference_dir.clone()],
-        Some(vec![".jsonl", ".gz"].as_slice()),
-    )?;
+    Ok(())
+}
 
-    if reference_files.is_empty() {
-        println!("No reference files found in {:?}", reference_dir);
-        return Ok(());
-    }
-
-    println!("Found {} reference files to process", reference_files.len());
+fn process_reference_dataset(
+    reference_files: &[PathBuf],
+    reference_dir: &PathBuf,
+    output_dir: &PathBuf,
+    dry_run: bool,
+) -> Result<(), Error> {
 
     // Phase 1: Build hash map of all unique lines
     println!("\nPhase 1: Detecting exact duplicates...");
     let (duplicate_map, dedup_stats) = detect_exact_duplicates(&reference_files)?;
 
     // Display deduplication statistics
-    display_duplicate_stats(&duplicate_map, &dedup_stats, dry_run);
+    display_duplicate_stats(&duplicate_map, &dedup_stats, dry_run, reference_dir);
 
     // Phase 2: Determine lines to keep after deduplication
     println!("\nPhase 2: Analyzing lines to keep after deduplication...");
@@ -97,7 +123,7 @@ pub fn refine_reference_files(dry_run: bool) -> Result<(), Error> {
     println!("\nPhase 3: Detecting near-duplicates with MinHash...");
     let (minhash_lines_to_keep, minhash_stats) =
         detect_minhash_duplicates(&reference_files, &lines_to_keep)?;
-    display_minhash_stats(&minhash_stats, dry_run);
+    display_minhash_stats(&minhash_stats, dry_run, reference_dir);
     let lines_after_minhash: usize = minhash_lines_to_keep.values().map(|set| set.len()).sum();
     println!(
         "Lines remaining after MinHash deduplication: {} (removed {} near-duplicates)",
@@ -228,14 +254,24 @@ fn process_file_for_duplicates(
     };
 
     // Process each line
-    for (line_num, line) in reader.lines().enumerate() {
+    let mut json_line_num = 0;
+    for line in reader.lines() {
         let line = line?;
+
+        // Skip comment lines
+        if line.trim_start().starts_with('#') {
+            continue;
+        }
+
         total_lines.fetch_add(1, Ordering::Relaxed);
 
         // Parse JSON and extract text content
         let json_obj: Value = match serde_json::from_str(&line) {
             Ok(obj) => obj,
-            Err(_) => continue, // Skip invalid JSON lines
+            Err(_) => {
+                json_line_num += 1;
+                continue; // Skip invalid JSON lines
+            }
         };
 
         // Try to extract text from common field names
@@ -254,21 +290,47 @@ fn process_file_for_duplicates(
             .entry(line_hash)
             .and_modify(|occurrences| {
                 is_duplicate = true;
-                occurrences.push((filename.clone(), line_num));
+                occurrences.push((filename.clone(), json_line_num));
             })
-            .or_insert_with(|| vec![(filename.clone(), line_num)]);
+            .or_insert_with(|| vec![(filename.clone(), json_line_num)]);
 
         if is_duplicate {
             duplicate_lines.fetch_add(1, Ordering::Relaxed);
         }
+
+        json_line_num += 1;
     }
 
     Ok(())
 }
 
 fn get_text_from_json(json_obj: &Value) -> Result<String, Error> {
-    // Try common field names for text content
-    let field_names = ["text", "content", "passage", "question", "answer"];
+    // First check if this is the new format with separate question/answer fields
+    let has_question = json_obj.get("question").is_some();
+    let has_answer = json_obj.get("answer").is_some();
+
+    if has_question || has_answer {
+        // New format - combine question and answer for deduplication
+        let mut combined_text = String::new();
+
+        if let Some(question) = json_obj.get("question").and_then(|v| v.as_str()) {
+            combined_text.push_str(question);
+        }
+
+        if let Some(answer) = json_obj.get("answer").and_then(|v| v.as_str()) {
+            if !combined_text.is_empty() {
+                combined_text.push_str(" ");
+            }
+            combined_text.push_str(answer);
+        }
+
+        if !combined_text.is_empty() {
+            return Ok(combined_text);
+        }
+    }
+
+    // Fall back to old format - try common field names for text content
+    let field_names = ["text", "content", "passage"];
 
     for field in &field_names {
         if let Ok(text) = get_nested_json_val(json_obj, &field.to_string()) {
@@ -297,8 +359,8 @@ fn hash_text(text: &str) -> LineHash {
     hasher.finish()
 }
 
-fn get_line_content(filename: &str, line_num: usize) -> Result<String, Error> {
-    let file_path = PathBuf::from("fixtures/reference-download").join(filename);
+fn get_line_content(filename: &str, line_num: usize, base_dir: &PathBuf) -> Result<String, Error> {
+    let file_path = base_dir.join(filename);
     let file = File::open(&file_path)?;
 
     let reader: Box<dyn BufRead> = if file_path.extension().and_then(|s| s.to_str()) == Some("gz") {
@@ -307,10 +369,19 @@ fn get_line_content(filename: &str, line_num: usize) -> Result<String, Error> {
         Box::new(BufReader::new(file))
     };
 
-    for (current_line, line) in reader.lines().enumerate() {
-        if current_line == line_num {
-            return line.map_err(|e| e.into());
+    let mut json_line_num = 0;
+    for line in reader.lines() {
+        let line = line?;
+
+        // Skip comment lines
+        if line.trim_start().starts_with('#') {
+            continue;
         }
+
+        if json_line_num == line_num {
+            return Ok(line);
+        }
+        json_line_num += 1;
     }
 
     Err(anyhow::anyhow!("Line {} not found in file", line_num))
@@ -320,6 +391,7 @@ fn display_duplicate_stats(
     line_occurrences: &DashMap<LineHash, LineOccurrences>,
     stats: &DuplicateStats,
     dry_run: bool,
+    base_dir: &PathBuf,
 ) {
     println!("\n=== DUPLICATE DETECTION SUMMARY ===");
     println!("Total files processed: {}", stats.total_files);
@@ -357,7 +429,7 @@ fn display_duplicate_stats(
 
             // Try to read the actual content for this duplicate
             if let Some((first_file, first_line)) = occurrences.first() {
-                if let Ok(content) = get_line_content(first_file, *first_line) {
+                if let Ok(content) = get_line_content(first_file, *first_line, base_dir) {
                     // Parse JSON and extract text
                     if let Ok(json_obj) = serde_json::from_str::<Value>(&content) {
                         if let Ok(text) = get_text_from_json(&json_obj) {
@@ -504,12 +576,18 @@ fn filter_file(
     let mut kept_lines = HashSet::new();
     let mut lines_examined = 0;
     let mut kept_count = 0;
+    let mut json_line_num = 0;
 
-    for (line_num, line) in reader.lines().enumerate() {
+    for line in reader.lines() {
         let line = line?;
 
+        // Skip comment lines
+        if line.trim_start().starts_with('#') {
+            continue;
+        }
+
         // First check if line should be kept (deduplication)
-        if keep_lines.map_or(true, |set| set.contains(&line_num)) {
+        if keep_lines.map_or(true, |set| set.contains(&json_line_num)) {
             lines_examined += 1;
 
             // Line passed deduplication, now apply filters
@@ -533,9 +611,11 @@ fn filter_file(
             }
 
             // Line passed all filters
-            kept_lines.insert(line_num);
+            kept_lines.insert(json_line_num);
             kept_count += 1;
         }
+
+        json_line_num += 1;
     }
 
     // Update global statistics - only count lines that passed deduplication
@@ -624,13 +704,20 @@ fn write_refined_file(
     let mut total_count = 0;
     let mut lines_buffer = Vec::new();
     let mut chunk_files = Vec::new();
+    let mut json_line_num = 0;
 
-    for (line_num, line) in reader.lines().enumerate() {
-        total_count += 1;
+    for line in reader.lines() {
         let line = line?;
 
+        // Skip comment lines
+        if line.trim_start().starts_with('#') {
+            continue;
+        }
+
+        total_count += 1;
+
         // Keep line if it's in our keep set
-        if keep_lines.map_or(false, |set| set.contains(&line_num)) {
+        if keep_lines.map_or(false, |set| set.contains(&json_line_num)) {
             let line_bytes = line.as_bytes().len() + 1; // +1 for newline
 
             // Check if we need to start a new chunk
@@ -676,6 +763,8 @@ fn write_refined_file(
                 }
             }
         }
+
+        json_line_num += 1;
     }
 
     // Flush remaining lines
@@ -967,12 +1056,19 @@ fn process_file_for_minhash(
     };
 
     // Process each line that passed exact deduplication
-    for (line_num, line) in reader.lines().enumerate() {
-        if !keep_lines.contains(&line_num) {
-            continue; // Skip lines that were already exact duplicates
+    let mut json_line_num = 0;
+    for line in reader.lines() {
+        let line = line?;
+
+        // Skip comment lines
+        if line.trim_start().starts_with('#') {
+            continue;
         }
 
-        let line = line?;
+        if !keep_lines.contains(&json_line_num) {
+            json_line_num += 1;
+            continue; // Skip lines that were already exact duplicates
+        }
 
         // Parse JSON and extract text
         let json_obj: Value = match serde_json::from_str(&line) {
@@ -993,14 +1089,16 @@ fn process_file_for_minhash(
         let hash_vals = get_hash_vals_from_tokens(tokens, perm_seeds, MINHASH_NGRAM_SIZE);
 
         // Store signature
-        minhash_signatures.insert((filename.clone(), line_num), hash_vals);
+        minhash_signatures.insert((filename.clone(), json_line_num), hash_vals);
         total_lines_processed.fetch_add(1, Ordering::Relaxed);
+
+        json_line_num += 1;
     }
 
     Ok(())
 }
 
-fn display_minhash_stats(stats: &MinHashStats, dry_run: bool) {
+fn display_minhash_stats(stats: &MinHashStats, dry_run: bool, base_dir: &PathBuf) {
     println!("\n=== MINHASH DEDUPLICATION SUMMARY ===");
     println!(
         "Lines processed for MinHash: {}",
@@ -1051,7 +1149,7 @@ fn display_minhash_stats(stats: &MinHashStats, dry_run: bool) {
 
                 // Try to load both texts for comparison
                 if let Ok((text1, text2)) =
-                    load_texts_for_comparison(file, *line_num, similar_file, *similar_line)
+                    load_texts_for_comparison(file, *line_num, similar_file, *similar_line, base_dir)
                 {
                     shown += 1;
                     println!("\n{}) {:.1}% similar", shown, similarity * 100.0);
@@ -1073,9 +1171,10 @@ fn load_texts_for_comparison(
     line1: usize,
     file2: &str,
     line2: usize,
+    base_dir: &PathBuf,
 ) -> Result<(String, String), Error> {
-    let text1 = get_line_content(file1, line1)?;
-    let text2 = get_line_content(file2, line2)?;
+    let text1 = get_line_content(file1, line1, base_dir)?;
+    let text2 = get_line_content(file2, line2, base_dir)?;
 
     // Parse JSON and extract text
     let json1: Value = serde_json::from_str(&text1)?;

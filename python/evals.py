@@ -8,16 +8,16 @@ import json
 from datasets import load_dataset, Dataset
 from pathlib import Path
 import os
+import shutil
 
-# Document splitting configuration
-# Set to -1 to disable splitting, or a positive number for the character threshold
-DOCUMENT_SPLIT_THRESHOLD = 2500
+# Document splitting configuration - REMOVED (no longer needed without concatenation)
+# We now store question, context, and answer separately
 
 # Configuration for downloading and transforming eval datasets
 EVAL_CONFIG = {
-    'output_dir': 'fixtures/reference-download',
+    'output_dir': 'fixtures/reference-download-questions-and-answers',
+    'output_dir_question_only': 'fixtures/reference-download-questions',
     'jsonl_format': {
-        'text_field': 'text',
         'eval_field': 'eval_name',
         'index_field': 'index',
         'split_field': 'split'
@@ -158,7 +158,7 @@ EVAL_CONFIG = {
             'transform': {
                 'text_field': 'question_original',
                 'context_field': 'passage_original',
-                'answer_field': 'answer_original'
+                'answer_field': 'answer_original.spans.0'
             }
         },
 
@@ -714,7 +714,12 @@ EVAL_CONFIG = {
             'hf_path': 'sarahwie/copycolors_mcqa',
             'hf_config': '4_answer_choices',
             'splits': ['validation', 'test'],
-            'transform': 'auto'
+            'transform': {
+                'text_field': 'question',
+                'answer_field': 'choices.text',
+                'answer_key_field': 'answerKey'
+            },
+            'no_answer_splits': ['test']
         },
 
         'sciq': {
@@ -804,7 +809,8 @@ EVAL_CONFIG = {
             'transform': {
                 'text_field': 'question',
                 'answer_field': 'answerKey'
-            }
+            },
+            'no_answer_splits': ['test']
         },
 
         'hellaswag': {
@@ -976,7 +982,8 @@ EVAL_CONFIG = {
                 'text_field': 'description',
                 'context_field': 'title',
                 'extra_fields': ['contest_name', 'rating', 'tags']
-            }
+            },
+            'no_answer_splits': ['test']
         },
 
         'ifbench_multiturn_constraints': {
@@ -1206,7 +1213,7 @@ EVAL_CONFIG = {
             'transform': {
                 'text_field': 'question',
                 'context_field': 'passage',
-                'answer_field': 'label'
+                'answer_field': 'answer'
             }
         },
 
@@ -1246,43 +1253,7 @@ EVAL_CONFIG = {
 }
 
 
-def split_document(text, threshold):
-    """Split a document into chunks if it exceeds the threshold.
-
-    Args:
-        text: The text to potentially split
-        threshold: Character threshold for splitting (-1 to disable)
-
-    Returns:
-        List of text chunks
-    """
-    if threshold == -1 or len(text) <= threshold:
-        return [text]
-
-    chunks = []
-    current_chunk = ""
-
-    # Split on whitespace
-    words = text.split()
-
-    for word in words:
-        # Check if adding this word would exceed threshold
-        if current_chunk and len(current_chunk) + len(word) + 1 > threshold:
-            # Save current chunk and start new one
-            chunks.append(current_chunk.strip())
-            current_chunk = word
-        else:
-            # Add word to current chunk
-            if current_chunk:
-                current_chunk += " " + word
-            else:
-                current_chunk = word
-
-    # Don't forget the last chunk
-    if current_chunk:
-        chunks.append(current_chunk.strip())
-
-    return chunks
+# split_document function removed - no longer needed without text concatenation
 
 
 def load_local_jsonl(file_path):
@@ -1295,10 +1266,10 @@ def load_local_jsonl(file_path):
 
 
 def auto_extract(example):
-    """Automatically extract text fields from complex dataset structures.
+    """Automatically extract question and answer fields from complex dataset structures.
 
     Returns:
-        tuple: (longest_text, second_longest_text) or (longest_text, None) if only one found
+        tuple: (question, answer) - tries to find the longest text as question and second longest as answer
     """
     text_candidates = []
 
@@ -1327,7 +1298,7 @@ def auto_extract(example):
     # Sort by word count (descending)
     text_candidates.sort(key=lambda x: x[1], reverse=True)
 
-    # Return the longest and second longest
+    # Return the longest as question and second longest as answer
     if len(text_candidates) == 0:
         return None, None
     elif len(text_candidates) == 1:
@@ -1337,19 +1308,38 @@ def auto_extract(example):
 
 
 def get_nested_field(obj, field_path):
-    """Access nested fields using dot notation (e.g., 'answer.value')"""
+    """Access nested fields using dot notation (e.g., 'answer.value' or 'answer_original.spans.0')"""
     fields = field_path.split('.')
     value = obj
     for field in fields:
-        if isinstance(value, dict) and field in value:
-            value = value[field]
+        # Check if field is a numeric index
+        if field.isdigit():
+            # Array index access
+            index = int(field)
+            if isinstance(value, (list, tuple)) and 0 <= index < len(value):
+                value = value[index]
+            else:
+                return None
         else:
-            return None
+            # Object property access
+            if isinstance(value, dict) and field in value:
+                value = value[field]
+            else:
+                return None
     return value
 
 
-def download_and_transform_eval(eval_name, eval_config, global_config, document_id_counter):
-    """Download HF dataset and transform to our JSONL format"""
+def is_answer_empty(answer):
+    """Check if an answer is considered empty (None, blank string, or '<unk>')"""
+    if answer is None:
+        return True
+    if isinstance(answer, str):
+        return answer.strip() == '' or answer.strip() == '<unk>'
+    return False
+
+
+def download_and_transform_eval(eval_name, eval_config, global_config, document_id_counter, stats, datasets_without_answers):
+    """Download HF dataset and transform to our JSONL format with separate question, context, and answer fields"""
 
     if 'local_path' in eval_config:
         print(f"Loading {eval_name} from local file: {eval_config['local_path']}...")
@@ -1374,10 +1364,12 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
         print(f"Error loading {eval_name}: {e}")
         return
 
-    # Create output directory (resolve relative to project root)
+    # Create output directories (resolve relative to project root)
     project_root = Path(__file__).parent.parent
     output_dir = project_root / global_config['output_dir']
+    output_dir_question_only = project_root / global_config['output_dir_question_only']
     output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir_question_only.mkdir(parents=True, exist_ok=True)
 
     # Process each split
     for split in eval_config['splits']:
@@ -1387,65 +1379,163 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
 
         print(f"Processing {eval_name} {split} split ({len(dataset[split])} examples)...")
 
-        # Output file path
+        # Output file paths (same filename in different directories)
         output_file = output_dir / f"{eval_name}_{split}.jsonl"
+        output_file_question_only = output_dir_question_only / f"{eval_name}_{split}.jsonl"
 
         # Track seen contexts to avoid duplicates
         seen_contexts = set()
         skipped_duplicates = 0
+        missing_fields_count = {"question": 0, "context": 0, "answer": 0}
 
-        with open(output_file, 'w') as f:
+        # Track character counts for this dataset
+        dataset_stats = {
+            "question_chars": 0,
+            "context_chars": 0,
+            "answer_chars": 0,
+            "total_chars": 0,
+            "records": 0,
+            "records_with_answers": 0,
+            "records_without_answers": 0
+        }
+
+        # Prepare header lines
+        header_lines = []
+        header_lines.append(f"# Dataset: {eval_name}\n")
+        header_lines.append(f"# Split: {split}\n")
+        header_lines.append(f"# HuggingFace Path: {eval_config.get('hf_path', eval_config.get('local_path', 'N/A'))}\n")
+        if 'hf_config' in eval_config:
+            header_lines.append(f"# Config: {eval_config['hf_config']}\n")
+        header_lines.append(f"# Total Examples: {len(dataset[split])}\n")
+        header_lines.append(f"#\n")
+
+        # Get first example to show fields and sample
+        if len(dataset[split]) > 0:
+            first_example = dataset[split][0]
+            fields = list(first_example.keys())
+            header_lines.append(f"# Original Fields: {', '.join(fields)}\n")
+            header_lines.append(f"#\n")
+            header_lines.append(f"# Sample Record (first example from dataset):\n")
+            header_lines.append(f"# {'-' * 70}\n")
+
+            # Show truncated version of first example
+            for field, value in first_example.items():
+                value_str = str(value)
+                if len(value_str) > 200:
+                    value_str = value_str[:200] + "..."
+                # Escape newlines in the value for comment display
+                value_str = value_str.replace('\n', '\\n')
+                header_lines.append(f"# {field}: {value_str}\n")
+
+            header_lines.append(f"# {'-' * 70}\n")
+            header_lines.append(f"#\n")
+            header_lines.append(f"# Transformed Output Format:\n")
+            header_lines.append(f"# - eval_name: {eval_name}\n")
+            header_lines.append(f"# - index: original index in dataset\n")
+            header_lines.append(f"# - split: {split}\n")
+            header_lines.append(f"# - question: extracted question text\n")
+            header_lines.append(f"# - context: extracted context (if available)\n")
+            header_lines.append(f"# - answer: extracted answer (if available)\n")
+            header_lines.append(f"# - doc_id: unique document identifier\n")
+
+            # Show any extra fields that will be included
+            if 'extra_fields' in eval_config.get('transform', {}):
+                header_lines.append(f"# - Additional fields: {', '.join(eval_config['transform']['extra_fields'])}\n")
+
+            header_lines.append(f"#\n")
+            header_lines.append(f"# {'=' * 70}\n")
+            header_lines.append(f"#\n")
+
+        # Lazy file handles - only opened when needed
+        f_with_answers = None
+        f_question_only = None
+
+        try:
             for idx, example in enumerate(dataset[split]):
                 # Check if we should use auto extraction
                 if eval_config['transform'] == 'auto':
-                    # Use auto extraction
-                    text, answer_value = auto_extract(example)
+                    # Use auto extraction for question and answer
+                    question, answer = auto_extract(example)
 
-                    # Skip if no valid text found
-                    if text is None:
+                    # Skip if no valid question found
+                    if question is None:
                         continue
 
-                    # Generate records
-                    records_to_write = []
-
-                    # Create base record template
+                    # Create record with separate fields
                     record = {
                         global_config['jsonl_format']['eval_field']: eval_name,
                         global_config['jsonl_format']['index_field']: idx,
                         global_config['jsonl_format']['split_field']: split,
+                        "question": question,
+                        "context": None,  # Auto extraction doesn't extract context
+                        "answer": answer
                     }
 
-                    # If we have an answer, create record with text + answer
-                    # Otherwise just use text
-                    if answer_value is not None:
-                        record[global_config['jsonl_format']['text_field']] = text + " " + answer_value
+                    # Log missing fields
+                    if question is None:
+                        missing_fields_count["question"] += 1
+                    if answer is None:
+                        missing_fields_count["answer"] += 1
+                    missing_fields_count["context"] += 1  # Always missing for auto extraction
+
+                    # Add unique document ID
+                    record['doc_id'] = document_id_counter[0]
+                    document_id_counter[0] += 1
+
+                    # Track character statistics
+                    if question:
+                        dataset_stats["question_chars"] += len(question)
+                    if answer:
+                        dataset_stats["answer_chars"] += len(answer)
+                    dataset_stats["records"] += 1
+
+                    # Open questions-only file if not already open
+                    if f_question_only is None:
+                        f_question_only = open(output_file_question_only, 'w')
+                        # Write headers when opening file
+                        for line in header_lines:
+                            f_question_only.write(line)
+
+                    # Always write to questions-only file (every record)
+                    # Strip answer and context keys for questions-only file
+                    question_only_record = record.copy()
+                    question_only_record.pop('answer', None)
+                    question_only_record.pop('context', None)
+                    f_question_only.write(json.dumps(question_only_record) + '\n')
+
+                    # Also write to with-answers file if answer is not empty
+                    if not is_answer_empty(answer):
+                        # Open with-answers file if not already open
+                        if f_with_answers is None:
+                            f_with_answers = open(output_file, 'w')
+                            # Write headers when opening file
+                            for line in header_lines:
+                                f_with_answers.write(line)
+
+                        f_with_answers.write(json.dumps(record) + '\n')
+                        dataset_stats["records_with_answers"] += 1
                     else:
-                        record[global_config['jsonl_format']['text_field']] = text
-                    records_to_write.append(record)
+                        dataset_stats["records_without_answers"] += 1
 
                 else:
-                    # Use the existing manual extraction logic
-                    # Extract text field
+                    # Use the existing manual extraction logic, but extract fields separately
+                    # Extract question field (previously text_field)
                     text_field = eval_config['transform']['text_field']
-                    text = get_nested_field(example, text_field)
+                    question = get_nested_field(example, text_field)
 
-                    # Skip if field not found
-                    if text is None:
-                        continue
-
-                    # Handle cases where text might be a list
-                    if isinstance(text, list):
+                    # Handle cases where question might be a list
+                    if isinstance(question, list):
                         # Take the first element if it's a list
-                        if text:  # Check if list is not empty
-                            text = str(text[0])
+                        if question:  # Check if list is not empty
+                            question = str(question[0])
                         else:
-                            text = ""
-                    elif not isinstance(text, str):
+                            question = ""
+                    elif question is not None and not isinstance(question, str):
                         # Convert to string if it's not already
-                        text = str(text)
+                        question = str(question)
 
-                    # Handle context field if configured
-                    original_context = None
+                    # Extract context field if configured
+                    context = None
                     if 'context_field' in eval_config['transform']:
                         context_field = eval_config['transform']['context_field']
                         context = get_nested_field(example, context_field)
@@ -1460,9 +1550,8 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                             elif not isinstance(context, str):
                                 context = str(context)
 
-                            # Store original context for deduplication
+                            # Check for duplicate contexts
                             if context and context.strip():
-                                original_context = context
                                 # Check if we've seen this context before
                                 context_hash = hash(context)
                                 if context_hash in seen_contexts:
@@ -1471,126 +1560,334 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                                 else:
                                     seen_contexts.add(context_hash)
 
-                                # Concatenate context with text
-                                text = context + " " + text
-
-                    # Skip empty or None text
-                    if not text or text.strip() == '':
-                        continue
-
-                    # Generate records based on answer field configuration
-                    records_to_write = []
-
-                    # Create base record template
-                    def create_record_template():
-                        record = {
-                            global_config['jsonl_format']['eval_field']: eval_name,
-                            global_config['jsonl_format']['index_field']: idx,
-                            global_config['jsonl_format']['split_field']: split,
-                        }
-                        # Add any extra fields
-                        if 'extra_fields' in eval_config['transform']:
-                            for field in eval_config['transform']['extra_fields']:
-                                if field in example:
-                                    record[field] = example[field]
-                        return record
-
-                    # Handle answer fields if configured
+                    # Extract answer field if configured
+                    answer = None
                     if 'answer_field' in eval_config['transform']:
                         answer_field = eval_config['transform']['answer_field']
                         answer_value = get_nested_field(example, answer_field)
-                        if answer_value is not None:
-                            # Handle different answer field types
-                            if isinstance(answer_value, list):
-                                # Array of answers - just take the first one
-                                if answer_value and answer_value[0] is not None:  # Check list is not empty and first answer is not None
-                                    record = create_record_template()
-                                    record[global_config['jsonl_format']['text_field']] = text + " " + str(answer_value[0])
-                                    records_to_write.append(record)
+                        
+                        # Check if we need to use answer_key to index into the answer value
+                        if 'answer_key_field' in eval_config['transform']:
+                            answer_key_field = eval_config['transform']['answer_key_field']
+                            answer_key = get_nested_field(example, answer_key_field)
+                            
+                            if answer_key is not None and answer_value is not None:
+                                # answer_key is an integer index into answer_value
+                                if isinstance(answer_value, list) and isinstance(answer_key, int):
+                                    if 0 <= answer_key < len(answer_value):
+                                        answer = str(answer_value[answer_key])
+                                    else:
+                                        # Invalid index, skip this answer
+                                        answer = None
                                 else:
-                                    # Empty or None answer list - just use question
-                                    record = create_record_template()
-                                    record[global_config['jsonl_format']['text_field']] = text
-                                    records_to_write.append(record)
+                                    # If answer_value is not a list or answer_key is not int, 
+                                    # try to use it as-is
+                                    answer = str(answer_value) if answer_value is not None else None
+                        elif answer_value is not None:
+                            # Handle different answer field types (original logic)
+                            if isinstance(answer_value, list):
+                                # Array of answers - take the first one
+                                if answer_value and answer_value[0] is not None:
+                                    answer = str(answer_value[0])
                             else:
-                                # Single answer - create record with question + answer
-                                record = create_record_template()
-                                record[global_config['jsonl_format']['text_field']] = text + " " + str(answer_value)
-                                records_to_write.append(record)
-                        else:
-                            # No answer value found - just use question
-                            record = create_record_template()
-                            record[global_config['jsonl_format']['text_field']] = text
-                            records_to_write.append(record)
-                    else:
-                        # No answer field configured - just use question
-                        record = create_record_template()
-                        record[global_config['jsonl_format']['text_field']] = text
-                        records_to_write.append(record)
+                                answer = str(answer_value)
 
-                    # Handle choices field if configured (e.g., multiple choice questions)
+                    # Skip if no question found
+                    if not question or question.strip() == '':
+                        continue
+
+                    # Create record with separate fields
+                    record = {
+                        global_config['jsonl_format']['eval_field']: eval_name,
+                        global_config['jsonl_format']['index_field']: idx,
+                        global_config['jsonl_format']['split_field']: split,
+                        "question": question,
+                        "context": context,
+                        "answer": answer
+                    }
+
+                    # Add any extra fields
+                    if 'extra_fields' in eval_config['transform']:
+                        for field in eval_config['transform']['extra_fields']:
+                            if field in example:
+                                record[field] = example[field]
+
+                    # Log missing fields
+                    if question is None:
+                        missing_fields_count["question"] += 1
+                    if context is None:
+                        missing_fields_count["context"] += 1
+                    if answer is None:
+                        missing_fields_count["answer"] += 1
+
+                    # Add unique document ID
+                    record['doc_id'] = document_id_counter[0]
+                    document_id_counter[0] += 1
+
+                    # Track character statistics
+                    if question:
+                        dataset_stats["question_chars"] += len(question)
+                    if context:
+                        dataset_stats["context_chars"] += len(context)
+                    if answer:
+                        dataset_stats["answer_chars"] += len(answer)
+                    dataset_stats["records"] += 1
+
+                    # Open questions-only file if not already open
+                    if f_question_only is None:
+                        f_question_only = open(output_file_question_only, 'w')
+                        # Write headers when opening file
+                        for line in header_lines:
+                            f_question_only.write(line)
+
+                    # Always write to questions-only file (every record)
+                    # Strip answer and context keys for questions-only file
+                    question_only_record = record.copy()
+                    question_only_record.pop('answer', None)
+                    question_only_record.pop('context', None)
+                    f_question_only.write(json.dumps(question_only_record) + '\n')
+
+                    # Also write to with-answers file if answer is not empty
+                    if not is_answer_empty(answer):
+                        # Open with-answers file if not already open
+                        if f_with_answers is None:
+                            f_with_answers = open(output_file, 'w')
+                            # Write headers when opening file
+                            for line in header_lines:
+                                f_with_answers.write(line)
+
+                        f_with_answers.write(json.dumps(record) + '\n')
+                        dataset_stats["records_with_answers"] += 1
+                    else:
+                        dataset_stats["records_without_answers"] += 1
+
+                    # Handle choices field if configured (write as separate records)
                     if 'choices_field' in eval_config['transform']:
                         choices_field = eval_config['transform']['choices_field']
                         choices = get_nested_field(example, choices_field)
                         if choices is not None:
-
                             # Handle choices structure: {'text': [...], 'label': [...]}
                             if isinstance(choices, dict) and 'text' in choices:
                                 for choice_text in choices['text']:
-                                    record = create_record_template()
-                                    record[global_config['jsonl_format']['text_field']] = text + " " + str(choice_text)
-                                    records_to_write.append(record)
+                                    choice_record = record.copy()
+                                    choice_record["answer"] = str(choice_text)  # Use choice as answer
+                                    choice_record['doc_id'] = document_id_counter[0]
+                                    document_id_counter[0] += 1
+
+                                    # Track character statistics for choice
+                                    if question:
+                                        dataset_stats["question_chars"] += len(question)
+                                    if context:
+                                        dataset_stats["context_chars"] += len(context)
+                                    dataset_stats["answer_chars"] += len(str(choice_text))
+                                    dataset_stats["records"] += 1
+
+                                    # Open questions-only file if not already open
+                                    if f_question_only is None:
+                                        f_question_only = open(output_file_question_only, 'w')
+                                        # Write headers when opening file
+                                        for line in header_lines:
+                                            f_question_only.write(line)
+
+                                    # Always write to questions-only file (every record)
+                                    # Strip answer and context keys for questions-only file
+                                    question_only_choice_record = choice_record.copy()
+                                    question_only_choice_record.pop('answer', None)
+                                    question_only_choice_record.pop('context', None)
+                                    f_question_only.write(json.dumps(question_only_choice_record) + '\n')
+
+                                    # Open with-answers file if not already open (choices always have answers)
+                                    if f_with_answers is None:
+                                        f_with_answers = open(output_file, 'w')
+                                        # Write headers when opening file
+                                        for line in header_lines:
+                                            f_with_answers.write(line)
+
+                                    # Also write to with-answers file
+                                    f_with_answers.write(json.dumps(choice_record) + '\n')
+                                    dataset_stats["records_with_answers"] += 1
                             elif isinstance(choices, list):
                                 # Handle simple list of choices
                                 for choice in choices:
-                                    record = create_record_template()
-                                    record[global_config['jsonl_format']['text_field']] = text + " " + str(choice)
-                                    records_to_write.append(record)
+                                    choice_record = record.copy()
+                                    choice_record["answer"] = str(choice)  # Use choice as answer
+                                    choice_record['doc_id'] = document_id_counter[0]
+                                    document_id_counter[0] += 1
 
-                # Write all records to JSONL (filter out records with < 8 words)
-                for record in records_to_write:
-                    text = record[global_config['jsonl_format']['text_field']]
+                                    # Track character statistics for choice
+                                    if question:
+                                        dataset_stats["question_chars"] += len(question)
+                                    if context:
+                                        dataset_stats["context_chars"] += len(context)
+                                    dataset_stats["answer_chars"] += len(str(choice))
+                                    dataset_stats["records"] += 1
 
-                    # Split long documents if enabled
-                    text_chunks = split_document(text, DOCUMENT_SPLIT_THRESHOLD)
+                                    # Open questions-only file if not already open
+                                    if f_question_only is None:
+                                        f_question_only = open(output_file_question_only, 'w')
+                                        # Write headers when opening file
+                                        for line in header_lines:
+                                            f_question_only.write(line)
 
-                    for chunk_idx, chunk_text in enumerate(text_chunks):
-                        word_count = len(chunk_text.split())
+                                    # Always write to questions-only file (every record)
+                                    # Strip answer and context keys for questions-only file
+                                    question_only_choice_record = choice_record.copy()
+                                    question_only_choice_record.pop('answer', None)
+                                    question_only_choice_record.pop('context', None)
+                                    f_question_only.write(json.dumps(question_only_choice_record) + '\n')
 
-                        # Skip records with fewer than 8 words
-                        if word_count >= 8:
-                            # Create a new record for this chunk
-                            chunk_record = record.copy()
-                            chunk_record[global_config['jsonl_format']['text_field']] = chunk_text
+                                    # Open with-answers file if not already open (choices always have answers)
+                                    if f_with_answers is None:
+                                        f_with_answers = open(output_file, 'w')
+                                        # Write headers when opening file
+                                        for line in header_lines:
+                                            f_with_answers.write(line)
 
-                            # Add unique document ID
-                            chunk_record['doc_id'] = document_id_counter[0]
-                            document_id_counter[0] += 1
+                                    # Also write to with-answers file
+                                    f_with_answers.write(json.dumps(choice_record) + '\n')
+                                    dataset_stats["records_with_answers"] += 1
 
-                            # Add chunk info if document was split
-                            if len(text_chunks) > 1:
-                                chunk_record['chunk_idx'] = chunk_idx
-                                chunk_record['total_chunks'] = len(text_chunks)
+        finally:
+            # Close any open file handles
+            if f_question_only is not None:
+                f_question_only.close()
+            if f_with_answers is not None:
+                f_with_answers.close()
 
-                            f.write(json.dumps(chunk_record) + '\n')
+        # Log missing fields loudly (only for question and answer)
+        important_fields = ["question", "answer"]
+        important_missing = sum(missing_fields_count[field] for field in important_fields if field in missing_fields_count)
+        if important_missing > 0:
+            print(f"\n⚠️  WARNING: Missing fields detected in {eval_name} {split}:")
+            for field in important_fields:
+                if field in missing_fields_count and missing_fields_count[field] > 0:
+                    count = missing_fields_count[field]
+                    print(f"   - {field}: {count} missing out of {len(dataset[split])} examples ({count/len(dataset[split])*100:.1f}%)")
+            print()
+
+        # Calculate total characters
+        dataset_stats["total_chars"] = (dataset_stats["question_chars"] +
+                                       dataset_stats["context_chars"] +
+                                       dataset_stats["answer_chars"])
+
+        # Update global stats
+        stats["total_question_chars"] += dataset_stats["question_chars"]
+        stats["total_context_chars"] += dataset_stats["context_chars"]
+        stats["total_answer_chars"] += dataset_stats["answer_chars"]
+        stats["total_records"] += dataset_stats["records"]
+        stats["datasets_processed"] += 1
+
+        # Track datasets with no answers (unless split is in no_answer_splits)
+        if dataset_stats["records"] > 0 and dataset_stats["records_with_answers"] == 0:
+            # Check if this split is expected to have no answers
+            no_answer_splits = eval_config.get('no_answer_splits', [])
+            if split not in no_answer_splits:
+                if eval_name not in datasets_without_answers:
+                    datasets_without_answers[eval_name] = []
+                datasets_without_answers[eval_name].append(split)
 
         if skipped_duplicates > 0:
-            print(f"Saved {len(dataset[split]) - skipped_duplicates} examples to {output_file} (skipped {skipped_duplicates} duplicates)")
+            print(f"Saved {dataset_stats['records']} records total (skipped {skipped_duplicates} duplicates)")
         else:
-            print(f"Saved {len(dataset[split])} examples to {output_file}")
+            print(f"Saved {dataset_stats['records']} records total")
+
+        if dataset_stats['records'] > 0:
+            print(f"  - All questions: {dataset_stats['records']} records → {output_file_question_only}")
+        if dataset_stats['records_with_answers'] > 0:
+            print(f"  - With answers: {dataset_stats['records_with_answers']} records → {output_file}")
+
+        # Print dataset statistics
+        print(f"  Character counts for {eval_name} {split}:")
+        print(f"    - Questions: {dataset_stats['question_chars']:,} chars")
+        print(f"    - Context: {dataset_stats['context_chars']:,} chars")
+        print(f"    - Answers: {dataset_stats['answer_chars']:,} chars")
+        print(f"    - Total: {dataset_stats['total_chars']:,} chars")
 
 def download_all_evals():
     """Download all eval datasets"""
     print(f"Processing {len(EVAL_CONFIG['evals'])} eval datasets...")
 
+    # Clear output directories before starting
+    project_root = Path(__file__).parent.parent
+    output_dir = project_root / EVAL_CONFIG['output_dir']
+    output_dir_question_only = project_root / EVAL_CONFIG['output_dir_question_only']
+
+    # Remove existing directories if they exist
+    if output_dir.exists():
+        print(f"Clearing existing directory: {output_dir}")
+        shutil.rmtree(output_dir)
+    if output_dir_question_only.exists():
+        print(f"Clearing existing directory: {output_dir_question_only}")
+        shutil.rmtree(output_dir_question_only)
+
+    # Create fresh directories
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir_question_only.mkdir(parents=True, exist_ok=True)
+    print("Created fresh output directories")
+
     # Initialize global document ID counter (using list for mutable reference)
     document_id_counter = [1]
 
+    # Initialize global statistics
+    stats = {
+        "total_question_chars": 0,
+        "total_context_chars": 0,
+        "total_answer_chars": 0,
+        "total_records": 0,
+        "datasets_processed": 0
+    }
+
+    # Track datasets that have no answers
+    datasets_without_answers = {}
+
     # Process each eval dataset
     for eval_name, eval_config in EVAL_CONFIG['evals'].items():
-        download_and_transform_eval(eval_name, eval_config, EVAL_CONFIG, document_id_counter)
+        download_and_transform_eval(eval_name, eval_config, EVAL_CONFIG, document_id_counter, stats, datasets_without_answers)
 
-    print(f"Done! Generated {document_id_counter[0] - 1} total document IDs.")
+    print(f"\n{'='*80}")
+    print("FINAL STATISTICS")
+    print(f"{'='*80}")
+    print(f"Datasets processed: {stats['datasets_processed']}")
+    print(f"Total records: {stats['total_records']:,}")
+    print(f"Total document IDs: {document_id_counter[0] - 1:,}")
+    print(f"\nCharacter counts:")
+    print(f"  - Questions: {stats['total_question_chars']:,} chars")
+    print(f"  - Context: {stats['total_context_chars']:,} chars")
+    print(f"  - Answers: {stats['total_answer_chars']:,} chars")
+    total_chars = stats['total_question_chars'] + stats['total_context_chars'] + stats['total_answer_chars']
+    print(f"  - TOTAL: {total_chars:,} chars")
+
+    # Show percentages
+    if total_chars > 0:
+        print(f"\nBreakdown by category:")
+        print(f"  - Questions: {stats['total_question_chars']/total_chars*100:.1f}%")
+        print(f"  - Context: {stats['total_context_chars']/total_chars*100:.1f}%")
+        print(f"  - Answers: {stats['total_answer_chars']/total_chars*100:.1f}%")
+
+    # Show average lengths
+    if stats['total_records'] > 0:
+        print(f"\nAverage lengths per record:")
+        print(f"  - Question: {stats['total_question_chars']/stats['total_records']:.1f} chars")
+        print(f"  - Context: {stats['total_context_chars']/stats['total_records']:.1f} chars")
+        print(f"  - Answer: {stats['total_answer_chars']/stats['total_records']:.1f} chars")
+
+    print(f"{'='*80}\n")
+
+    # Print datasets with no answers
+    if datasets_without_answers:
+        print(f"\n{'='*80}")
+        print("DATASETS WITH NO ANSWERS")
+        print(f"{'='*80}")
+        print(f"Found {len(datasets_without_answers)} datasets where all entries have empty or no answers:\n")
+
+        for dataset_name, splits in sorted(datasets_without_answers.items()):
+            if len(splits) == 1:
+                print(f"  - {dataset_name} (split: {splits[0]})")
+            else:
+                print(f"  - {dataset_name} (splits: {', '.join(splits)})")
+
+        print(f"\nThese datasets are saved to: {EVAL_CONFIG['output_dir_question_only']}/")
+        print(f"{'='*80}\n")
 
 
 def list_evals():

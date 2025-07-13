@@ -8,6 +8,10 @@ fixtures/cleaned/*.*
 fixtures/local_input/*.*
 fixtures/big_input
 fixtures/dumps
+fixtures/reference-download-questions
+fixtures/reference-download-questions-and-answers
+fixtures/reference-questions
+fixtures/reference-questions-and-answers
 tests/output
 test_daemon.sh
 test_multi_thread.sh
