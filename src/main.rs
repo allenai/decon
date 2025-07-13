@@ -200,7 +200,7 @@ enum Commands {
             help = "Filter by evaluation dataset name (strips suffix after last underscore)"
         )]
         eval: Option<String>,
-        
+
         #[arg(
             long,
             help = "Skip records with contamination score == 1.0 (exact matches)"
@@ -378,6 +378,12 @@ pub struct Config {
     #[serde(default)]
     pub window_step_size: Option<usize>,
 
+    // Short answer detection parameters
+    #[serde(default = "default_max_short_answer_distance")]
+    pub max_short_answer_distance: usize,
+    #[serde(default = "default_short_answer_contamination_threshold")]
+    pub short_answer_contamination_threshold: f32,
+
     // Purify option - create cleaned files with contaminated lines removed
     #[serde(default)]
     pub purify: bool,
@@ -463,6 +469,14 @@ fn default_worker_threads() -> usize {
 
 fn default_eval_min_word_count() -> usize {
     10 // Default minimum word count for eval file indexing
+}
+
+fn default_max_short_answer_distance() -> usize {
+    30 // Default maximum token distance to search for short answers
+}
+
+fn default_short_answer_contamination_threshold() -> f32 {
+    0.8 // Default threshold for short answer contamination
 }
 
 pub fn read_config(config_path: &PathBuf) -> Result<Config, Error> {
@@ -555,16 +569,16 @@ pub fn write_purified_file(
 
     let mut removed_count = 0;
     let mut encoding_errors = 0;
-    
+
     // Work with raw bytes to handle encoding issues
     let mut line_num = 0;
     let mut line_buffer = Vec::new();
-    
+
     loop {
         line_buffer.clear();
         let bytes_read = reader.read_until(b'\n', &mut line_buffer)?;
         if bytes_read == 0 { break; }
-        
+
         if !contaminated_lines.contains(&line_num) {
             // Try to validate as UTF-8
             match std::str::from_utf8(&line_buffer) {
@@ -585,13 +599,13 @@ pub fn write_purified_file(
         }
         line_num += 1;
     }
-    
+
     writer.flush()?;
-    
+
     if encoding_errors > 0 {
         eprintln!("Warning: {} lines had encoding issues and were converted lossily (invalid UTF-8 replaced with �)", encoding_errors);
     }
-    
+
     println!(
         "Created purified file: {:?} (removed {} contaminated lines)",
         purified_path, removed_count

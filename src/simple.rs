@@ -86,8 +86,8 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
     let (
         ngram_to_id,
         id_to_question_docs,
-        _id_to_answer_docs,
-        _id_to_short_answer,
+        id_to_answer_docs,
+        id_to_short_answer,
         eval_documents,
         id_to_ngram_tokens,
         tokenizer,
@@ -107,6 +107,8 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
         config,
         &ngram_to_id,
         &id_to_question_docs,
+        &id_to_answer_docs,
+        &id_to_short_answer,
         &eval_documents,
         &id_to_ngram_tokens,
         &tokenizer,
@@ -516,6 +518,8 @@ fn detect_simple_contamination(
     config: &Config,
     ngram_to_id: &NgramToIdMap,
     id_to_question_docs: &IdToQuestionDocsMap,
+    _id_to_answer_docs: &IdToAnswerDocsMap,
+    id_to_short_answer: &IdToShortAnswerMap,
     eval_documents: &EvalDocuments,
     id_to_ngram_tokens: &IdToNgramTokens,
     tokenizer: &OmniTokenizer,
@@ -561,6 +565,7 @@ fn detect_simple_contamination(
             config,
             ngram_to_id,
             id_to_question_docs,
+            id_to_short_answer,
             eval_documents,
             tokenizer,
             id_to_ngram_tokens,
@@ -781,7 +786,7 @@ impl SimpleContaminationEntry {
 
     /// Calculate contamination score based on overlap ratio and IDF, with length penalty
     /// Returns a score between 0.0 and 1.0, where higher scores indicate more likely contamination
-    pub fn score_contamination(&self) -> f32 {
+    pub fn score_question_contamination(&self) -> f32 {
         // Basically we reject anything with less than 80% overlap. Just on principle.
         // TODO review
         if self.overlap_ratio < 0.7 {
@@ -819,13 +824,73 @@ impl SimpleContaminationEntry {
     }
 
     /// Check if this entry represents contamination (score >= 0.78)
-    pub fn is_contaminated(&self) -> bool {
-        self.score_contamination() >= CONTAMINATION_SCORE_THRESHOLD
+    pub fn is_contaminated(
+        &self,
+        doc_id: u32,
+        id_to_short_answer: &IdToShortAnswerMap,
+        cluster: &SimpleContaminationCluster,
+        training_tokens: &[usize],
+        config: &Config,
+    ) -> bool {
+        let question_contam = self.score_question_contamination() >= CONTAMINATION_SCORE_THRESHOLD;
+
+        if question_contam {
+            // Check if this document has a short answer
+            if let Some(answer_token_set) = id_to_short_answer.get(&doc_id) {
+                let answer_overlap_ratio = short_answer_one_gram_overlap_ratio(
+                    answer_token_set.value(),
+                    cluster,
+                    training_tokens,
+                    config,
+                );
+                
+                // Require both question and answer contamination
+                return question_contam && answer_overlap_ratio >= config.short_answer_contamination_threshold;
+            }
+        }
+
+        question_contam
     }
 }
 
+fn short_answer_one_gram_overlap_ratio(
+    answer_token_set: &HashSet<usize>,
+    cluster: &SimpleContaminationCluster,
+    training_tokens: &[usize],
+    config: &Config,
+) -> f32 {
+    // If answer is empty (shouldn't happen based on our logic, but be safe)
+    if answer_token_set.is_empty() {
+        return 0.0;
+    }
+
+    // Define search window
+    let search_start = cluster.start_idx.saturating_sub(config.max_short_answer_distance);
+    let search_end = (cluster.end_idx + config.max_short_answer_distance).min(training_tokens.len());
+
+    // Extract training tokens in the search window
+    let training_window = &training_tokens[search_start..search_end];
+    let training_token_set: HashSet<usize> = training_window.iter().copied().collect();
+
+    // Count how many answer tokens are present in the training window
+    let matches: usize = answer_token_set
+        .iter()
+        .filter(|token| training_token_set.contains(token))
+        .count();
+
+    let match_ratio = matches as f32 / answer_token_set.len() as f32;
+
+    if config.debug {
+        println!("    Short answer validation: {} of {} tokens found (ratio: {:.2})",
+                 matches, answer_token_set.len(), match_ratio);
+    }
+
+    match_ratio
+}
+
+
 #[derive(Clone)]
-struct SimpleContaminationCluster {
+pub(crate) struct SimpleContaminationCluster {
     start_idx: usize,
     end_idx: usize,
     document_matches: HashMap<u32, HashSet<u64>>, // doc_id -> unique_ngram_ids
@@ -837,6 +902,7 @@ pub fn process_simple_training_file(
     config: &Config,
     ngram_to_id: &NgramToIdMap,
     id_to_question_docs: &IdToQuestionDocsMap,
+    id_to_short_answer: &IdToShortAnswerMap,
     eval_documents: &EvalDocuments,
     contamination_results: &ContaminationResults,
     tokenizer: &OmniTokenizer,
@@ -900,7 +966,7 @@ pub fn process_simple_training_file(
         for cluster in clusters {
             let mut cluster_results = Vec::new();
 
-            for (doc_id, matched_ngram_ids) in cluster.document_matches {
+            for (doc_id, matched_ngram_ids) in &cluster.document_matches {
                 if let Some(doc_info) = eval_documents.get(&doc_id) {
                     let (eval_name, eval_line, _total_ngrams, unique_ngrams) = doc_info.value();
                     let unique_matches = matched_ngram_ids.len();
@@ -945,7 +1011,7 @@ pub fn process_simple_training_file(
                         // Additional validation
                         // Check if any of the matched ngram IDs are NOT in the eval document's ngrams
                         let mut invalid_matches = 0;
-                        for ngram_id in &matched_ngram_ids {
+                        for ngram_id in matched_ngram_ids {
                             if let Some(doc_set) = id_to_question_docs.get(ngram_id) {
                                 if !doc_set.contains(&doc_id) {
                                     invalid_matches += 1;
@@ -994,7 +1060,7 @@ pub fn process_simple_training_file(
                     entry.length_penalty = Some(entry.calculate_length_penalty());
 
                     // Check if this entry represents contamination using score threshold
-                    if entry.is_contaminated() {
+                    if entry.is_contaminated(*doc_id, id_to_short_answer, &cluster, &word_tokens, config) {
                         // Extract the overlapping text with context
                         let training_overlap_text = extract_overlap_with_context(
                             &cleaned_text,
@@ -1041,6 +1107,7 @@ pub fn process_simple_training_file_streaming(
     config: &Config,
     ngram_to_id: &NgramToIdMap,
     id_to_question_docs: &IdToQuestionDocsMap,
+    id_to_short_answer: &IdToShortAnswerMap,
     eval_documents: &EvalDocuments,
     tokenizer: &OmniTokenizer,
     id_to_ngram_tokens: &IdToNgramTokens,
@@ -1107,7 +1174,7 @@ pub fn process_simple_training_file_streaming(
 
         // Convert clusters to contamination entries and write immediately
         for cluster in clusters {
-            for (doc_id, matched_ngram_ids) in cluster.document_matches {
+            for (doc_id, matched_ngram_ids) in &cluster.document_matches {
                 if let Some(doc_info) = eval_documents.get(&doc_id) {
                     let (eval_name, eval_line, _total_ngrams, unique_ngrams) = doc_info.value();
                     let unique_matches = matched_ngram_ids.len();
@@ -1147,7 +1214,7 @@ pub fn process_simple_training_file_streaming(
                     temp_entry.length_penalty = Some(temp_entry.calculate_length_penalty());
 
                     // Check if this entry represents contamination using score threshold
-                    if temp_entry.is_contaminated() {
+                    if temp_entry.is_contaminated(*doc_id, id_to_short_answer, &cluster, &word_tokens, config) {
                         // Extract the overlapping text with context
                         let training_overlap_text = extract_overlap_with_context(
                             &cleaned_text,
@@ -1170,7 +1237,7 @@ pub fn process_simple_training_file_streaming(
                             "max_idf": max_idf,
                             "ngram_match_cnt": unique_matches,
                             "eval_unique_ngrams": unique_ngrams,
-                            "contamination_score": temp_entry.score_contamination(),
+                            "contamination_score": temp_entry.score_question_contamination(),
                             "length_penalty": temp_entry.length_penalty.unwrap_or(0.0),
                             "method": "simple"
                         });
@@ -1779,7 +1846,7 @@ pub fn save_contamination_results_toxic_format_with_filename_and_eval_text(
                 "max_idf": contamination_entry.max_idf,
                 "ngram_match_cnt": contamination_entry.ngram_match_cnt,
                 "eval_unique_ngrams": contamination_entry.eval_unique_ngrams,
-                "contamination_score": contamination_entry.score_contamination(),
+                "contamination_score": contamination_entry.score_question_contamination(),
                 "length_penalty": contamination_entry.length_penalty.unwrap_or_else(|| contamination_entry.calculate_length_penalty()),
                 "method": "simple"
             });

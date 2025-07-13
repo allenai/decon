@@ -10,6 +10,7 @@ purify: false  # Enable creation of cleaned files
 ngram_size: 4
 sample_every_m_tokens: 5
 max_consecutive_misses: 6 # How many misses to tolerate before short circuiting cluster expansion
+max_short_answer_distance: 20
 
 toxic_overlap_threshold: 0.8 # Documents below this will not be considered contaminated
 toxic_score_threshold: 2 # Documents below this will not be considered contaminated
