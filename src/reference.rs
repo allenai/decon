@@ -57,10 +57,11 @@ type MinHashSignatures = DashMap<(String, usize), MinHashSignature>; // Maps (fi
 pub fn refine_reference_files(dry_run: bool) -> Result<(), Error> {
     println!("Starting reference file refinement...");
 
-    // Process both question-only and questions-and-answers datasets
+    // Process question-only, questions-and-answers, and best-available datasets
     let dataset_configs = vec![
         ("fixtures/reference-download-questions", "fixtures/reference-questions"),
         ("fixtures/reference-download-questions-and-answers", "fixtures/reference-questions-and-answers"),
+        ("fixtures/reference-download-best-available", "fixtures/reference-best-available"),
     ];
 
     for (input_dir, output_dir) in dataset_configs {

@@ -13,6 +13,7 @@ fixtures/reference-download-questions-and-answers
 fixtures/reference-download-best-available
 fixtures/reference-questions
 fixtures/reference-questions-and-answers
+fixtures/reference-best-available
 tests/output
 test_daemon.sh
 test_multi_thread.sh
