@@ -491,25 +491,9 @@ fn process_answer_field(
         tokens
     };
 
-    // Check if this is a short answer
-    if word_tokens.len() < config.ngram_size {
-        // Store in short answer map
-        let token_set: HashSet<usize> = word_tokens.into_iter().collect();
-        id_to_short_answer.insert(doc_id, token_set);
-    } else {
-        // Process as long answer with n-grams
-        for i in 0..=word_tokens.len() - config.ngram_size {
-            let ngram_slice = &word_tokens[i..i + config.ngram_size];
-            let ngram_tokens = ngram_slice.to_vec();
-            let ngram_id = get_or_create_ngram_id(
-                &ngram_tokens,
-                ngram_to_id,
-                next_ngram_id,
-                id_to_ngram_tokens,
-            );
-            add_doc_to_answer_ngram(ngram_id, doc_id, id_to_answer_docs);
-        }
-    }
+    // Store in short answer map
+    let token_set: HashSet<usize> = word_tokens.into_iter().collect();
+    id_to_short_answer.insert(doc_id, token_set);
 
     Ok(())
 }
@@ -843,7 +827,7 @@ impl SimpleContaminationEntry {
                     training_tokens,
                     config,
                 );
-                
+
                 // Require both question and answer contamination
                 return question_contam && answer_overlap_ratio >= config.short_answer_contamination_threshold;
             }
