@@ -7,6 +7,7 @@ use serde_json::Value;
 use serde_yaml;
 use tiktoken_rs::{cl100k_base, p50k_base, CoreBPE};
 use unicode_segmentation::UnicodeSegmentation;
+use zstd::stream::read::Decoder as ZstdDecoder;
 
 // Standard library
 use std::collections::HashMap;
@@ -598,11 +599,10 @@ pub fn write_purified_file_bytes(
 
     // Open input file with streaming reader
     let file = File::open(input_path)?;
-    let mut reader: Box<dyn BufRead> = if input_path.extension().and_then(|s| s.to_str()) == Some("gz")
-    {
-        Box::new(BufReader::new(GzDecoder::new(file)))
-    } else {
-        Box::new(BufReader::new(file))
+    let mut reader: Box<dyn BufRead> = match input_path.extension().and_then(|s| s.to_str()) {
+        Some("gz") => Box::new(BufReader::new(GzDecoder::new(file))),
+        Some("zst") => Box::new(BufReader::new(ZstdDecoder::new(file)?)),
+        _ => Box::new(BufReader::new(file))
     };
 
     // Create output file with gzip compression
@@ -650,11 +650,10 @@ pub fn write_purified_file_with_utf8_lossy_conversion(
 
     // Open input file with streaming reader
     let file = File::open(input_path)?;
-    let mut reader: Box<dyn BufRead> = if input_path.extension().and_then(|s| s.to_str()) == Some("gz")
-    {
-        Box::new(BufReader::new(GzDecoder::new(file)))
-    } else {
-        Box::new(BufReader::new(file))
+    let mut reader: Box<dyn BufRead> = match input_path.extension().and_then(|s| s.to_str()) {
+        Some("gz") => Box::new(BufReader::new(GzDecoder::new(file))),
+        Some("zst") => Box::new(BufReader::new(ZstdDecoder::new(file)?)),
+        _ => Box::new(BufReader::new(file))
     };
 
     // Create output file with gzip compression
