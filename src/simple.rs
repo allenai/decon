@@ -812,6 +812,7 @@ impl SimpleContaminationEntry {
                 let matching_tokens = short_answer_tokens(
                     answer_token_set.value(),
                     cluster,
+                    doc_id,
                     training_tokens,
                     config,
                 );
@@ -842,6 +843,7 @@ impl SimpleContaminationEntry {
 fn short_answer_tokens(
     answer_token_set: &HashSet<usize>,
     cluster: &SimpleContaminationCluster,
+    doc_id: u32,
     training_tokens: &[usize],
     config: &Config,
 ) -> HashSet<usize> {
@@ -849,12 +851,18 @@ fn short_answer_tokens(
     let answer_length = answer_token_set.len();
     let window_size = std::cmp::max(answer_length * 2, config.min_short_answer_distance);
 
+    // Get document-specific boundaries
+    let (doc_start_idx, doc_end_idx) = cluster.document_boundaries
+        .get(&doc_id)
+        .copied()
+        .expect("Document boundaries should exist for all matched documents");
+
     if config.exclude_question_from_answer_sweep {
         // When excluding question tokens, search in prefix and suffix regions
-        let prefix_search_start = cluster.start_idx.saturating_sub(window_size);
-        let prefix_search_end = cluster.start_idx;
-        let suffix_search_start = cluster.end_idx;
-        let suffix_search_end = (cluster.end_idx + window_size).min(training_tokens.len());
+        let prefix_search_start = doc_start_idx.saturating_sub(window_size);
+        let prefix_search_end = doc_start_idx;
+        let suffix_search_start = doc_end_idx;
+        let suffix_search_end = (doc_end_idx + window_size).min(training_tokens.len());
 
         // Collect tokens from both regions
         let mut training_token_set = HashSet::new();
@@ -881,8 +889,8 @@ fn short_answer_tokens(
             .collect()
     } else {
         // Original behavior: search entire window including the question
-        let search_start = cluster.start_idx.saturating_sub(window_size);
-        let search_end = (cluster.end_idx + window_size).min(training_tokens.len());
+        let search_start = doc_start_idx.saturating_sub(window_size);
+        let search_end = (doc_end_idx + window_size).min(training_tokens.len());
 
         // Extract training tokens in the search window
         let training_window = &training_tokens[search_start..search_end];
@@ -899,9 +907,8 @@ fn short_answer_tokens(
 
 #[derive(Clone)]
 pub(crate) struct SimpleContaminationCluster {
-    start_idx: usize,
-    end_idx: usize,
     document_matches: HashMap<u32, HashSet<u64>>, // doc_id -> unique_ngram_ids
+    document_boundaries: HashMap<u32, (usize, usize)>, // doc_id -> (start_idx, end_idx)
     matching_ngrams: Vec<String>,
 }
 
@@ -993,6 +1000,12 @@ pub fn process_simple_training_file(
                         id_to_ngram_tokens,
                     );
 
+                    // Get document-specific boundaries
+                    let (doc_start_idx, doc_end_idx) = cluster.document_boundaries
+                        .get(doc_id)
+                        .copied()
+                        .expect("Document boundaries should exist for all matched documents");
+
                     // Create the contamination entry first
                     let mut entry = SimpleContaminationEntry {
                         training_line: line_num,
@@ -1001,8 +1014,8 @@ pub fn process_simple_training_file(
                         overlap_ratio,
                         idf_sum,
                         max_idf,
-                        contamination_start_idx: Some(cluster.start_idx),
-                        contamination_end_idx: Some(cluster.end_idx + config.ngram_size - 1),
+                        contamination_start_idx: Some(doc_start_idx),
+                        contamination_end_idx: Some(doc_end_idx + config.ngram_size - 1),
                         training_overlap_text: None, // Will be filled if contaminated
                         ngram_match_cnt: unique_matches,
                         eval_unique_ngrams: *unique_ngrams,
@@ -1022,11 +1035,11 @@ pub fn process_simple_training_file(
                         // Extract the overlapping text with context
                         // Note: cluster indices are n-gram positions, but we need token positions
                         // An n-gram at position i covers tokens from i to i+ngram_size-1
-                        let token_end_idx = cluster.end_idx + config.ngram_size - 1;
+                        let token_end_idx = doc_end_idx + config.ngram_size - 1;
                         let training_overlap_text = extract_overlap_with_context(
                             &cleaned_text,
                             &word_tokens,
-                            cluster.start_idx,
+                            doc_start_idx,
                             token_end_idx,
                             tokenizer,
                             60,
@@ -1063,7 +1076,6 @@ fn process_ngrams_with_simple_sampling(
     id_to_ngram_tokens: &IdToNgramTokens,
 ) -> Result<Vec<SimpleContaminationCluster>, Error> {
     let mut clusters = Vec::new();
-    let mut processed_indices = HashSet::new();
     let mut i = 0;
 
     // println!("Starting sampling with M={}, word_tokens len={}", config.sample_every_m_tokens, word_tokens.len()); //debug
@@ -1080,12 +1092,6 @@ fn process_ngrams_with_simple_sampling(
     };
 
     while i < total_ngrams {
-        // Skip if we've already processed this n-gram as part of a cluster
-        if processed_indices.contains(&i) {
-            i += 1;
-            continue;
-        }
-
         // Sample every M n-grams (unless M=1, which means no sampling)
         if config.sample_every_m_tokens > 1 && i % config.sample_every_m_tokens != 0 {
             i += config.sample_every_m_tokens - (i % config.sample_every_m_tokens);
@@ -1116,17 +1122,14 @@ fn process_ngrams_with_simple_sampling(
                 id_to_ngram_tokens,
             )?;
 
-            // Mark all indices in this cluster as processed
-            for idx in cluster.start_idx..=cluster.end_idx {
-                processed_indices.insert(idx);
-            }
+            clusters.push(cluster);
+            // println!("Cluster completed: {} document matches", //debug
+            //          cluster.document_matches.len());
 
-            clusters.push(cluster.clone());
-            // println!("Cluster completed: indices {}-{}, {} document matches", //debug
-            //          cluster.start_idx, cluster.end_idx, cluster.document_matches.len());
-
-            // Jump past the processed region
-            i = processed_indices.iter().max().copied().unwrap_or(i) + 1;
+            // Jump by max_consecutive_misses - 1 to allow documents that dropped off
+            // to potentially match again shortly after the cluster
+            let jump_distance = (config.max_consecutive_misses as usize).saturating_sub(1).max(1);
+            i += jump_distance;
         } else {
             // No hit, continue sampling
             i += config.sample_every_m_tokens.max(1);
@@ -1182,13 +1185,12 @@ fn expand_simple_contamination_cluster(
     initial_training_ngram: &[usize],
     id_to_ngram_tokens: &IdToNgramTokens,
 ) -> Result<SimpleContaminationCluster, Error> {
-    let mut start_idx = hit_idx;
-    let mut end_idx = hit_idx;
     let mut matching_ngrams = Vec::new();
 
     // Initialize document match tracking - track consecutive misses for each document
     let mut document_matches: HashMap<u32, HashSet<u64>> = HashMap::new();
     let mut document_misses: HashMap<u32, usize> = HashMap::new();
+    let mut document_boundaries: HashMap<u32, (usize, usize)> = HashMap::new();
     let mut active_documents: HashSet<u32> = initial_document_ids.clone();
 
     // Get the initial n-gram ID for tracking
@@ -1203,6 +1205,7 @@ fn expand_simple_contamination_cluster(
         matched_ngrams.insert(initial_ngram_id);
         document_matches.insert(*doc_id, matched_ngrams);
         document_misses.insert(*doc_id, 0);
+        document_boundaries.insert(*doc_id, (hit_idx, hit_idx));
     }
 
     // Store display format for the initial ngram
@@ -1250,7 +1253,6 @@ fn expand_simple_contamination_cluster(
 
             if !intersection.is_empty() {
                 // println!("Left hit at {}: {} docs intersect", left_idx, intersection.len()); //debug
-                start_idx = left_idx;
 
                 // Get ngram_id before moving ngram_tokens
                 let ngram_hash = hash_ngram(&ngram_tokens);
@@ -1269,6 +1271,10 @@ fn expand_simple_contamination_cluster(
                         .or_insert_with(HashSet::new)
                         .insert(ngram_id);
                     document_misses.insert(*doc_id, 0);
+                    // Update left boundary for this document
+                    if let Some((doc_start, _doc_end)) = document_boundaries.get_mut(doc_id) {
+                        *doc_start = left_idx;
+                    }
                 }
 
                 // Remove documents that didn't match this n-gram
@@ -1349,7 +1355,6 @@ fn expand_simple_contamination_cluster(
 
             if !intersection.is_empty() {
                 // println!("Right hit at {}: {} docs intersect", right_idx, intersection.len()); //debug
-                end_idx = right_idx;
 
                 // Get ngram_id before moving ngram_tokens
                 let ngram_hash = hash_ngram(&ngram_tokens);
@@ -1368,6 +1373,10 @@ fn expand_simple_contamination_cluster(
                         .or_insert_with(HashSet::new)
                         .insert(ngram_id);
                     document_misses.insert(*doc_id, 0);
+                    // Update right boundary for this document
+                    if let Some((_doc_start, doc_end)) = document_boundaries.get_mut(doc_id) {
+                        *doc_end = right_idx;
+                    }
                 }
 
                 // Remove documents that didn't match this n-gram
@@ -1424,9 +1433,8 @@ fn expand_simple_contamination_cluster(
 
 
     Ok(SimpleContaminationCluster {
-        start_idx,
-        end_idx,
         document_matches,
+        document_boundaries,
         matching_ngrams,
     })
 }
