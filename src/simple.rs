@@ -67,6 +67,7 @@ const LENGTH_PENALTY_POWER_N: f32 = 0.4;
 // Global counters for traversal statistics
 static LEFT_TRAVERSAL_COUNT: AtomicUsize = AtomicUsize::new(0); //DEBUGCOUNTER
 static RIGHT_TRAVERSAL_COUNT: AtomicUsize = AtomicUsize::new(0); //DEBUGCOUNTER
+static EXCLUDED_NO_ANSWER_MATCH: AtomicUsize = AtomicUsize::new(0); //DEBUGCOUNTER
 
 // Helper function to format numbers with commas
 fn format_number_with_commas(n: usize) -> String {
@@ -134,10 +135,13 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
     // Print traversal statistics
     let left_traversals = LEFT_TRAVERSAL_COUNT.load(Ordering::Relaxed);
     let right_traversals = RIGHT_TRAVERSAL_COUNT.load(Ordering::Relaxed);
+    let excluded_no_answer = EXCLUDED_NO_ANSWER_MATCH.load(Ordering::Relaxed);
     println!("\n=== Traversal Statistics ===");
     println!("Left traversals: {:>15}", format_number_with_commas(left_traversals));
     println!("Right traversals: {:>15}", format_number_with_commas(right_traversals));
     println!("Total traversals: {:>15}", format_number_with_commas(left_traversals + right_traversals));
+    println!("\n=== Contamination Exclusion Statistics ===");
+    println!("Excluded (no answer match): {:>15}", format_number_with_commas(excluded_no_answer));
     
     Ok(())
 }
@@ -1060,6 +1064,12 @@ pub fn process_simple_training_file(
                     // Check if this entry represents contamination using score threshold
                     let (is_contaminated, answer_overlap_ratio, matched_answer_tokens) =
                         entry.is_contaminated(*doc_id, id_to_short_answer, &cluster, &word_tokens, config, tokenizer);
+
+                    // Track if question was contaminated but excluded due to no answer match
+                    let question_contam = entry.score_question_contamination(config.simple_contamination_score_threshold) >= config.simple_contamination_score_threshold;
+                    if question_contam && !is_contaminated {
+                        EXCLUDED_NO_ANSWER_MATCH.fetch_add(1, Ordering::Relaxed);
+                    }
 
                     if is_contaminated {
                         // Extract the overlapping text with context
