@@ -409,6 +409,10 @@ pub struct Config {
     // Minimum word count for eval file indexing in SIMPLE mode
     #[serde(default = "default_eval_min_word_count")]
     pub eval_min_word_count: usize,
+
+    // Whether to replace non-UTF8 characters when creating purified files
+    #[serde(default = "default_replace_non_utf8_chars")]
+    pub replace_non_utf8_chars: bool,
 }
 
 fn default_mode() -> String {
@@ -501,6 +505,10 @@ fn default_simple_contamination_score_threshold() -> f32 {
     0.79 // Default contamination score threshold for SIMPLE mode
 }
 
+fn default_replace_non_utf8_chars() -> bool {
+    false // Default to preserving bytes exactly as they are
+}
+
 pub fn read_config(config_path: &PathBuf) -> Result<Config, Error> {
     let contents = read_pathbuf_to_mem(config_path).unwrap();
     let config: Config = serde_yaml::from_reader(contents).unwrap();
@@ -561,8 +569,13 @@ pub fn write_purified_file(
     input_path: &PathBuf,
     cleaned_output_dir: &PathBuf,
     contaminated_lines: &std::collections::HashSet<usize>,
+    config: &Config,
 ) -> Result<PathBuf, anyhow::Error> {
-    //TODO implement with a new config switch
+    if config.replace_non_utf8_chars {
+        write_purified_file_with_utf8_lossy_conversion(input_path, cleaned_output_dir, contaminated_lines)
+    } else {
+        write_purified_file_bytes(input_path, cleaned_output_dir, contaminated_lines)
+    }
 }
 
 // Common function to write a purified file with contaminated lines removed

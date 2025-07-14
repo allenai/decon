@@ -3355,7 +3355,7 @@ fn create_purified_files(
             }
 
             // Use the shared write_purified_file function
-            write_purified_file(file_path, cleaned_dir, &contaminated_lines)?;
+            write_purified_file(file_path, cleaned_dir, &contaminated_lines, config)?;
 
             println!(
                 "Created purified file for {} (removed {} lines)",

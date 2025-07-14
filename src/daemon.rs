@@ -416,6 +416,7 @@ fn process_single_file(
                     file_path,
                     cleaned_dir,
                     &contaminated_lines,
+                    config,
                 )?)
             } else {
                 None
@@ -500,6 +501,7 @@ fn process_single_file(
                     file_path,
                     cleaned_dir,
                     &contaminated_lines,
+                    config,
                 )?)
             } else {
                 None
@@ -587,6 +589,7 @@ fn process_single_file(
                     file_path,
                     cleaned_dir,
                     &contaminated_lines,
+                    config,
                 )?)
             } else {
                 None
