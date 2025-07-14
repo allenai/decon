@@ -610,8 +610,6 @@ pub fn write_purified_file_bytes(
     let gz_encoder = GzEncoder::new(output_file, Compression::default());
     let mut writer = BufWriter::new(gz_encoder);
 
-    let mut removed_count = 0;
-
     // Work with raw bytes to preserve data exactly as-is
     let mut line_num = 0;
     let mut line_buffer = Vec::new();
@@ -624,8 +622,6 @@ pub fn write_purified_file_bytes(
         if !contaminated_lines.contains(&line_num) {
             // Write bytes exactly as they are, no UTF-8 validation
             writer.write_all(&line_buffer)?;
-        } else {
-            removed_count += 1;
         }
         line_num += 1;
     }
@@ -666,7 +662,6 @@ pub fn write_purified_file_with_utf8_lossy_conversion(
     let gz_encoder = GzEncoder::new(output_file, Compression::default());
     let mut writer = BufWriter::new(gz_encoder);
 
-    let mut removed_count = 0;
     let mut encoding_errors = 0;
 
     // Work with raw bytes to handle encoding issues
@@ -693,8 +688,6 @@ pub fn write_purified_file_with_utf8_lossy_conversion(
                     encoding_errors += 1;
                 }
             }
-        } else {
-            removed_count += 1;
         }
         line_num += 1;
     }

@@ -5,7 +5,7 @@ use rayon::prelude::*;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::fs::{create_dir_all, File};
-use std::io::{BufRead, BufWriter, Read, Write};
+use std::io::{BufRead, Read};
 use std::panic::catch_unwind;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -732,7 +732,6 @@ pub struct SimpleContaminationEntry {
     overlap_ratio: f32,
     idf_sum: f32,              // Sum of IDF scores for all matching n-grams
     max_idf: f32,              // Maximum IDF score among matching n-grams
-    matching_ngrams: Vec<String>,
     // Token indices for position recovery
     contamination_start_idx: Option<usize>, // Start index in token array
     contamination_end_idx: Option<usize>,   // End index in token array
@@ -1002,7 +1001,6 @@ pub fn process_simple_training_file(
                         overlap_ratio,
                         idf_sum,
                         max_idf,
-                        matching_ngrams: cluster.matching_ngrams.clone(),
                         contamination_start_idx: Some(cluster.start_idx),
                         contamination_end_idx: Some(cluster.end_idx),
                         training_overlap_text: None, // Will be filled if contaminated
@@ -1418,6 +1416,9 @@ fn expand_simple_contamination_cluster(
 
     // println!("Cluster expansion complete: indices {}-{}, {} matching n-grams", //debug
     //          start_idx, end_idx, matching_ngrams.len());
+    //adjust end_idx by config.ngame_size - 1
+    //end_idx = end_idx + config.ngram_size;
+
 
     Ok(SimpleContaminationCluster {
         start_idx,
@@ -1477,60 +1478,6 @@ fn parse_ngram_string(ngram_str: &str) -> Result<Vec<usize>, Error> {
                 .map_err(|e| anyhow::anyhow!("Failed to parse token ID: {}", e))
         })
         .collect()
-}
-
-#[allow(dead_code)]
-fn save_contamination_results(
-    config: &Config,
-    contamination_results: &ContaminationResults,
-) -> Result<(), Error> {
-    // println!("Saving contamination results..."); //debug
-
-    // Create output directory if it doesn't exist
-    create_dir_all(&config.report_output_dir)?;
-
-    for entry in contamination_results.iter() {
-        let file_name = entry.key();
-        let results = entry.value();
-
-        if results.is_empty() {
-            continue;
-        }
-
-        // println!("Saving results for {}: {} contamination entries", file_name, results.len()); //debug
-
-        // Create output filename similar to toxic format
-        let results_filename = config
-            .report_output_dir
-            .join(format!("{}_simple_contamination.jsonl", file_name));
-
-        // Convert to JSON format similar to toxic results
-        let json_results: Vec<Value> = results
-            .iter()
-            .map(|entry| {
-                json!({
-                    "training_line": entry.training_line,
-                    "eval_name": entry.eval_name,
-                    "eval_line": entry.eval_line,
-                    "overlap_ratio": entry.overlap_ratio,
-                    "matching_ngrams": entry.matching_ngrams,
-                    "detection_method": "simple"
-                })
-            })
-            .collect();
-
-        // Write results to file
-        let mut file = BufWriter::new(File::create(&results_filename)?);
-        for result in json_results {
-            writeln!(file, "{}", serde_json::to_string(&result)?)?;
-        }
-        file.flush()?;
-
-        // println!("Saved contamination results to: {:?}", results_filename); //debug
-    }
-
-    // println!("All contamination results saved successfully"); //debug
-    Ok(())
 }
 
 pub fn save_contamination_results_toxic_format_with_filename_and_eval_text(
