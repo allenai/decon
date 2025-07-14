@@ -632,11 +632,6 @@ pub fn write_purified_file_bytes(
 
     writer.flush()?;
 
-    println!(
-        "Created purified file: {:?} (removed {} contaminated lines)",
-        purified_path, removed_count
-    );
-
     Ok(purified_path)
 }
 
@@ -709,11 +704,6 @@ pub fn write_purified_file_with_utf8_lossy_conversion(
     if encoding_errors > 0 {
         eprintln!("Warning: {} lines had encoding issues and were converted lossily (invalid UTF-8 replaced with �)", encoding_errors);
     }
-
-    println!(
-        "Created purified file: {:?} (removed {} contaminated lines)",
-        purified_path, removed_count
-    );
 
     Ok(purified_path)
 }
