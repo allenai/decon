@@ -2,7 +2,7 @@ mode: simple
 
 content_key: text # json key for content in the training files
 local_input: fixtures/big_input
-reference_input: fixtures/reference-questions-and-answers
+reference_input: fixtures/reference-best-available
 report_output_dir: fixtures/output
 cleaned_output_dir: fixtures/cleaned  # Optional: separate directory for purified files
 purify: false  # Enable creation of cleaned files

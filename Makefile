@@ -114,8 +114,8 @@ evals-s3:
 push-evals:
 	@echo "Syncing reference files to s3://decon-evals/ with deletion..."
 	s5cmd sync --delete fixtures/reference-questions s3://decon-evals/
-	s5cmd sync --delete fixtures/reference-questions-and-answers s3://decon-evals/
-	s5cmd sync --delete fixtures/reference-best-available s3://decon-evals/
+	s5cmd sync fixtures/reference-questions-and-answers s3://decon-evals/
+	s5cmd sync fixtures/reference-best-available s3://decon-evals/
 	@echo "Push to S3 complete!"
 
 embeddings:

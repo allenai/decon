@@ -1822,6 +1822,14 @@ pub fn save_contamination_results_toxic_format_with_filename_and_eval_text(
                 .unwrap_or_else(|| String::new());
             result["eval_overlap_text"] = json!(eval_text);
 
+            // Add answer contamination fields
+            if let Some(ratio) = contamination_entry.answer_overlap_ratio {
+                result["answer_overlap_ratio"] = json!(ratio);
+            }
+            if let Some(ref tokens) = contamination_entry.matched_answer_tokens {
+                result["matched_answer_tokens"] = json!(tokens);
+            }
+
             output_data.push(serde_json::to_vec(&result)?);
             total_contaminations += 1;
         }
