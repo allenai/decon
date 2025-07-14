@@ -1270,7 +1270,7 @@ fn expand_simple_contamination_cluster(
     initial_training_ngram: &[usize],
     id_to_ngram_tokens: &IdToNgramTokens,
 ) -> Result<SimpleContaminationCluster, Error> {
-    let mut matching_ngrams = Vec::new();
+    let mut matching_ngrams = Vec::new(); // debug output uses. See document matches for ngam ids
 
     // Initialize document match tracking - track consecutive misses for each document
     let mut document_matches: HashMap<u32, HashSet<u64>> = HashMap::new();
