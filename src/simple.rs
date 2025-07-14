@@ -1002,7 +1002,7 @@ pub fn process_simple_training_file(
                         idf_sum,
                         max_idf,
                         contamination_start_idx: Some(cluster.start_idx),
-                        contamination_end_idx: Some(cluster.end_idx),
+                        contamination_end_idx: Some(cluster.end_idx + config.ngram_size - 1),
                         training_overlap_text: None, // Will be filled if contaminated
                         ngram_match_cnt: unique_matches,
                         eval_unique_ngrams: *unique_ngrams,
@@ -1020,11 +1020,14 @@ pub fn process_simple_training_file(
 
                     if is_contaminated {
                         // Extract the overlapping text with context
+                        // Note: cluster indices are n-gram positions, but we need token positions
+                        // An n-gram at position i covers tokens from i to i+ngram_size-1
+                        let token_end_idx = cluster.end_idx + config.ngram_size - 1;
                         let training_overlap_text = extract_overlap_with_context(
                             &cleaned_text,
                             &word_tokens,
                             cluster.start_idx,
-                            cluster.end_idx,
+                            token_end_idx,
                             tokenizer,
                             60,
                         );
