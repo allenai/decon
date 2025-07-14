@@ -397,7 +397,7 @@ pub struct Config {
     pub short_answer_contamination_threshold: f32,
     #[serde(default)]
     pub exclude_question_from_answer_sweep: bool,
-    
+
     // Simple mode contamination score threshold
     #[serde(default = "default_simple_contamination_score_threshold")]
     pub simple_contamination_score_threshold: f32,
@@ -557,8 +557,77 @@ pub fn get_purified_filename(input_file: &PathBuf) -> String {
     format!("{}.jsonl.gz", base_name)
 }
 
-// Common function to write a purified file with contaminated lines removed
 pub fn write_purified_file(
+    input_path: &PathBuf,
+    cleaned_output_dir: &PathBuf,
+    contaminated_lines: &std::collections::HashSet<usize>,
+) -> Result<PathBuf, anyhow::Error> {
+    //TODO implement with a new config switch
+}
+
+// Common function to write a purified file with contaminated lines removed
+pub fn write_purified_file_bytes(
+    input_path: &PathBuf,
+    cleaned_output_dir: &PathBuf,
+    contaminated_lines: &std::collections::HashSet<usize>,
+) -> Result<PathBuf, anyhow::Error> {
+    use flate2::read::GzDecoder;
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use std::fs::{create_dir_all, File};
+    use std::io::{BufRead, BufReader, BufWriter, Write};
+
+    // Ensure output directory exists
+    create_dir_all(cleaned_output_dir)?;
+
+    let purified_filename = get_purified_filename(input_path);
+    let purified_path = cleaned_output_dir.join(&purified_filename);
+
+    // Open input file with streaming reader
+    let file = File::open(input_path)?;
+    let mut reader: Box<dyn BufRead> = if input_path.extension().and_then(|s| s.to_str()) == Some("gz")
+    {
+        Box::new(BufReader::new(GzDecoder::new(file)))
+    } else {
+        Box::new(BufReader::new(file))
+    };
+
+    // Create output file with gzip compression
+    let output_file = File::create(&purified_path)?;
+    let gz_encoder = GzEncoder::new(output_file, Compression::default());
+    let mut writer = BufWriter::new(gz_encoder);
+
+    let mut removed_count = 0;
+
+    // Work with raw bytes to preserve data exactly as-is
+    let mut line_num = 0;
+    let mut line_buffer = Vec::new();
+
+    loop {
+        line_buffer.clear();
+        let bytes_read = reader.read_until(b'\n', &mut line_buffer)?;
+        if bytes_read == 0 { break; }
+
+        if !contaminated_lines.contains(&line_num) {
+            // Write bytes exactly as they are, no UTF-8 validation
+            writer.write_all(&line_buffer)?;
+        } else {
+            removed_count += 1;
+        }
+        line_num += 1;
+    }
+
+    writer.flush()?;
+
+    println!(
+        "Created purified file: {:?} (removed {} contaminated lines)",
+        purified_path, removed_count
+    );
+
+    Ok(purified_path)
+}
+
+pub fn write_purified_file_with_utf8_lossy_conversion(
     input_path: &PathBuf,
     cleaned_output_dir: &PathBuf,
     contaminated_lines: &std::collections::HashSet<usize>,
