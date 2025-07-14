@@ -71,7 +71,7 @@ class DeploymentConfig:
             self.config_path = os.path.expanduser(self.config_path)
         if self.orchestration_config:
             self.orchestration_config = os.path.expanduser(self.orchestration_config)
-        
+
         # Validate simple_contamination_score_threshold
         if not 0.0 <= self.simple_contamination_score_threshold <= 1.0:
             raise ValueError(f"simple_contamination_score_threshold must be between 0 and 1, got {self.simple_contamination_score_threshold}")
@@ -493,7 +493,7 @@ def wizard():
     print("  best-available         - All entries from covered evals with answer evaluated if present, otherwise question matches\n")
 
     reference_choice = click.prompt("Reference dataset",
-                                   default="questions-and-answers",
+                                   default="best-available",
                                    type=click.Choice(['questions', 'questions-and-answers', 'best-available']))
 
     # Map choice to actual directory path

@@ -1039,8 +1039,10 @@ fn display_eval_dataset_stats(contamination_results: &[ContaminationResult]) -> 
         let bar = "█".repeat(bar_length);
         let empty = " ".repeat(bar_width - bar_length);
 
+
+
         // Format the output with aligned columns
-        println!("  {:<30} {:>8} │{}{}│", suite, count, bar, empty);
+        println!("  {:<45} {:>8} │{}{}│", suite, count, bar, empty);
     }
 
     println!();

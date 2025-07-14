@@ -9,7 +9,7 @@ use std::io::{BufRead, BufWriter, Read, Write};
 use std::panic::catch_unwind;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
 use zstd::stream::read::Decoder as ZstdDecoder;
 
@@ -1521,42 +1521,6 @@ fn save_contamination_results(
     Ok(())
 }
 
-#[allow(dead_code)]
-pub fn save_contamination_results_toxic_format(
-    config: &Config,
-    contamination_results: &ContaminationResults,
-) -> Result<PathBuf, Error> {
-    save_contamination_results_toxic_format_with_filename(config, contamination_results, None)
-}
-
-#[allow(dead_code)]
-pub fn save_contamination_results_toxic_format_with_eval_text(
-    config: &Config,
-    contamination_results: &ContaminationResults,
-    eval_text_snippets: &EvalTextSnippets,
-) -> Result<PathBuf, Error> {
-    save_contamination_results_toxic_format_with_filename_and_eval_text(
-        config,
-        contamination_results,
-        None,
-        eval_text_snippets,
-    )
-}
-
-#[allow(dead_code)]
-pub fn save_contamination_results_toxic_format_with_filename(
-    config: &Config,
-    contamination_results: &ContaminationResults,
-    custom_filename: Option<&str>,
-) -> Result<PathBuf, Error> {
-    save_contamination_results_toxic_format_with_filename_and_eval_text(
-        config,
-        contamination_results,
-        custom_filename,
-        &DashMap::new(),
-    )
-}
-
 pub fn save_contamination_results_toxic_format_with_filename_and_eval_text(
     config: &Config,
     contamination_results: &ContaminationResults,
@@ -1572,7 +1536,6 @@ pub fn save_contamination_results_toxic_format_with_filename_and_eval_text(
     let output_file = config.report_output_dir.join(filename);
 
     let mut output_data = Vec::new();
-    let mut total_contaminations = 0;
 
     for entry in contamination_results.iter() {
         let training_file = entry.key();
@@ -1626,7 +1589,6 @@ pub fn save_contamination_results_toxic_format_with_filename_and_eval_text(
             }
 
             output_data.push(serde_json::to_vec(&result)?);
-            total_contaminations += 1;
         }
     }
 
@@ -1641,62 +1603,6 @@ pub fn save_contamination_results_toxic_format_with_filename_and_eval_text(
     Ok(output_file)
 }
 
-// Create purified versions of training files with contaminated lines removed
-#[allow(dead_code)]
-fn create_purified_files(
-    config: &Config,
-    contamination_results: &ContaminationResults,
-    training_files: &[PathBuf],
-) -> Result<(), Error> {
-    println!("\nCreating purified files...");
-
-    // Determine output directory for cleaned files
-    let cleaned_dir = config
-        .cleaned_output_dir
-        .as_ref()
-        .unwrap_or(&config.report_output_dir);
-
-    // Process each training file that has contamination
-    for file_path in training_files {
-        // Match the same logic used in process_training_file
-        let file_name = match file_path.extension().and_then(|s| s.to_str()) {
-            Some("gz") | Some("zst") => file_path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown")
-                .to_string(),
-            _ => file_path
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown")
-                .to_string(),
-        };
-
-        // Collect contaminated line numbers for this file
-        let mut contaminated_lines = HashSet::new();
-        if let Some(contaminations) = contamination_results.get(&file_name) {
-            for entry in contaminations.iter() {
-                contaminated_lines.insert(entry.training_line);
-            }
-        }
-
-        // Always create a purified file when purify mode is enabled
-        write_purified_file(file_path, cleaned_dir, &contaminated_lines)?;
-
-        if contaminated_lines.is_empty() {
-            println!("Copied clean file: {}", file_name);
-        } else {
-            println!(
-                "Created purified file for {} (removed {} lines)",
-                file_name,
-                contaminated_lines.len()
-            );
-        }
-    }
-
-    println!("Purification complete.");
-    Ok(())
-}
 
 fn create_purified_files_streaming(
     config: &Config,
