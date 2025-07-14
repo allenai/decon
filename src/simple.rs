@@ -4,7 +4,7 @@ use flate2::read::GzDecoder;
 use rayon::prelude::*;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
-use std::fs::{create_dir_all, File, OpenOptions};
+use std::fs::{create_dir_all, File};
 use std::io::{BufRead, BufWriter, Read, Write};
 use std::panic::catch_unwind;
 use std::path::PathBuf;
@@ -489,45 +489,69 @@ fn detect_simple_contamination(
     // println!("Found {} training files to process", training_files.len()); //debug
     let pbar = build_pbar(training_files.len(), "Training files");
 
-    // Create output directory and results file for streaming output
+    // Create output directory
     create_dir_all(&config.report_output_dir)?;
-    let results_filename = get_results_filename("simple");
-    let results_path = config.report_output_dir.join(&results_filename);
-
-    let results_file = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(&results_path)?;
-    let results_writer = Arc::new(Mutex::new(BufWriter::new(results_file)));
 
     // Track statistics
-    let total_contaminations = Arc::new(AtomicU32::new(0));
     let total_lines_processed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
     // Keep track of contaminated files for purification (if needed)
-    let contaminated_files = Arc::new(DashMap::new());
+    let contaminated_files: Arc<DashMap<String, HashSet<usize>>> = Arc::new(DashMap::new());
+
+    // Track total contaminations across all files
+    let total_contaminations = Arc::new(AtomicU32::new(0));
 
     let processing_start = Instant::now();
     training_files.par_iter().for_each(|file_path| {
-        match process_simple_training_file_streaming(
+        // Create a contamination results map for this specific file
+        let file_contamination_results = DashMap::new();
+
+        match process_simple_training_file(
             file_path,
             config,
             ngram_to_id,
             id_to_question_docs,
             id_to_short_answer,
             eval_documents,
+            &file_contamination_results,
             tokenizer,
             id_to_ngram_tokens,
             eval_text_snippets,
-            &results_writer,
-            &total_contaminations,
-            &contaminated_files,
             total_docs,
         ) {
             Ok(lines_processed) => {
                 total_lines_processed
                     .fetch_add(lines_processed, std::sync::atomic::Ordering::SeqCst);
+
+                // Save results for this file if contamination was found
+                if !file_contamination_results.is_empty() {
+                    let unique_filename = crate::get_unique_results_filename(file_path, config);
+                    if let Err(e) = save_contamination_results_toxic_format_with_filename_and_eval_text(
+                        config,
+                        &file_contamination_results,
+                        Some(&unique_filename),
+                        eval_text_snippets,
+                    ) {
+                        println!("Error saving results for {:?}: {:?}", file_path, e);
+                    } else {
+                        // Track contaminated files and update total count
+                        let file_path_str = file_path.to_string_lossy().to_string();
+                        let contamination_count = file_contamination_results
+                            .iter()
+                            .map(|entry| entry.value().len())
+                            .sum::<usize>();
+
+                        total_contaminations.fetch_add(contamination_count as u32, Ordering::Relaxed);
+
+                        let contaminated_lines: HashSet<usize> = file_contamination_results
+                            .iter()
+                            .flat_map(|entry| {
+                                entry.value().iter().map(|e| e.training_line).collect::<Vec<_>>()
+                            })
+                            .collect();
+                        contaminated_files.insert(file_path_str, contaminated_lines);
+                    }
+                }
             }
             Err(e) => {
                 println!("Error processing training file {:?}: {:?}", file_path, e);
@@ -537,13 +561,8 @@ fn detect_simple_contamination(
     });
     let processing_time = processing_start.elapsed();
 
-    // Flush and close the results file
-    {
-        let mut writer = results_writer.lock().unwrap();
-        writer.flush()?;
-    }
-
     let total_contaminations_count = total_contaminations.load(Ordering::Relaxed) as usize;
+
     let lines_processed = total_lines_processed.load(std::sync::atomic::Ordering::SeqCst);
 
     if lines_processed > 0 {
@@ -565,20 +584,6 @@ fn detect_simple_contamination(
                 micros_per_line
             );
         }
-    }
-
-    if total_contaminations_count > 0 {
-        println!("\n=== SIMPLE CONTAMINATION SUMMARY ===");
-        println!(
-            "Found {} contamination instances across {} files",
-            total_contaminations_count,
-            contaminated_files.len()
-        );
-        println!("Results saved to: {:?}", results_path);
-    } else {
-        println!("\n=== NO CONTAMINATION DETECTED ===");
-        println!("No contamination found in training data");
-        println!("Empty results file saved to: {:?}", results_path);
     }
 
     // Create purified files if requested
@@ -1035,216 +1040,6 @@ pub fn process_simple_training_file(
     Ok(lines_processed)
 }
 
-// Streaming version that writes results in batches
-pub fn process_simple_training_file_streaming(
-    file_path: &PathBuf,
-    config: &Config,
-    ngram_to_id: &NgramToIdMap,
-    id_to_question_docs: &IdToQuestionDocsMap,
-    id_to_short_answer: &IdToShortAnswerMap,
-    eval_documents: &EvalDocuments,
-    tokenizer: &OmniTokenizer,
-    id_to_ngram_tokens: &IdToNgramTokens,
-    eval_text_snippets: &EvalTextSnippets,
-    results_writer: &Arc<Mutex<BufWriter<File>>>,
-    total_contaminations: &Arc<AtomicU32>,
-    contaminated_files: &Arc<DashMap<String, HashSet<usize>>>,
-    total_docs: f32,
-) -> Result<usize, Error> {
-    let data = read_compressed_file(file_path)?;
-
-    let file_name = match file_path.extension().and_then(|s| s.to_str()) {
-        Some("gz") | Some("zst") => file_path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("unknown")
-            .to_string(),
-        _ => file_path
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("unknown")
-            .to_string(),
-    };
-
-    let mut lines_processed = 0;
-    let min_word_count = config.ngram_size * 2; // Keep original for training data
-    let mut contaminated_lines = HashSet::new();
-
-    // Batch results before writing
-    const BATCH_SIZE: usize = 100;
-    let mut results_batch = Vec::with_capacity(BATCH_SIZE);
-
-    for (line_num, line) in data.lines().enumerate() {
-        let line = line?;
-        let json_obj: Value = serde_json::from_str(&line)?;
-        let line_text = get_nested_json_val(&json_obj, &config.content_key.to_string())?;
-
-        // Clean text once and get token IDs
-        let cleaned_text = clean_text(&line_text, &config.punctuation_chars);
-        let Ok(word_tokens) = catch_unwind(|| tokenizer.encode(&cleaned_text)) else {
-            println!(
-                "Tokenization failed on {:?} | line {:?}",
-                file_path, line_num
-            );
-            continue;
-        };
-        let word_count = word_tokens.len();
-
-        // Skip entries with insufficient tokens
-        if word_count < min_word_count {
-            continue;
-        }
-
-        lines_processed += 1;
-
-        // Process n-grams with sampling
-        let clusters = process_ngrams_with_simple_sampling(
-            &word_tokens,
-            config,
-            ngram_to_id,
-            id_to_question_docs,
-            id_to_ngram_tokens,
-        )?;
-
-        // Convert clusters to contamination entries and write immediately
-        for cluster in clusters {
-            for (doc_id, matched_ngram_ids) in &cluster.document_matches {
-                if let Some(doc_info) = eval_documents.get(&doc_id) {
-                    let (eval_name, eval_line, _total_ngrams, unique_ngrams) = doc_info.value();
-                    let unique_matches = matched_ngram_ids.len();
-                    let overlap_ratio = if *unique_ngrams > 0 {
-                        unique_matches as f32 / *unique_ngrams as f32
-                    } else {
-                        0.0
-                    };
-
-                    // Calculate IDF scores
-                    let (idf_sum, max_idf) = calculate_simple_toxic_score(
-                        &cluster.matching_ngrams,
-                        ngram_to_id,
-                        id_to_question_docs,
-                        total_docs,
-                        id_to_ngram_tokens,
-                    );
-
-                    // Create a temporary entry to check contamination
-                    let mut temp_entry = SimpleContaminationEntry {
-                        training_line: line_num,
-                        eval_name: eval_name.clone(),
-                        eval_line: *eval_line,
-                        overlap_ratio,
-                        idf_sum,
-                        max_idf,
-                        matching_ngrams: cluster.matching_ngrams.clone(),
-                        contamination_start_idx: Some(cluster.start_idx),
-                        contamination_end_idx: Some(cluster.end_idx),
-                        training_overlap_text: None,
-                        ngram_match_cnt: unique_matches,
-                        eval_unique_ngrams: *unique_ngrams,
-                        length_penalty: None, // Will be calculated and set below
-                        answer_overlap_ratio: None,
-                        matched_answer_tokens: None,
-                    };
-
-                    // Calculate and store the length penalty
-                    temp_entry.length_penalty = Some(temp_entry.calculate_length_penalty(config.simple_contamination_score_threshold));
-
-                    // Check if this entry represents contamination using score threshold
-                    let (is_contaminated, answer_overlap_ratio, matched_answer_tokens) =
-                        temp_entry.is_contaminated(*doc_id, id_to_short_answer, &cluster, &word_tokens, config, tokenizer);
-
-                    if is_contaminated {
-                        // Extract the overlapping text with context
-                        let training_overlap_text = extract_overlap_with_context(
-                            &cleaned_text,
-                            &word_tokens,
-                            cluster.start_idx,
-                            cluster.end_idx,
-                            tokenizer,
-                            60, // context words (tripled from 10)
-                        );
-
-                        // Create JSON entry
-                        let mut result = json!({
-                            "training_file": file_name,
-                            "training_line": line_num,
-                            "eval_dataset": eval_name,
-                            "eval_line": eval_line,
-                            "overlap_ratio": overlap_ratio,
-                            "toxic_score": idf_sum,  // Keep for backward compatibility
-                            "idf_sum": idf_sum,
-                            "max_idf": max_idf,
-                            "ngram_match_cnt": unique_matches,
-                            "eval_unique_ngrams": unique_ngrams,
-                            "contamination_score": temp_entry.score_question_contamination(config.simple_contamination_score_threshold),
-                            "length_penalty": temp_entry.length_penalty.unwrap_or(0.0),
-                            "method": "simple"
-                        });
-
-                        // Add optional fields
-                        if let Some(start_idx) = Some(cluster.start_idx) {
-                            result["contamination_start_idx"] = json!(start_idx);
-                        }
-                        if let Some(end_idx) = Some(cluster.end_idx) {
-                            result["contamination_end_idx"] = json!(end_idx);
-                        }
-                        if let Some(ref overlap_text) = training_overlap_text {
-                            result["training_overlap_text"] = json!(overlap_text);
-                        }
-
-                        // Add answer contamination fields
-                        if let Some(ratio) = answer_overlap_ratio {
-                            result["answer_overlap_ratio"] = json!(ratio);
-                        }
-                        if let Some(ref tokens) = matched_answer_tokens {
-                            result["matched_answer_tokens"] = json!(tokens);
-                        }
-
-                        // Look up eval text snippet
-                        let eval_key = (eval_name.clone(), *eval_line);
-                        let eval_text = eval_text_snippets
-                            .get(&eval_key)
-                            .map(|entry| entry.value().clone())
-                            .unwrap_or_else(|| String::new());
-                        result["eval_overlap_text"] = json!(eval_text);
-
-                        // Add to batch
-                        results_batch.push(serde_json::to_string(&result)?);
-
-                        // Write batch if full
-                        if results_batch.len() >= BATCH_SIZE {
-                            let mut writer = results_writer.lock().unwrap();
-                            for result_str in results_batch.drain(..) {
-                                writeln!(writer, "{}", result_str)?;
-                            }
-                            writer.flush()?;
-                        }
-
-                        // Update statistics
-                        total_contaminations.fetch_add(1, Ordering::Relaxed);
-                        contaminated_lines.insert(line_num);
-                    }
-                }
-            }
-        }
-    }
-
-    // Write any remaining results in the batch
-    if !results_batch.is_empty() {
-        let mut writer = results_writer.lock().unwrap();
-        for result_str in results_batch {
-            writeln!(writer, "{}", result_str)?;
-        }
-        writer.flush()?;
-    }
-
-    // Store contaminated lines for this file if any were found
-    if !contaminated_lines.is_empty() {
-        contaminated_files.insert(file_name, contaminated_lines);
-    }
-
-    Ok(lines_processed)
-}
 
 /// Process n-grams with sampling: sample every M n-grams, then expand around hits
 fn process_ngrams_with_simple_sampling(
@@ -1842,20 +1637,6 @@ pub fn save_contamination_results_toxic_format_with_filename_and_eval_text(
     }
 
     write_mem_to_pathbuf(&output_bytes, &output_file)?;
-
-    if total_contaminations > 0 {
-        println!("\n=== SIMPLE CONTAMINATION SUMMARY ===");
-        println!(
-            "Found {} contamination instances across {} files",
-            total_contaminations,
-            contamination_results.len()
-        );
-        println!("Results saved to: {:?}", output_file);
-    } else {
-        println!("\n=== NO CONTAMINATION DETECTED ===");
-        println!("No contamination found in training data");
-        println!("Empty results file saved to: {:?}", output_file);
-    }
 
     Ok(output_file)
 }
