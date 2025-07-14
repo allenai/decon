@@ -354,6 +354,8 @@ fn process_single_file(
                 id_to_ngram_tokens,
                 tokenizer,
                 eval_text_snippets,
+                eval_document_idf_cache,
+                doc_to_ngram_ids,
             ) = simple_index;
 
             // Use the existing detection logic from simple.rs
@@ -374,6 +376,8 @@ fn process_single_file(
                 id_to_ngram_tokens,
                 eval_text_snippets,
                 total_docs,
+                eval_document_idf_cache,
+                doc_to_ngram_ids,
             )?;
 
             // Only save results if contamination was found

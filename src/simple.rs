@@ -50,6 +50,8 @@ type IdToShortAnswerMap = DashMap<u32, HashSet<usize>>; // Maps doc_id to set of
 type EvalDocuments = DashMap<u32, (String, usize, usize, usize)>; // Maps doc_id to (eval_name, line_num, total_ngrams, unique_ngrams)
 type EvalTextSnippets = DashMap<(String, usize), String>; // Maps (eval_name, line_num) to text snippet (first 1000 words)
 type IdToNgramTokens = DashMap<u64, Vec<usize>>; // Maps unique ID to token IDs for display
+type EvalDocumentIdfCache = DashMap<u32, f32>; // Maps doc_id to total IDF sum for all ngrams in the eval document
+type DocToNgramIdsMap = DashMap<u32, HashSet<u64>>; // Maps doc_id to set of ngram IDs for efficient IDF calculation
 
 
 // Note: CONTAMINATION_SCORE_THRESHOLD is now configurable via Config.simple_contamination_score_threshold
@@ -74,7 +76,7 @@ fn format_number_with_commas(n: usize) -> String {
     let s = n.to_string();
     let mut result = String::new();
     let mut count = 0;
-    
+
     for ch in s.chars().rev() {
         if count > 0 && count % 3 == 0 {
             result.push(',');
@@ -82,7 +84,7 @@ fn format_number_with_commas(n: usize) -> String {
         result.push(ch);
         count += 1;
     }
-    
+
     result.chars().rev().collect()
 }
 
@@ -102,6 +104,8 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
         id_to_ngram_tokens,
         tokenizer,
         eval_text_snippets,
+        eval_document_idf_cache,
+        doc_to_ngram_ids,
     ) = build_simple_index(config)?;
     let index_time = index_start.elapsed();
     println!(
@@ -122,6 +126,8 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
         &id_to_ngram_tokens,
         &tokenizer,
         &eval_text_snippets,
+        &eval_document_idf_cache,
+        &doc_to_ngram_ids,
     )?;
     let detection_time = detection_start.elapsed();
 
@@ -131,7 +137,7 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
     println!("Detection time: {:.2}s", detection_time.as_secs_f64());
     println!("Total time: {:.2}s", total_time.as_secs_f64());
     println!("Total contaminations found: {}", total_contaminations);
-    
+
     // Print traversal statistics
     let left_traversals = LEFT_TRAVERSAL_COUNT.load(Ordering::Relaxed);
     let right_traversals = RIGHT_TRAVERSAL_COUNT.load(Ordering::Relaxed);
@@ -142,7 +148,7 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
     println!("Total traversals: {:>15}", format_number_with_commas(left_traversals + right_traversals));
     println!("\n=== Contamination Exclusion Statistics ===");
     println!("Excluded (no answer match): {:>15}", format_number_with_commas(excluded_no_answer));
-    
+
     Ok(())
 }
 
@@ -155,6 +161,8 @@ pub type SimpleIndex = (
     IdToNgramTokens,
     OmniTokenizer,
     EvalTextSnippets,
+    EvalDocumentIdfCache,
+    DocToNgramIdsMap,
 );
 
 pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
@@ -164,6 +172,8 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
     let eval_documents: EvalDocuments = DashMap::new();
     let id_to_ngram_tokens: IdToNgramTokens = DashMap::new();
     let eval_text_snippets: EvalTextSnippets = DashMap::new();
+    let eval_document_idf_cache: EvalDocumentIdfCache = DashMap::new();
+    let doc_to_ngram_ids: DocToNgramIdsMap = DashMap::new();
 
     use std::sync::atomic::AtomicU64;
     let next_ngram_id = AtomicU64::new(0);
@@ -192,6 +202,7 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
             &tokenizer,
             &id_to_ngram_tokens,
             &eval_text_snippets,
+            &doc_to_ngram_ids,
         ) {
             println!("Error processing reference file {:?}: {:?}", file_path, e);
         }
@@ -209,6 +220,8 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
         id_to_ngram_tokens,
         tokenizer,
         eval_text_snippets,
+        eval_document_idf_cache,
+        doc_to_ngram_ids,
     ))
 }
 
@@ -223,6 +236,7 @@ fn process_simple_reference_file(
     tokenizer: &OmniTokenizer,
     id_to_ngram_tokens: &IdToNgramTokens,
     eval_text_snippets: &EvalTextSnippets,
+    doc_to_ngram_ids: &DocToNgramIdsMap,
 ) -> Result<(), Error> {
     let data = read_pathbuf_to_mem(file_path)?;
 
@@ -277,6 +291,7 @@ fn process_simple_reference_file(
                 eval_text_snippets,
                 &mut _lines_processed,
                 &mut _skipped_entries,
+                doc_to_ngram_ids,
             )?;
         }
 
@@ -361,6 +376,7 @@ fn process_question_field(
     eval_text_snippets: &EvalTextSnippets,
     lines_processed: &mut usize,
     skipped_entries: &mut usize,
+    doc_to_ngram_ids: &DocToNgramIdsMap,
 ) -> Result<(), Error> {
     // Clean text for both tokenizer types
     let cleaned = clean_text(question, &config.punctuation_chars);
@@ -451,6 +467,9 @@ fn process_question_field(
 
     let unique_ngrams = unique_ngrams_set.len();
 
+    // Store the ngram IDs for this document
+    doc_to_ngram_ids.insert(doc_id, unique_ngrams_set);
+
     // Store document metadata (no collision possible with sequential IDs)
     eval_documents.insert(
         doc_id,
@@ -508,6 +527,8 @@ fn detect_simple_contamination(
     id_to_ngram_tokens: &IdToNgramTokens,
     tokenizer: &OmniTokenizer,
     eval_text_snippets: &EvalTextSnippets,
+    eval_document_idf_cache: &EvalDocumentIdfCache,
+    doc_to_ngram_ids: &DocToNgramIdsMap,
 ) -> Result<usize, Error> {
     // println!("Starting training data contamination detection..."); //debug
 
@@ -552,6 +573,8 @@ fn detect_simple_contamination(
             id_to_ngram_tokens,
             eval_text_snippets,
             total_docs,
+            eval_document_idf_cache,
+            doc_to_ngram_ids,
         ) {
             Ok(lines_processed) => {
                 total_lines_processed
@@ -766,6 +789,7 @@ pub struct SimpleContaminationEntry {
     overlap_ratio: f32,
     idf_sum: f32,              // Sum of IDF scores for all matching n-grams
     max_idf: f32,              // Maximum IDF score among matching n-grams
+    idf_overlap: Option<f32>,  // IDF overlap ratio: matched_idf_sum / eval_total_idf_sum
     // Token indices for position recovery
     contamination_start_idx: Option<usize>, // Start index in token array
     contamination_end_idx: Option<usize>,   // End index in token array
@@ -790,40 +814,37 @@ impl SimpleContaminationEntry {
     /// Calculate contamination score based on overlap ratio and IDF, with length penalty
     /// Returns a score between 0.0 and 1.0, where higher scores indicate more likely contamination
     pub fn score_question_contamination(&self, min_length_penalty: f32) -> f32 {
-        // Basically we reject anything with less than 80% overlap. Just on principle.
-        // TODO review
-        if self.overlap_ratio < 0.8 {
-            return 0.0;
-        }
-
         // Perfect matches always get maximum score
         if self.overlap_ratio >= 1.0 {
             return 1.0;
         }
 
-        // Average IDF per n-gram
-        let avg_idf_per_ngram = self.idf_sum / self.ngram_match_cnt.max(1) as f32;
-
-        // Sigmoid normalization for IDF: maps (-∞,+∞) to (0,1)
-        // Center around 0.0 (the natural threshold where doc_freq = N/e ≈ 36.8%)
-        // Positive IDF = rare terms, Negative IDF = common terms
-        // The 0.5 factor controls the steepness of the sigmoid
-        let normalized_idf = 1.0 / (1.0 + (-0.5 * avg_idf_per_ngram).exp());
+        // // Use IDF overlap if available, otherwise fall back to average IDF
+        // let idf_score = if let Some(idf_overlap) = self.idf_overlap {
+        //     // IDF overlap is already normalized between 0 and 1
+        //     idf_overlap
+        // } else {
+        //     // Fallback: Average IDF per n-gram with sigmoid normalization
+        //     let avg_idf_per_ngram = self.idf_sum / self.ngram_match_cnt.max(1) as f32;
+        //     // Sigmoid normalization for IDF: maps (-∞,+∞) to (0,1)
+        //     1.0 / (1.0 + (-0.5 * avg_idf_per_ngram).exp())
+        // };
 
         // Create a combined score using linear combination
         // Weight overlap more heavily than IDF
-        let overlap_weight = 0.4;
-        let idf_weight = 0.6;
+        // let overlap_weight = 0.4;
+        // let idf_weight = 0.6;
 
         // Base combined score
-        let base_score = (overlap_weight * self.overlap_ratio) + (idf_weight * normalized_idf);
+        //let base_score = (overlap_weight * self.overlap_ratio) + (idf_weight * self.idf_overlap.unwrap_or(0.0));
 
         // Apply length penalty - shorter texts need to have higher scores to survive.
         // They need to be more exact and have more salient tokens.
-        let length_penalty = self.calculate_length_penalty(min_length_penalty);
+        //let length_penalty = self.calculate_length_penalty(min_length_penalty);
 
         // Final score with length penalty applied
-        base_score * length_penalty
+        //base_score * length_penalty
+        self.idf_overlap.unwrap_or(0.0)
     }
 
     /// Check if this entry represents contamination (score >= threshold)
@@ -958,6 +979,8 @@ pub fn process_simple_training_file(
     id_to_ngram_tokens: &IdToNgramTokens,
     _eval_text_snippets: &EvalTextSnippets,
     total_docs: f32,
+    eval_document_idf_cache: &EvalDocumentIdfCache,
+    doc_to_ngram_ids: &DocToNgramIdsMap,
 ) -> Result<usize, Error> {
     let data = read_compressed_file(file_path)?;
 
@@ -1025,13 +1048,17 @@ pub fn process_simple_training_file(
                         0.0
                     };
 
-                    // Calculate IDF scores
-                    let (idf_sum, max_idf) = calculate_simple_toxic_score(
-                        &cluster.matching_ngrams,
-                        ngram_to_id,
+                    // Basically we reject anything with less than 80% overlap. Just on principle.
+                    // TODO move this to even prevent cluster creation at some point.
+                    if overlap_ratio < 0.8 {
+                        continue;
+                    }
+
+                    // Calculate IDF scores using the unique ngram IDs for this document
+                    let (idf_sum, max_idf) = calculate_idf_values(
+                        matched_ngram_ids,
                         id_to_question_docs,
                         total_docs,
-                        id_to_ngram_tokens,
                     );
 
                     // Get document-specific boundaries
@@ -1048,6 +1075,7 @@ pub fn process_simple_training_file(
                         overlap_ratio,
                         idf_sum,
                         max_idf,
+                        idf_overlap: None, // Will be calculated below
                         contamination_start_idx: Some(doc_start_idx),
                         contamination_end_idx: Some(doc_end_idx + config.ngram_size - 1),
                         training_overlap_text: None, // Will be filled if contaminated
@@ -1057,6 +1085,23 @@ pub fn process_simple_training_file(
                         answer_overlap_ratio: None,
                         matched_answer_tokens: None,
                     };
+
+                    // Calculate IDF overlap
+                    // Get or calculate the eval document's total IDF sum
+                    let eval_total_idf = if let Some(cached_idf_ref) = eval_document_idf_cache.get(doc_id) {
+                        *cached_idf_ref
+                    } else {
+                        let total_idf = calculate_eval_document_idf_sum(*doc_id, doc_to_ngram_ids, id_to_question_docs, total_docs);
+                        eval_document_idf_cache.insert(*doc_id, total_idf);
+                        total_idf
+                    };
+
+                    // Calculate IDF overlap ratio
+                    if eval_total_idf > 0.0 {
+                        entry.idf_overlap = Some(idf_sum / eval_total_idf);
+                    } else {
+                        entry.idf_overlap = Some(0.0);
+                    }
 
                     // Calculate and store the length penalty
                     entry.length_penalty = Some(entry.calculate_length_penalty(config.simple_contamination_score_threshold));
@@ -1311,12 +1356,12 @@ fn expand_simple_contamination_cluster(
                         .entry(*doc_id)
                         .or_insert_with(HashSet::new)
                         .insert(ngram_id);
-                    
+
                     // Only reset miss counter if this is a new n-gram for this document
                     if is_new_ngram {
                         document_misses.insert(*doc_id, 0);
                     }
-                    
+
                     // Always update boundary to show full contamination span
                     if let Some((doc_start, _doc_end)) = document_boundaries.get_mut(doc_id) {
                         *doc_start = left_idx;
@@ -1419,12 +1464,12 @@ fn expand_simple_contamination_cluster(
                         .entry(*doc_id)
                         .or_insert_with(HashSet::new)
                         .insert(ngram_id);
-                    
+
                     // Only reset miss counter if this is a new n-gram for this document
                     if is_new_ngram {
                         document_misses.insert(*doc_id, 0);
                     }
-                    
+
                     // Always update boundary to show full contamination span
                     if let Some((_doc_start, doc_end)) = document_boundaries.get_mut(doc_id) {
                         *doc_end = right_idx;
@@ -1491,34 +1536,43 @@ fn expand_simple_contamination_cluster(
     })
 }
 
-/// Calculate IDF scores using inverse document frequency approach
-/// Returns (idf_sum, max_idf) for all matching n-grams
-fn calculate_simple_toxic_score(
-    matching_ngrams: &[String],
-    ngram_to_id: &NgramToIdMap,
+/// Calculate total IDF sum for all n-grams in an eval document
+/// This is cached to avoid recalculating for each contamination check
+fn calculate_eval_document_idf_sum(
+    doc_id: u32,
+    doc_to_ngram_ids: &DocToNgramIdsMap,
     id_to_question_docs: &IdToQuestionDocsMap,
     total_docs: f32,
-    _id_to_ngram_tokens: &IdToNgramTokens,
-) -> (f32, f32) {  // Returns (idf_sum, max_idf)
-    let mut unique_ngram_ids = HashSet::new();
+) -> f32 {
+    let mut idf_sum = 0.0f32;
 
-    // For display ngrams (formatted as "[id1, id2, id3]"), we need to extract the actual ngram IDs
-    // This is a bit inefficient but maintains compatibility with the display format
-    for ngram_str in matching_ngrams {
-        // Parse the string representation back to token IDs
-        if let Ok(tokens) = parse_ngram_string(ngram_str) {
-            let ngram_hash = hash_ngram(&tokens);
-            if let Some(ngram_id) = ngram_to_id.get(&ngram_hash) {
-                unique_ngram_ids.insert(*ngram_id);
+    // Get the n-gram IDs for this document
+    if let Some(ngram_ids) = doc_to_ngram_ids.get(&doc_id) {
+        // Iterate through this document's n-grams
+        for ngram_id in ngram_ids.value() {
+            if let Some(doc_set) = id_to_question_docs.get(ngram_id) {
+                let doc_freq = doc_set.len() as f32;
+                // Standard IDF formula: ln(N/doc_freq)
+                let idf = (total_docs / doc_freq).ln();
+                idf_sum += idf;
             }
         }
     }
 
-    // Calculate IDF values for all unique n-grams
+    idf_sum
+}
+
+/// Calculate IDF values for a set of n-gram IDs
+/// Returns (idf_sum, max_idf) for all n-grams
+fn calculate_idf_values(
+    ngram_ids: &HashSet<u64>,
+    id_to_question_docs: &IdToQuestionDocsMap,
+    total_docs: f32,
+) -> (f32, f32) {  // Returns (idf_sum, max_idf)
     let mut idf_sum = 0.0f32;
     let mut max_idf = 0.0f32;
 
-    for ngram_id in &unique_ngram_ids {
+    for ngram_id in ngram_ids {
         if let Some(doc_set) = id_to_question_docs.get(ngram_id) {
             let doc_freq = doc_set.len() as f32;
             // Standard IDF formula: ln(N/doc_freq)
@@ -1531,17 +1585,6 @@ fn calculate_simple_toxic_score(
     (idf_sum, max_idf)
 }
 
-fn parse_ngram_string(ngram_str: &str) -> Result<Vec<usize>, Error> {
-    // Parse "[123, 456, 789]" format back to Vec<usize>
-    let trimmed = ngram_str.trim_start_matches('[').trim_end_matches(']');
-    trimmed
-        .split(", ")
-        .map(|s| {
-            s.parse::<usize>()
-                .map_err(|e| anyhow::anyhow!("Failed to parse token ID: {}", e))
-        })
-        .collect()
-}
 
 pub fn save_contamination_results_toxic_format_with_filename_and_eval_text(
     config: &Config,
@@ -1577,6 +1620,11 @@ pub fn save_contamination_results_toxic_format_with_filename_and_eval_text(
                 "length_penalty": contamination_entry.length_penalty.unwrap_or_else(|| contamination_entry.calculate_length_penalty(config.simple_contamination_score_threshold)),
                 "method": "simple"
             });
+
+            // Add IDF overlap if available
+            if let Some(idf_overlap) = contamination_entry.idf_overlap {
+                result["idf_overlap"] = json!(idf_overlap);
+            }
 
             // Add token indices if available
             if let Some(start_idx) = contamination_entry.contamination_start_idx {

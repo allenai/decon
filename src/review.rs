@@ -50,6 +50,8 @@ pub struct ContaminationResult {
     pub answer_overlap_ratio: Option<f32>,
     #[serde(default)]
     pub matched_answer_tokens: Option<Vec<String>>,
+    #[serde(default)]
+    pub idf_overlap: Option<f32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -674,6 +676,7 @@ fn filter_contamination_results(
                     length_penalty: None,
                     answer_overlap_ratio: None,
                     matched_answer_tokens: None,
+                    idf_overlap: None,
                 };
                 filtered.push(placeholder);
             }
@@ -841,6 +844,9 @@ fn display_contamination_case_internal(result: &ContaminationResult) -> Result<(
             );
             if result.toxic_score > 0.0 {
                 println!("🧪 IDF SUM:    {:.3}", result.toxic_score);
+            }
+            if let Some(idf_overlap) = result.idf_overlap {
+                println!("📈 IDF OVERLAP:    {:.3}", idf_overlap);
             }
             if let Some(ngram_match_cnt) = result.ngram_match_cnt {
                 println!("🔢 N-GRAM MATCHES: {}", ngram_match_cnt);
