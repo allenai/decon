@@ -8,7 +8,7 @@ use std::fs::{create_dir_all, File};
 use std::io::{BufRead, Read};
 use std::panic::catch_unwind;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 use zstd::stream::read::Decoder as ZstdDecoder;
@@ -64,6 +64,27 @@ const LENGTH_PENALTY_DECAY_RATE: f32 = 0.6; // Tuned for L=10→0.80, L=36→0.8
 // and longer tail. When n > 1, the curve rises sharply at first then flattens.
 const LENGTH_PENALTY_POWER_N: f32 = 0.4;
 
+// Global counters for traversal statistics
+static LEFT_TRAVERSAL_COUNT: AtomicUsize = AtomicUsize::new(0); //DEBUGCOUNTER
+static RIGHT_TRAVERSAL_COUNT: AtomicUsize = AtomicUsize::new(0); //DEBUGCOUNTER
+
+// Helper function to format numbers with commas
+fn format_number_with_commas(n: usize) -> String {
+    let s = n.to_string();
+    let mut result = String::new();
+    let mut count = 0;
+    
+    for ch in s.chars().rev() {
+        if count > 0 && count % 3 == 0 {
+            result.push(',');
+        }
+        result.push(ch);
+        count += 1;
+    }
+    
+    result.chars().rev().collect()
+}
+
 
 pub fn contamination_detect(config: &Config) -> Result<(), Error> {
     println!("Starting SIMPLE contamination detection...");
@@ -109,6 +130,15 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
     println!("Detection time: {:.2}s", detection_time.as_secs_f64());
     println!("Total time: {:.2}s", total_time.as_secs_f64());
     println!("Total contaminations found: {}", total_contaminations);
+    
+    // Print traversal statistics
+    let left_traversals = LEFT_TRAVERSAL_COUNT.load(Ordering::Relaxed);
+    let right_traversals = RIGHT_TRAVERSAL_COUNT.load(Ordering::Relaxed);
+    println!("\n=== Traversal Statistics ===");
+    println!("Left traversals: {:>15}", format_number_with_commas(left_traversals));
+    println!("Right traversals: {:>15}", format_number_with_commas(right_traversals));
+    println!("Total traversals: {:>15}", format_number_with_commas(left_traversals + right_traversals));
+    
     Ok(())
 }
 
@@ -1233,6 +1263,7 @@ fn expand_simple_contamination_cluster(
     let mut left_idx = hit_idx;
     while left_idx > 0 && !active_documents.is_empty() {
         left_idx -= 1;
+        LEFT_TRAVERSAL_COUNT.fetch_add(1, Ordering::Relaxed); //DEBUGCOUNTER
 
         if let Some(matched_docs) =
             check_ngram_for_match(left_idx, word_tokens, config, ngram_to_id, id_to_question_docs)
@@ -1266,12 +1297,17 @@ fn expand_simple_contamination_cluster(
 
                 // Update matches and reset misses for intersecting documents
                 for doc_id in &intersection {
-                    document_matches
+                    let is_new_ngram = document_matches
                         .entry(*doc_id)
                         .or_insert_with(HashSet::new)
                         .insert(ngram_id);
-                    document_misses.insert(*doc_id, 0);
-                    // Update left boundary for this document
+                    
+                    // Only reset miss counter if this is a new n-gram for this document
+                    if is_new_ngram {
+                        document_misses.insert(*doc_id, 0);
+                    }
+                    
+                    // Always update boundary to show full contamination span
                     if let Some((doc_start, _doc_end)) = document_boundaries.get_mut(doc_id) {
                         *doc_start = left_idx;
                     }
@@ -1335,6 +1371,7 @@ fn expand_simple_contamination_cluster(
     let mut right_idx = hit_idx;
     while right_idx + 1 < total_ngrams && !active_documents.is_empty() {
         right_idx += 1;
+        RIGHT_TRAVERSAL_COUNT.fetch_add(1, Ordering::Relaxed); //DEBUGCOUNTER
 
         if let Some(matched_docs) =
             check_ngram_for_match(right_idx, word_tokens, config, ngram_to_id, id_to_question_docs)
@@ -1368,12 +1405,17 @@ fn expand_simple_contamination_cluster(
 
                 // Update matches and reset misses for intersecting documents
                 for doc_id in &intersection {
-                    document_matches
+                    let is_new_ngram = document_matches
                         .entry(*doc_id)
                         .or_insert_with(HashSet::new)
                         .insert(ngram_id);
-                    document_misses.insert(*doc_id, 0);
-                    // Update right boundary for this document
+                    
+                    // Only reset miss counter if this is a new n-gram for this document
+                    if is_new_ngram {
+                        document_misses.insert(*doc_id, 0);
+                    }
+                    
+                    // Always update boundary to show full contamination span
                     if let Some((_doc_start, doc_end)) = document_boundaries.get_mut(doc_id) {
                         *doc_end = right_idx;
                     }
