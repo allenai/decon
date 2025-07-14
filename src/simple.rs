@@ -535,7 +535,19 @@ fn detect_simple_contamination(
                         println!("Error saving results for {:?}: {:?}", file_path, e);
                     } else {
                         // Track contaminated files and update total count
-                        let file_path_str = file_path.to_string_lossy().to_string();
+                        // Use the same filename extraction logic as in create_purified_files_streaming
+                        let file_name = match file_path.extension().and_then(|s| s.to_str()) {
+                            Some("gz") | Some("zst") => file_path
+                                .file_stem()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or("unknown")
+                                .to_string(),
+                            _ => file_path
+                                .file_name()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or("unknown")
+                                .to_string(),
+                        };
                         let contamination_count = file_contamination_results
                             .iter()
                             .map(|entry| entry.value().len())
@@ -549,7 +561,7 @@ fn detect_simple_contamination(
                                 entry.value().iter().map(|e| e.training_line).collect::<Vec<_>>()
                             })
                             .collect();
-                        contaminated_files.insert(file_path_str, contaminated_lines);
+                        contaminated_files.insert(file_name, contaminated_lines);
                     }
                 }
             }
