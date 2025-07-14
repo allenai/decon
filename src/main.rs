@@ -573,7 +573,11 @@ pub fn write_purified_file(
     config: &Config,
 ) -> Result<PathBuf, anyhow::Error> {
     if config.replace_non_utf8_chars {
-        write_purified_file_with_utf8_lossy_conversion(input_path, cleaned_output_dir, contaminated_lines)
+        write_purified_file_with_utf8_lossy_conversion(
+            input_path,
+            cleaned_output_dir,
+            contaminated_lines,
+        )
     } else {
         write_purified_file_bytes(input_path, cleaned_output_dir, contaminated_lines)
     }
@@ -617,7 +621,9 @@ pub fn write_purified_file_bytes(
     loop {
         line_buffer.clear();
         let bytes_read = reader.read_until(b'\n', &mut line_buffer)?;
-        if bytes_read == 0 { break; }
+        if bytes_read == 0 {
+            break;
+        }
 
         if !contaminated_lines.contains(&line_num) {
             // Write bytes exactly as they are, no UTF-8 validation
@@ -670,7 +676,9 @@ pub fn write_purified_file_with_utf8_lossy_conversion(
     loop {
         line_buffer.clear();
         let bytes_read = reader.read_until(b'\n', &mut line_buffer)?;
-        if bytes_read == 0 { break; }
+        if bytes_read == 0 {
+            break;
+        }
 
         if !contaminated_lines.contains(&line_num) {
             // Try to validate as UTF-8

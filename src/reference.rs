@@ -59,9 +59,18 @@ pub fn refine_reference_files(dry_run: bool) -> Result<(), Error> {
 
     // Process question-only, questions-and-answers, and best-available datasets
     let dataset_configs = vec![
-        ("fixtures/reference-download-questions", "fixtures/reference-questions"),
-        ("fixtures/reference-download-questions-and-answers", "fixtures/reference-questions-and-answers"),
-        ("fixtures/reference-download-best-available", "fixtures/reference-best-available"),
+        (
+            "fixtures/reference-download-questions",
+            "fixtures/reference-questions",
+        ),
+        (
+            "fixtures/reference-download-questions-and-answers",
+            "fixtures/reference-questions-and-answers",
+        ),
+        (
+            "fixtures/reference-download-best-available",
+            "fixtures/reference-best-available",
+        ),
     ];
 
     for (input_dir, output_dir) in dataset_configs {
@@ -74,7 +83,10 @@ pub fn refine_reference_files(dry_run: bool) -> Result<(), Error> {
 
         // Check if reference directory exists
         if !reference_dir.exists() {
-            println!("Reference directory not found: {:?}, skipping...", reference_dir);
+            println!(
+                "Reference directory not found: {:?}, skipping...",
+                reference_dir
+            );
             continue;
         }
 
@@ -85,7 +97,10 @@ pub fn refine_reference_files(dry_run: bool) -> Result<(), Error> {
         )?;
 
         if reference_files.is_empty() {
-            println!("No reference files found in {:?}, skipping...", reference_dir);
+            println!(
+                "No reference files found in {:?}, skipping...",
+                reference_dir
+            );
             continue;
         }
 
@@ -104,7 +119,6 @@ fn process_reference_dataset(
     output_dir: &PathBuf,
     dry_run: bool,
 ) -> Result<(), Error> {
-
     // Phase 1: Build hash map of all unique lines
     println!("\nPhase 1: Detecting exact duplicates...");
     let (duplicate_map, dedup_stats) = detect_exact_duplicates(&reference_files)?;
@@ -136,8 +150,7 @@ fn process_reference_dataset(
 
     // Phase 4: Apply filters to analyze what would be removed
     println!("\nPhase 4: Analyzing filters...");
-    let (filtered_lines_to_keep, filter_stats) =
-        apply_filters(&reference_files, &lines_to_keep)?;
+    let (filtered_lines_to_keep, filter_stats) = apply_filters(&reference_files, &lines_to_keep)?;
     display_filter_stats(&filter_stats);
 
     // Phase 5: Write files (only if not dry run)
@@ -1151,9 +1164,13 @@ fn display_minhash_stats(stats: &MinHashStats, dry_run: bool, base_dir: &PathBuf
                 }
 
                 // Try to load both texts for comparison
-                if let Ok((text1, text2)) =
-                    load_texts_for_comparison(file, *line_num, similar_file, *similar_line, base_dir)
-                {
+                if let Ok((text1, text2)) = load_texts_for_comparison(
+                    file,
+                    *line_num,
+                    similar_file,
+                    *similar_line,
+                    base_dir,
+                ) {
                     shown += 1;
                     println!("\n{}) {:.1}% similar", shown, similarity * 100.0);
                     println!("File 1: {}:{}", file, line_num + 1);

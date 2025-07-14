@@ -47,12 +47,11 @@ fn read_compressed_file(path: &PathBuf) -> Result<Vec<u8>, Error> {
 type NgramToIdMap = DashMap<u64, u64>; // Maps n-gram hash to unique ID
 type IdToQuestionDocsMap = DashMap<u64, HashSet<u32>>; // Maps n-gram ID to set of document IDs (for questions)
 type IdToShortAnswerMap = DashMap<u32, HashSet<usize>>; // Maps doc_id to set of token IDs (for answers)
-type EvalDocuments = DashMap<u32, (String, usize, usize, usize)>; // Maps doc_id to (eval_name, line_num, total_ngrams, unique_ngrams)
+type EvalDocuments = DashMap<u32, (String, usize, usize, usize, usize)>; // Maps doc_id to (eval_name, line_num, total_ngrams, unique_ngrams, token_count)
 type EvalTextSnippets = DashMap<(String, usize), String>; // Maps (eval_name, line_num) to text snippet (first 1000 words)
 type IdToNgramTokens = DashMap<u64, Vec<usize>>; // Maps unique ID to token IDs for display
 type EvalDocumentIdfCache = DashMap<u32, f32>; // Maps doc_id to total IDF sum for all ngrams in the eval document
 type DocToNgramIdsMap = DashMap<u32, HashSet<u64>>; // Maps doc_id to set of ngram IDs for efficient IDF calculation
-
 
 // Note: CONTAMINATION_SCORE_THRESHOLD is now configurable via Config.simple_contamination_score_threshold
 
@@ -87,7 +86,6 @@ fn format_number_with_commas(n: usize) -> String {
 
     result.chars().rev().collect()
 }
-
 
 pub fn contamination_detect(config: &Config) -> Result<(), Error> {
     println!("Starting SIMPLE contamination detection...");
@@ -143,11 +141,23 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
     let right_traversals = RIGHT_TRAVERSAL_COUNT.load(Ordering::Relaxed);
     let excluded_no_answer = EXCLUDED_NO_ANSWER_MATCH.load(Ordering::Relaxed);
     println!("\n=== Traversal Statistics ===");
-    println!("Left traversals: {:>15}", format_number_with_commas(left_traversals));
-    println!("Right traversals: {:>15}", format_number_with_commas(right_traversals));
-    println!("Total traversals: {:>15}", format_number_with_commas(left_traversals + right_traversals));
+    println!(
+        "Left traversals: {:>15}",
+        format_number_with_commas(left_traversals)
+    );
+    println!(
+        "Right traversals: {:>15}",
+        format_number_with_commas(right_traversals)
+    );
+    println!(
+        "Total traversals: {:>15}",
+        format_number_with_commas(left_traversals + right_traversals)
+    );
     println!("\n=== Contamination Exclusion Statistics ===");
-    println!("Excluded (no answer match): {:>15}", format_number_with_commas(excluded_no_answer));
+    println!(
+        "Excluded (no answer match): {:>15}",
+        format_number_with_commas(excluded_no_answer)
+    );
 
     Ok(())
 }
@@ -251,7 +261,6 @@ fn process_simple_reference_file(
 
     let mut _lines_processed = 0;
     let mut _skipped_entries = 0;
-    let _min_word_count = config.eval_min_word_count;
 
     for (line_num, line) in data.lines().enumerate() {
         let line = line?;
@@ -272,7 +281,6 @@ fn process_simple_reference_file(
             .and_then(|v| v.as_u64())
             .ok_or_else(|| anyhow::anyhow!("Missing or invalid doc_id field in reference file"))?
             as u32;
-
 
         // Process question field
         if let Some(question) = json_obj.get("question").and_then(|v| v.as_str()) {
@@ -298,13 +306,7 @@ fn process_simple_reference_file(
         if has_answer_fields {
             // Process answer field
             if let Some(answer) = json_obj.get("answer").and_then(|v| v.as_str()) {
-                process_answer_field(
-                    answer,
-                    doc_id,
-                    config,
-                    tokenizer,
-                    id_to_short_answer,
-                )?;
+                process_answer_field(answer, doc_id, config, tokenizer, id_to_short_answer)?;
             }
         }
     }
@@ -412,10 +414,10 @@ fn process_question_field(
         };
         tokens
     };
-    let word_count = word_tokens.len();
+    let token_count = word_tokens.len();
 
     // Skip entries with insufficient tokens for meaningful n-gram analysis
-    if word_count < config.eval_min_word_count {
+    if token_count < config.eval_min_word_count {
         *skipped_entries += 1;
         return Ok(());
     }
@@ -473,7 +475,13 @@ fn process_question_field(
     // Store document metadata (no collision possible with sequential IDs)
     eval_documents.insert(
         doc_id,
-        (eval_name.to_string(), line_num, total_ngrams, unique_ngrams),
+        (
+            eval_name.to_string(),
+            line_num,
+            total_ngrams,
+            unique_ngrams,
+            token_count,
+        ),
     );
 
     Ok(())
@@ -583,12 +591,14 @@ fn detect_simple_contamination(
                 // Save results for this file if contamination was found
                 if !file_contamination_results.is_empty() {
                     let unique_filename = crate::get_unique_results_filename(file_path, config);
-                    if let Err(e) = save_contamination_results_toxic_format_with_filename_and_eval_text(
-                        config,
-                        &file_contamination_results,
-                        Some(&unique_filename),
-                        eval_text_snippets,
-                    ) {
+                    if let Err(e) =
+                        save_contamination_results_toxic_format_with_filename_and_eval_text(
+                            config,
+                            &file_contamination_results,
+                            Some(&unique_filename),
+                            eval_text_snippets,
+                        )
+                    {
                         println!("Error saving results for {:?}: {:?}", file_path, e);
                     } else {
                         // Track contaminated files and update total count
@@ -610,12 +620,17 @@ fn detect_simple_contamination(
                             .map(|entry| entry.value().len())
                             .sum::<usize>();
 
-                        total_contaminations.fetch_add(contamination_count as u32, Ordering::Relaxed);
+                        total_contaminations
+                            .fetch_add(contamination_count as u32, Ordering::Relaxed);
 
                         let contaminated_lines: HashSet<usize> = file_contamination_results
                             .iter()
                             .flat_map(|entry| {
-                                entry.value().iter().map(|e| e.training_line).collect::<Vec<_>>()
+                                entry
+                                    .value()
+                                    .iter()
+                                    .map(|e| e.training_line)
+                                    .collect::<Vec<_>>()
                             })
                             .collect();
                         contaminated_files.insert(file_name, contaminated_lines);
@@ -787,26 +802,30 @@ pub struct SimpleContaminationEntry {
     eval_name: String,
     eval_line: usize,
     overlap_ratio: f32,
-    idf_sum: f32,              // Sum of IDF scores for all matching n-grams
-    max_idf: f32,              // Maximum IDF score among matching n-grams
-    idf_overlap: Option<f32>,  // IDF overlap ratio: matched_idf_sum / eval_total_idf_sum
+    idf_sum: f32,             // Sum of IDF scores for all matching n-grams
+    max_idf: f32,             // Maximum IDF score among matching n-grams
+    idf_overlap: Option<f32>, // IDF overlap ratio: matched_idf_sum / eval_total_idf_sum
     // Token indices for position recovery
     contamination_start_idx: Option<usize>, // Start index in token array
     contamination_end_idx: Option<usize>,   // End index in token array
     training_overlap_text: Option<String>,
-    ngram_match_cnt: usize,    // Number of unique n-gram matches
-    eval_unique_ngrams: usize, // Total unique n-grams in the eval document
+    ngram_match_cnt: usize,      // Number of unique n-gram matches
+    eval_unique_ngrams: usize,   // Total unique n-grams in the eval document
     length_penalty: Option<f32>, // Length penalty factor applied during scoring
     // Answer contamination fields
     answer_overlap_ratio: Option<f32>, // Overlap ratio for answer tokens
     matched_answer_tokens: Option<Vec<String>>, // Matched answer tokens as text
+    // Token length tracking fields
+    cluster_token_length: Option<usize>, // Length of the matched cluster in tokens
+    eval_token_length: Option<usize>,    // Total length of the eval document in tokens
 }
 
 impl SimpleContaminationEntry {
     /// Calculate the length penalty factor for this entry
     pub fn calculate_length_penalty(&self, min_length_penalty: f32) -> f32 {
         let l = self.eval_unique_ngrams as f32;
-        let mut length_penalty = 1.0 - (-LENGTH_PENALTY_DECAY_RATE * l.powf(LENGTH_PENALTY_POWER_N)).exp();
+        let mut length_penalty =
+            1.0 - (-LENGTH_PENALTY_DECAY_RATE * l.powf(LENGTH_PENALTY_POWER_N)).exp();
         length_penalty = length_penalty.max(min_length_penalty);
         length_penalty
     }
@@ -858,7 +877,9 @@ impl SimpleContaminationEntry {
         config: &Config,
         tokenizer: &OmniTokenizer,
     ) -> (bool, Option<f32>, Option<Vec<String>>) {
-        let question_contam = self.score_question_contamination(config.simple_contamination_score_threshold) >= config.simple_contamination_score_threshold;
+        let question_contam = self
+            .score_question_contamination(config.simple_contamination_score_threshold)
+            >= config.simple_contamination_score_threshold;
 
         if question_contam {
             // Check if this document has a short answer
@@ -886,8 +907,13 @@ impl SimpleContaminationEntry {
                     .collect();
 
                 // Require both question and answer contamination
-                let is_contaminated = question_contam && answer_overlap_ratio >= config.short_answer_contamination_threshold;
-                return (is_contaminated, Some(answer_overlap_ratio), Some(matched_token_strings));
+                let is_contaminated = question_contam
+                    && answer_overlap_ratio >= config.short_answer_contamination_threshold;
+                return (
+                    is_contaminated,
+                    Some(answer_overlap_ratio),
+                    Some(matched_token_strings),
+                );
             }
         }
 
@@ -907,7 +933,8 @@ fn short_answer_tokens(
     let window_size = std::cmp::max(answer_length * 2, config.min_short_answer_distance);
 
     // Get document-specific boundaries
-    let (doc_start_idx, doc_end_idx) = cluster.document_boundaries
+    let (doc_start_idx, doc_end_idx) = cluster
+        .document_boundaries
         .get(&doc_id)
         .copied()
         .expect("Document boundaries should exist for all matched documents");
@@ -925,14 +952,18 @@ fn short_answer_tokens(
         // Add prefix tokens
         if prefix_search_start < prefix_search_end {
             training_token_set.extend(
-                training_tokens[prefix_search_start..prefix_search_end].iter().copied()
+                training_tokens[prefix_search_start..prefix_search_end]
+                    .iter()
+                    .copied(),
             );
         }
 
         // Add suffix tokens
         if suffix_search_start < suffix_search_end {
             training_token_set.extend(
-                training_tokens[suffix_search_start..suffix_search_end].iter().copied()
+                training_tokens[suffix_search_start..suffix_search_end]
+                    .iter()
+                    .copied(),
             );
         }
 
@@ -1000,7 +1031,7 @@ pub fn process_simple_training_file(
     // println!("Processing training file: {}", file_name); //debug
 
     let mut lines_processed = 0;
-    let min_word_count = config.ngram_size * 2; // Keep original for training data
+    let min_token_count = config.ngram_size * 2; // Minimum tokens needed for meaningful n-gram analysis
 
     for (line_num, line) in data.lines().enumerate() {
         let line = line?;
@@ -1016,10 +1047,10 @@ pub fn process_simple_training_file(
             );
             continue;
         };
-        let word_count = word_tokens.len();
+        let token_count = word_tokens.len();
 
         // Skip entries with insufficient tokens
-        if word_count < min_word_count {
+        if token_count < min_token_count {
             continue;
         }
 
@@ -1040,7 +1071,8 @@ pub fn process_simple_training_file(
 
             for (doc_id, matched_ngram_ids) in &cluster.document_matches {
                 if let Some(doc_info) = eval_documents.get(&doc_id) {
-                    let (eval_name, eval_line, _total_ngrams, unique_ngrams) = doc_info.value();
+                    let (eval_name, eval_line, _total_ngrams, unique_ngrams, eval_token_count) =
+                        doc_info.value();
                     let unique_matches = matched_ngram_ids.len();
                     let overlap_ratio = if *unique_ngrams > 0 {
                         unique_matches as f32 / *unique_ngrams as f32
@@ -1055,17 +1087,19 @@ pub fn process_simple_training_file(
                     }
 
                     // Calculate IDF scores using the unique ngram IDs for this document
-                    let (idf_sum, max_idf) = calculate_idf_values(
-                        matched_ngram_ids,
-                        id_to_question_docs,
-                        total_docs,
-                    );
+                    let (idf_sum, max_idf) =
+                        calculate_idf_values(matched_ngram_ids, id_to_question_docs, total_docs);
 
                     // Get document-specific boundaries
-                    let (doc_start_idx, doc_end_idx) = cluster.document_boundaries
+                    let (doc_start_idx, doc_end_idx) = cluster
+                        .document_boundaries
                         .get(doc_id)
                         .copied()
                         .expect("Document boundaries should exist for all matched documents");
+
+                    // Calculate cluster token length
+                    let cluster_token_length =
+                        (doc_end_idx + config.ngram_size - 1) - doc_start_idx + 1;
 
                     // Create the contamination entry first
                     let mut entry = SimpleContaminationEntry {
@@ -1084,17 +1118,25 @@ pub fn process_simple_training_file(
                         length_penalty: None, // Will be calculated and set below
                         answer_overlap_ratio: None,
                         matched_answer_tokens: None,
+                        cluster_token_length: Some(cluster_token_length),
+                        eval_token_length: Some(*eval_token_count),
                     };
 
                     // Calculate IDF overlap
                     // Get or calculate the eval document's total IDF sum
-                    let eval_total_idf = if let Some(cached_idf_ref) = eval_document_idf_cache.get(doc_id) {
-                        *cached_idf_ref
-                    } else {
-                        let total_idf = calculate_eval_document_idf_sum(*doc_id, doc_to_ngram_ids, id_to_question_docs, total_docs);
-                        eval_document_idf_cache.insert(*doc_id, total_idf);
-                        total_idf
-                    };
+                    let eval_total_idf =
+                        if let Some(cached_idf_ref) = eval_document_idf_cache.get(doc_id) {
+                            *cached_idf_ref
+                        } else {
+                            let total_idf = calculate_eval_document_idf_sum(
+                                *doc_id,
+                                doc_to_ngram_ids,
+                                id_to_question_docs,
+                                total_docs,
+                            );
+                            eval_document_idf_cache.insert(*doc_id, total_idf);
+                            total_idf
+                        };
 
                     // Calculate IDF overlap ratio
                     if eval_total_idf > 0.0 {
@@ -1104,14 +1146,25 @@ pub fn process_simple_training_file(
                     }
 
                     // Calculate and store the length penalty
-                    entry.length_penalty = Some(entry.calculate_length_penalty(config.simple_contamination_score_threshold));
+                    entry.length_penalty = Some(
+                        entry.calculate_length_penalty(config.simple_contamination_score_threshold),
+                    );
 
                     // Check if this entry represents contamination using score threshold
-                    let (is_contaminated, answer_overlap_ratio, matched_answer_tokens) =
-                        entry.is_contaminated(*doc_id, id_to_short_answer, &cluster, &word_tokens, config, tokenizer);
+                    let (is_contaminated, answer_overlap_ratio, matched_answer_tokens) = entry
+                        .is_contaminated(
+                            *doc_id,
+                            id_to_short_answer,
+                            &cluster,
+                            &word_tokens,
+                            config,
+                            tokenizer,
+                        );
 
                     // Track if question was contaminated but excluded due to no answer match
-                    let question_contam = entry.score_question_contamination(config.simple_contamination_score_threshold) >= config.simple_contamination_score_threshold;
+                    let question_contam = entry
+                        .score_question_contamination(config.simple_contamination_score_threshold)
+                        >= config.simple_contamination_score_threshold;
                     if question_contam && !is_contaminated {
                         EXCLUDED_NO_ANSWER_MATCH.fetch_add(1, Ordering::Relaxed);
                     }
@@ -1150,7 +1203,6 @@ pub fn process_simple_training_file(
 
     Ok(lines_processed)
 }
-
 
 /// Process n-grams with sampling: sample every M n-grams, then expand around hits
 fn process_ngrams_with_simple_sampling(
@@ -1213,7 +1265,9 @@ fn process_ngrams_with_simple_sampling(
 
             // Jump by max_consecutive_misses - 1 to allow documents that dropped off
             // to potentially match again shortly after the cluster
-            let jump_distance = (config.max_consecutive_misses as usize).saturating_sub(1).max(1);
+            let jump_distance = (config.max_consecutive_misses as usize)
+                .saturating_sub(1)
+                .max(1);
             i += jump_distance;
         } else {
             // No hit, continue sampling
@@ -1320,9 +1374,13 @@ fn expand_simple_contamination_cluster(
         left_idx -= 1;
         LEFT_TRAVERSAL_COUNT.fetch_add(1, Ordering::Relaxed); //DEBUGCOUNTER
 
-        if let Some(matched_docs) =
-            check_ngram_for_match(left_idx, word_tokens, config, ngram_to_id, id_to_question_docs)
-        {
+        if let Some(matched_docs) = check_ngram_for_match(
+            left_idx,
+            word_tokens,
+            config,
+            ngram_to_id,
+            id_to_question_docs,
+        ) {
             let ngram_tokens = if word_tokens.len() < config.ngram_size {
                 word_tokens.to_vec()
             } else {
@@ -1428,9 +1486,13 @@ fn expand_simple_contamination_cluster(
         right_idx += 1;
         RIGHT_TRAVERSAL_COUNT.fetch_add(1, Ordering::Relaxed); //DEBUGCOUNTER
 
-        if let Some(matched_docs) =
-            check_ngram_for_match(right_idx, word_tokens, config, ngram_to_id, id_to_question_docs)
-        {
+        if let Some(matched_docs) = check_ngram_for_match(
+            right_idx,
+            word_tokens,
+            config,
+            ngram_to_id,
+            id_to_question_docs,
+        ) {
             let ngram_tokens = if word_tokens.len() < config.ngram_size {
                 word_tokens.to_vec()
             } else {
@@ -1528,7 +1590,6 @@ fn expand_simple_contamination_cluster(
     //adjust end_idx by config.ngame_size - 1
     //end_idx = end_idx + config.ngram_size;
 
-
     Ok(SimpleContaminationCluster {
         document_matches,
         document_boundaries,
@@ -1568,7 +1629,8 @@ fn calculate_idf_values(
     ngram_ids: &HashSet<u64>,
     id_to_question_docs: &IdToQuestionDocsMap,
     total_docs: f32,
-) -> (f32, f32) {  // Returns (idf_sum, max_idf)
+) -> (f32, f32) {
+    // Returns (idf_sum, max_idf)
     let mut idf_sum = 0.0f32;
     let mut max_idf = 0.0f32;
 
@@ -1584,7 +1646,6 @@ fn calculate_idf_values(
 
     (idf_sum, max_idf)
 }
-
 
 pub fn save_contamination_results_toxic_format_with_filename_and_eval_text(
     config: &Config,
@@ -1658,6 +1719,21 @@ pub fn save_contamination_results_toxic_format_with_filename_and_eval_text(
                 result["matched_answer_tokens"] = json!(tokens);
             }
 
+            // Add token length information
+            if let Some(cluster_len) = contamination_entry.cluster_token_length {
+                result["cluster_token_length"] = json!(cluster_len);
+            }
+            if let Some(eval_len) = contamination_entry.eval_token_length {
+                result["eval_token_length"] = json!(eval_len);
+            }
+            if let (Some(cluster_len), Some(eval_len)) = (
+                contamination_entry.cluster_token_length,
+                contamination_entry.eval_token_length,
+            ) {
+                let delta = cluster_len as i32 - eval_len as i32;
+                result["token_length_delta"] = json!(delta);
+            }
+
             output_data.push(serde_json::to_vec(&result)?);
         }
     }
@@ -1672,7 +1748,6 @@ pub fn save_contamination_results_toxic_format_with_filename_and_eval_text(
 
     Ok(output_file)
 }
-
 
 fn create_purified_files_streaming(
     config: &Config,

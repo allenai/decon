@@ -360,7 +360,7 @@ fn process_single_file(
 
             // Use the existing detection logic from simple.rs
             let contamination_results = dashmap::DashMap::new();
-            
+
             // Calculate total documents once
             let total_docs = eval_documents.len() as f32;
 

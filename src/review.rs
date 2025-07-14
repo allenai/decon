@@ -52,6 +52,12 @@ pub struct ContaminationResult {
     pub matched_answer_tokens: Option<Vec<String>>,
     #[serde(default)]
     pub idf_overlap: Option<f32>,
+    #[serde(default)]
+    pub cluster_token_length: Option<usize>,
+    #[serde(default)]
+    pub eval_token_length: Option<usize>,
+    #[serde(default)]
+    pub token_length_delta: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -677,6 +683,9 @@ fn filter_contamination_results(
                     answer_overlap_ratio: None,
                     matched_answer_tokens: None,
                     idf_overlap: None,
+                    cluster_token_length: None,
+                    eval_token_length: None,
+                    token_length_delta: None,
                 };
                 filtered.push(placeholder);
             }
@@ -871,6 +880,21 @@ fn display_contamination_case_internal(result: &ContaminationResult) -> Result<(
                 }
             }
 
+            // Display token length information
+            if let Some(delta) = result.token_length_delta {
+                let delta_str = if delta > 0 {
+                    format!("+{}", delta)
+                } else {
+                    delta.to_string()
+                };
+                println!(
+                    "📐 TOKEN LENGTH DELTA: {} (cluster: {}, eval: {})",
+                    delta_str,
+                    result.cluster_token_length.unwrap_or(0),
+                    result.eval_token_length.unwrap_or(0)
+                );
+            }
+
             println!();
         }
     }
@@ -1044,8 +1068,6 @@ fn display_eval_dataset_stats(contamination_results: &[ContaminationResult]) -> 
         // Create the bar using Unicode block characters
         let bar = "█".repeat(bar_length);
         let empty = " ".repeat(bar_width - bar_length);
-
-
 
         // Format the output with aligned columns
         println!("  {:<45} {:>8} │{}{}│", suite, count, bar, empty);
