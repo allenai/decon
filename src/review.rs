@@ -58,6 +58,8 @@ pub struct ContaminationResult {
     pub eval_token_length: Option<usize>,
     #[serde(default)]
     pub token_length_delta: Option<i32>,
+    #[serde(default)]
+    pub ngram_jaccard: Option<f32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -686,6 +688,7 @@ fn filter_contamination_results(
                     cluster_token_length: None,
                     eval_token_length: None,
                     token_length_delta: None,
+                    ngram_jaccard: None,
                 };
                 filtered.push(placeholder);
             }
@@ -856,6 +859,9 @@ fn display_contamination_case_internal(result: &ContaminationResult) -> Result<(
             }
             if let Some(idf_overlap) = result.idf_overlap {
                 println!("📈 IDF OVERLAP:    {:.3}", idf_overlap);
+            }
+            if let Some(ngram_jaccard) = result.ngram_jaccard {
+                println!("🔗 N-GRAM JACCARD: {:.3}", ngram_jaccard);
             }
             if let Some(ngram_match_cnt) = result.ngram_match_cnt {
                 println!("🔢 N-GRAM MATCHES: {}", ngram_match_cnt);
