@@ -738,7 +738,7 @@ fn extract_overlap_with_context(
         // Check if we have enough words
         let relative_start = start_idx - context_start;
         let relative_end = end_idx - context_start;
-        if relative_end > words_buffer.len() || relative_start >= relative_end {
+        if relative_end >= words_buffer.len() || relative_start > relative_end {
             return None;
         }
 
@@ -754,13 +754,13 @@ fn extract_overlap_with_context(
 
         // Add contaminated section with highlighting
         result.push_str("【");
-        result.push_str(&words_buffer[relative_start..relative_end].join(" "));
+        result.push_str(&words_buffer[relative_start..relative_end+1].join(" "));
         result.push_str("】");
 
         // Add trailing context
-        if relative_end < words_buffer.len() {
+        if relative_end + 1 < words_buffer.len() {
             result.push(' ');
-            result.push_str(&words_buffer[relative_end..].join(" "));
+            result.push_str(&words_buffer[relative_end+1..].join(" "));
             result.push_str(" ...");
         }
 
