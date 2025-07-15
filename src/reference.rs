@@ -683,7 +683,7 @@ fn write_refined_file(
     output_dir: &Path,
     lines_to_keep: &HashMap<String, HashSet<usize>>,
 ) -> Result<(), Error> {
-    const CHUNK_SIZE_BYTES: usize = 50 * 1024 * 1024; // 50MB
+    const CHUNK_SIZE_BYTES: usize = 5 * 1024 * 1024; // 5MB
 
     let filename = input_path
         .file_name()

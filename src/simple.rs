@@ -880,8 +880,7 @@ impl SimpleContaminationEntry {
                     .collect();
 
                 // Require both question and answer contamination
-                let is_contaminated = question_contam
-                    && answer_overlap_ratio >= config.short_answer_contamination_threshold;
+                let is_contaminated = question_contam && answer_overlap_ratio >= config.short_answer_contamination_threshold;
                 return (
                     is_contaminated,
                     Some(answer_overlap_ratio),
@@ -1051,9 +1050,11 @@ pub fn process_simple_training_file(
                         0.0
                     };
 
+                    // IMPORTANT BUT SUBTLE!!!!
+                    // We kind of have a hard coded short circuit here.
                     // Basically we reject anything with less than 80% overlap. Just on principle.
                     // TODO move this to even prevent cluster creation at some point.
-                    if overlap_ratio < 0.8 {
+                    if overlap_ratio < 0.6 {
                         continue;
                     }
 

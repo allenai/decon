@@ -9,11 +9,11 @@ purify: false  # Enable creation of cleaned files
 
 ngram_size: 4  # Size of indexed n-grams scanned for question matches
 sample_every_m_tokens: 5  # sample for a question match this often
-max_consecutive_misses: 6 # How many misses to tolerate before short circuiting cluster expansion
+max_consecutive_misses: 8 # How many misses to tolerate before short circuiting cluster expansion
 min_short_answer_distance: 30 # The minimum window on either side of a question to look for an answer. max(answer_length*2, min_short_answer_distance)
 exclude_question_from_answer_sweep: true # When verifying the presence of an answer, do not consider the question match itself.
 
-simple_contamination_score_threshold: 0.81 # Contamination score threshold for SIMPLE mode (default: 0.79)
+simple_contamination_score_threshold: 0.8 # Contamination score threshold for SIMPLE mode (default: 0.79)
 
 eval_min_word_count: 10  # Minimum post-cleaning word count necessary to include for eval file indexing.
 punctuation_chars: "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~”“’"  # (uses default if not specified)

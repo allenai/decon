@@ -7,9 +7,9 @@ report_output_dir: fixtures/output_cl100k
 cleaned_output_dir: fixtures/cleaned  # Optional: separate directory for purified files
 purify: false  # Enable creation of cleaned files
 
-ngram_size: 6  # Size of indexed n-grams scanned for question matches
-sample_every_m_tokens: 5  # sample for a question match this often
-max_consecutive_misses: 6 # How many misses to tolerate before short circuiting cluster expansion
+ngram_size: 5  # Size of indexed n-grams scanned for question matches, I recommend an odd number :) TODO :)
+sample_every_m_tokens: 10  # sample for a question match this often
+max_consecutive_misses: 12 # How many misses to tolerate before short circuiting cluster expansion
 min_short_answer_distance: 30 # The minimum window on either side of a question to look for an answer. max(answer_length*2, min_short_answer_distance)
 exclude_question_from_answer_sweep: true # When verifying the presence of an answer, do not consider the question match itself.
 
