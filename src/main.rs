@@ -467,7 +467,7 @@ fn default_sample_every_m_tokens() -> usize {
 }
 
 fn default_max_consecutive_misses() -> usize {
-    2 // Default to 2, will be set to ngram_size * 2 if not overridden
+    2 // Default to 2
 }
 
 fn default_ngram_bucket_lru_cache() -> usize {
@@ -922,6 +922,11 @@ fn contamination_detect_with_config(config_obj: &Config) -> Result<(), Error> {
         }
         "simple" => {
             println!("Using Simple contamination detection...");
+            println!("  N-gram size: {}", config_obj.ngram_size);
+            println!("  Sample every M tokens: {}", config_obj.sample_every_m_tokens);
+            println!("  Max consecutive misses: {}", config_obj.max_consecutive_misses);
+            println!("  Contamination score threshold: {}", config_obj.simple_contamination_score_threshold);
+            println!("  Tokenizer: {}", config_obj.tokenizer_str);
             simple::contamination_detect(&config_obj)
         }
         unknown_mode => {
@@ -1023,10 +1028,6 @@ fn main() -> Result<(), Error> {
             }
             if let Some(mcm) = max_consecutive_misses {
                 loaded_config.max_consecutive_misses = *mcm;
-            }
-            // If max_consecutive_misses is still 2 (default), set it to ngram_size * 2
-            if loaded_config.max_consecutive_misses == 2 {
-                loaded_config.max_consecutive_misses = loaded_config.ngram_size * 2;
             }
             if let Some(scst) = simple_contamination_score_threshold {
                 loaded_config.simple_contamination_score_threshold = *scst;
@@ -1171,10 +1172,6 @@ fn main() -> Result<(), Error> {
             }
             if let Some(mcm) = max_consecutive_misses {
                 loaded_config.max_consecutive_misses = *mcm;
-            }
-            // If max_consecutive_misses is still 2 (default), set it to ngram_size * 2
-            if loaded_config.max_consecutive_misses == 2 {
-                loaded_config.max_consecutive_misses = loaded_config.ngram_size * 2;
             }
             if let Some(scst) = simple_contamination_score_threshold {
                 loaded_config.simple_contamination_score_threshold = *scst;
