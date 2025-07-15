@@ -563,7 +563,7 @@ def wizard():
     print("\npoormanray run \\")
     print(f"  --name {cluster_name} \\")
     print("  --command \"cd decon && nohup cargo run --release -- daemon \\")
-    print("    --config config/cl100k.yaml \\")
+    print("    --config config/simple-cl100k.yaml \\")
     print(f"    --mode {mode} --content-key {content_key} \\")
     print(f"    --simple-contamination-score-threshold {simple_contamination_score_threshold} \\")
     print(f"    --reference-input {reference_input} \\")
