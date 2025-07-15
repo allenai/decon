@@ -873,24 +873,10 @@ fn display_contamination_case_internal(result: &ContaminationResult) -> Result<(
                 println!("📊 EVAL UNIQUE N-GRAMS: {}\n", eval_unique_ngrams);
             }
 
+
             if let Some(penalty) = result.length_penalty {
                 println!("📏 LENGTH PENALTY: {:.3}\n", penalty);
             }
-
-            // Display answer contamination information
-            if let Some(answer_ratio) = result.answer_overlap_ratio {
-                println!("🎯 ANSWER OVERLAP RATIO: {:.3}", answer_ratio);
-            }
-            if let Some(ref answer_tokens) = result.matched_answer_tokens {
-                if !answer_tokens.is_empty() {
-                    println!("📝 MATCHED ANSWER TOKENS: {}\n", answer_tokens.join(" "));
-                }
-            }
-
-            if let Some(score) = result.contamination_score {
-                println!("⚡ CONTAMINATION SCORE: {:.3}", score);
-            }
-
             // Display token length information
             if let Some(delta) = result.token_length_delta {
                 let delta_str = if delta > 0 {
@@ -905,6 +891,23 @@ fn display_contamination_case_internal(result: &ContaminationResult) -> Result<(
                     result.eval_token_length.unwrap_or(0)
                 );
             }
+
+            // Display answer contamination information
+            if let Some(answer_ratio) = result.answer_overlap_ratio {
+                println!("🎯 ANSWER OVERLAP RATIO: {:.3}", answer_ratio);
+            }
+            if let Some(ref answer_tokens) = result.matched_answer_tokens {
+                if !answer_tokens.is_empty() {
+                    println!("📝 MATCHED ANSWER TOKENS: {}\n", answer_tokens.join(" "));
+                }
+            }
+
+
+            if let Some(score) = result.contamination_score {
+                println!("⚡ CONTAMINATION SCORE: {:.3}", score);
+            }
+
+
 
             println!();
         }

@@ -858,9 +858,9 @@ impl SimpleContaminationEntry {
 
         // Create a combined score using linear combination
         // Weight overlap more heavily than IDF
-        let jaccard_weight = 0.5;
-        let idf_weight = 0.5;
-        let base_score = (jaccard_weight * self.ngram_jaccard.unwrap_or(0.0)) + (idf_weight * self.idf_overlap.unwrap_or(0.0));
+        // let jaccard_weight = 0.5;
+        // let idf_weight = 0.5;
+        // let base_score = (jaccard_weight * self.ngram_jaccard.unwrap_or(0.0)) + (idf_weight * self.idf_overlap.unwrap_or(0.0));
 
         // Apply length penalty - shorter texts need to have higher scores to survive.
         // They need to be more exact and have more salient tokens.
@@ -868,7 +868,7 @@ impl SimpleContaminationEntry {
 
         // Final score with length penalty applied
         //base_score * length_penalty
-        base_score
+        self.idf_overlap.unwrap_or(0.0)
     }
 
     /// Check if this entry represents contamination (score >= threshold)
@@ -1128,28 +1128,15 @@ pub fn process_simple_training_file(
                         ngram_jaccard: None, // Will be calculated below
                     };
 
-                    // Calculate IDF overlap
-                    // Get or calculate the eval document's total IDF sum
-                    let eval_total_idf =
-                        if let Some(cached_idf_ref) = eval_document_idf_cache.get(doc_id) {
-                            *cached_idf_ref
-                        } else {
-                            let total_idf = calculate_eval_document_idf_sum(
-                                *doc_id,
-                                doc_to_ngram_ids,
-                                id_to_question_docs,
-                                total_docs,
-                            );
-                            eval_document_idf_cache.insert(*doc_id, total_idf);
-                            total_idf
-                        };
-
                     // Calculate IDF overlap ratio
-                    if eval_total_idf > 0.0 {
-                        entry.idf_overlap = Some(idf_sum / eval_total_idf);
-                    } else {
-                        entry.idf_overlap = Some(0.0);
-                    }
+                    entry.idf_overlap = calculate_idf_overlap(
+                        matched_ngram_ids,
+                        *doc_id,
+                        doc_to_ngram_ids,
+                        id_to_question_docs,
+                        eval_document_idf_cache,
+                        total_docs,
+                    );
 
                     // Calculate and store the length penalty
                     entry.length_penalty = Some(
@@ -1380,6 +1367,9 @@ fn extract_ngrams_from_range(
 }
 
 /// Expand contamination cluster using intersection-based left/right traversal
+/// Note that we don't care if we go over a little, because we are solving a containment
+/// problem and using overlap scores. The real problem is when a cluster is shorter than
+/// the eval document.
 fn expand_simple_contamination_cluster(
     hit_idx: usize,
     word_tokens: &[usize],
@@ -1618,11 +1608,9 @@ fn expand_simple_contamination_cluster(
                 }
                 for doc_id in to_remove {
                     active_documents.remove(&doc_id);
-                    // println!("Removing doc {} after {} consecutive misses", doc_id, document_misses[&doc_id]); //debug
                 }
             }
         } else {
-            // println!("Right miss at {}: n-gram not in eval", right_idx); //debug
             // Increment miss count for all active documents
             let mut to_remove = Vec::new();
             for doc_id in &active_documents {
@@ -1634,7 +1622,6 @@ fn expand_simple_contamination_cluster(
             }
             for doc_id in to_remove {
                 active_documents.remove(&doc_id);
-                // println!("Removing doc {} after {} consecutive misses", doc_id, document_misses[&doc_id]); //debug
             }
         }
     }
@@ -1682,6 +1669,45 @@ fn calculate_eval_document_idf_sum(
     }
 
     idf_sum
+}
+
+/// Calculate IDF overlap ratio between matched n-grams and eval document
+/// Returns the ratio of matched n-gram IDF sum to total eval document IDF sum
+fn calculate_idf_overlap(
+    matched_ngram_ids: &HashSet<u64>,
+    doc_id: u32,
+    doc_to_ngram_ids: &DocToNgramIdsMap,
+    id_to_question_docs: &IdToQuestionDocsMap,
+    eval_document_idf_cache: &EvalDocumentIdfCache,
+    total_docs: f32,
+) -> Option<f32> {
+    // Calculate IDF sum for matched n-grams (shared between training and eval)
+    let (matched_idf_sum, _max_idf) = calculate_idf_values(
+        matched_ngram_ids,
+        id_to_question_docs,
+        total_docs,
+    );
+
+    // Get or calculate the eval document's total IDF sum
+    let eval_total_idf = if let Some(cached_idf_ref) = eval_document_idf_cache.get(&doc_id) {
+        *cached_idf_ref
+    } else {
+        let total_idf = calculate_eval_document_idf_sum(
+            doc_id,
+            doc_to_ngram_ids,
+            id_to_question_docs,
+            total_docs,
+        );
+        eval_document_idf_cache.insert(doc_id, total_idf);
+        total_idf
+    };
+
+    // Calculate IDF overlap ratio
+    if eval_total_idf > 0.0 {
+        Some(matched_idf_sum / eval_total_idf)
+    } else {
+        Some(0.0)
+    }
 }
 
 /// Calculate IDF values for a set of n-gram IDs
