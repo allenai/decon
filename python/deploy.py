@@ -51,7 +51,8 @@ class DeploymentConfig:
     mode: str = "simple"
     content_key: str = "text"
     ngram_size: int = 4
-    simple_contamination_score_threshold: float = 0.8
+    question_threshold: float = 0.8
+    answer_threshold: float = 0.8
     tokenizer_str: str = "word"
     debug: bool = False
     purify: bool = False
@@ -71,9 +72,12 @@ class DeploymentConfig:
         if self.orchestration_config:
             self.orchestration_config = os.path.expanduser(self.orchestration_config)
 
-        # Validate simple_contamination_score_threshold
-        if not 0.0 <= self.simple_contamination_score_threshold <= 1.0:
-            raise ValueError(f"simple_contamination_score_threshold must be between 0 and 1, got {self.simple_contamination_score_threshold}")
+        # Validate question_threshold
+        if not 0.0 <= self.question_threshold <= 1.0:
+            raise ValueError(f"question_threshold must be between 0 and 1, got {self.question_threshold}")
+        # Validate answer_threshold
+        if not 0.0 <= self.answer_threshold <= 1.0:
+            raise ValueError(f"answer_threshold must be between 0 and 1, got {self.answer_threshold}")
 
 
 class PoorManRayError(Exception):
@@ -171,8 +175,8 @@ class DeploymentManager:
         daemon_cmd += f" --mode {self.config.mode}"
         daemon_cmd += f" --content-key {self.config.content_key}"
         daemon_cmd += f" --ngram-size {self.config.ngram_size}"
-        daemon_cmd += f" --sample-every-m-tokens {self.config.sample_every_m_tokens}"
-        daemon_cmd += f" --simple-contamination-score-threshold {self.config.simple_contamination_score_threshold}"
+        daemon_cmd += f" --question-threshold {self.config.question_threshold}"
+        daemon_cmd += f" --answer-threshold {self.config.answer_threshold}"
         daemon_cmd += f" --tokenizer {self.config.tokenizer_str}"
         daemon_cmd += f" --reference-input {self.config.reference_input}"
 
@@ -463,8 +467,9 @@ def wizard():
     ngram_size = 5
 
     while True:
-        simple_contamination_score_threshold = click.prompt("Contamination score threshold [0-1] (higher = more precision, lower = more recall)", type=float, default=0.8)
-        if 0.0 <= simple_contamination_score_threshold <= 1.0:
+        question_threshold = click.prompt("Question contamination threshold [0-1] (higher = more precision, lower = more recall)", type=float, default=0.8)
+        answer_threshold = click.prompt("Answer contamination threshold [0-1] (higher = more precision, lower = more recall)", type=float, default=0.8)
+        if 0.0 <= question_threshold <= 1.0 and 0.0 <= answer_threshold <= 1.0:
             break
         else:
             print("❌ Error: Threshold must be between 0 and 1. Please try again.")
@@ -510,7 +515,8 @@ def wizard():
         mode=mode,
         content_key=content_key,
         ngram_size=ngram_size,
-        simple_contamination_score_threshold=simple_contamination_score_threshold,
+        question_threshold=question_threshold,
+        answer_threshold=answer_threshold,
         tokenizer_str=tokenizer_str,
         debug=debug,
         purify=purify,
@@ -529,6 +535,8 @@ def wizard():
     print(f"  Tokenizer: {deploy_config.tokenizer_str}")
     print(f"  Reference dataset: {reference_choice}")
     print(f"  N-gram size: {deploy_config.ngram_size}")
+    print(f"  Question threshold: {deploy_config.question_threshold}")
+    print(f"  Answer threshold: {deploy_config.answer_threshold}")
     print(f"  Purification: {'enabled' if deploy_config.purify else 'disabled'}")
 
     if remote_file_input:
@@ -565,7 +573,8 @@ def wizard():
     print("  --command \"cd decon && nohup cargo run --release -- daemon \\")
     print("    --config config/simple-cl100k.yaml \\")
     print(f"    --mode {mode} --content-key {content_key} \\")
-    print(f"    --simple-contamination-score-threshold {simple_contamination_score_threshold} \\")
+    print(f"    --question-threshold {question_threshold} \\")
+    print(f"    --answer-threshold {answer_threshold} \\")
     print(f"    --reference-input {reference_input} \\")
     print(f"    --report-output-dir {local_work_dir}/results \\")
     print(f"    --cleaned-output-dir {local_work_dir}/cleaned", end="")
@@ -612,8 +621,8 @@ def wizard():
 @click.option("--mode", default="simple", type=click.Choice(['simple', 'minhash', 'toxic']), help="Detection mode")
 @click.option("--content-key", default="text", help="JSON field containing text")
 @click.option("--ngram-size", default=4, type=int, help="N-gram size")
-@click.option("--sample-every-m-tokens", default=10, type=int, help="Sampling rate")
-@click.option("--simple-contamination-score-threshold", default=0.8, type=float, help="Simple contamination score threshold [0-1]")
+@click.option("--question-threshold", default=0.8, type=float, help="Question contamination threshold [0-1]")
+@click.option("--answer-threshold", default=0.8, type=float, help="Answer contamination threshold [0-1]")
 @click.option("--tokenizer", default="word", type=click.Choice(['word', 'p50k', 'cl100k']), help="Tokenizer")
 @click.option("--debug/--no-debug", default=False, help="Enable debug mode")
 @click.option("--purify/--no-purify", default=False, help="Enable data purification")
@@ -624,7 +633,7 @@ def wizard():
 @click.option("--local-work-dir", default="/mnt/decon-work", help="Local working directory for orchestrator")
 def deploy(name, owner, instances, instance_type, ssh_key, github_token, daemon_port,
           mode, content_key, ngram_size,
-          simple_contamination_score_threshold, tokenizer,
+          question_threshold, answer_threshold, tokenizer,
           debug, purify, remote_file_input, remote_report_output_dir,
           remote_cleaned_output_dir, local_work_dir):
     """Deploy Decon cluster (non-interactive)"""
@@ -640,7 +649,8 @@ def deploy(name, owner, instances, instance_type, ssh_key, github_token, daemon_
         mode=mode,
         content_key=content_key,
         ngram_size=ngram_size,
-        simple_contamination_score_threshold=simple_contamination_score_threshold,
+        question_threshold=question_threshold,
+        answer_threshold=answer_threshold,
         tokenizer_str=tokenizer,
         debug=debug,
         purify=purify,

@@ -54,7 +54,7 @@ type EvalDocumentIdfCache = DashMap<u32, f32>; // Maps doc_id to total IDF sum f
 type DocToNgramIdsMap = DashMap<u32, HashSet<u64>>; // Maps doc_id to set of ngram IDs for efficient IDF calculation
 type TokenDocFreqMap = DashMap<usize, AtomicUsize>; // Maps token ID to number of documents containing that token
 
-// Note: CONTAMINATION_SCORE_THRESHOLD is now configurable via Config.simple_contamination_score_threshold
+// Note: CONTAMINATION_SCORE_THRESHOLD is now configurable via Config.question_threshold
 
 // This is the 'k' in the formula P(L) = 1.0 - e^(-k*L^n).
 // It controls how quickly the penalty rises from 0 toward 1.0 as length increases.
@@ -315,7 +315,14 @@ fn process_simple_reference_file(
         if has_answer_fields {
             // Process answer field
             if let Some(answer) = json_obj.get("answer").and_then(|v| v.as_str()) {
-                process_answer_field(answer, doc_id, config, tokenizer, id_to_short_answer, token_doc_freq)?;
+                process_answer_field(
+                    answer,
+                    doc_id,
+                    config,
+                    tokenizer,
+                    id_to_short_answer,
+                    token_doc_freq,
+                )?;
             }
         }
     }
@@ -558,7 +565,7 @@ fn process_answer_field(
 
     // Store in short answer map
     let token_set: HashSet<usize> = word_tokens.into_iter().collect();
-    
+
     // Track unique tokens for this document for IDF calculation
     for token in &token_set {
         token_doc_freq
@@ -566,7 +573,7 @@ fn process_answer_field(
             .or_insert_with(|| AtomicUsize::new(0))
             .fetch_add(1, Ordering::Relaxed);
     }
-    
+
     // Debug logging for stored tokens
     if std::env::var("DEBUG_ANSWER").is_ok() && doc_id == 454571 {
         println!("Token IDs stored: {:?}", token_set);
@@ -577,7 +584,7 @@ fn process_answer_field(
             }
         }
     }
-    
+
     id_to_short_answer.insert(doc_id, token_set);
 
     Ok(())
@@ -796,13 +803,13 @@ fn extract_overlap_with_context(
 
         // Add contaminated section with highlighting
         result.push_str("【");
-        result.push_str(&words_buffer[relative_start..relative_end+1].join(" "));
+        result.push_str(&words_buffer[relative_start..relative_end + 1].join(" "));
         result.push_str("】");
 
         // Add trailing context
         if relative_end + 1 < words_buffer.len() {
             result.push(' ');
-            result.push_str(&words_buffer[relative_end+1..].join(" "));
+            result.push_str(&words_buffer[relative_end + 1..].join(" "));
             result.push_str(" ...");
         }
 
@@ -831,7 +838,7 @@ fn extract_overlap_with_context(
         }
 
         // Decode and add contaminated section
-        if let Ok(contaminated) = inner.decode(tokens[start_idx..end_idx+1].to_vec()) {
+        if let Ok(contaminated) = inner.decode(tokens[start_idx..end_idx + 1].to_vec()) {
             result.push_str("【");
             result.push_str(&contaminated);
             result.push_str("】");
@@ -839,7 +846,7 @@ fn extract_overlap_with_context(
 
         // Decode and add trailing context
         if end_idx + 1 < context_end {
-            if let Ok(suffix) = inner.decode(tokens[end_idx+1..context_end].to_vec()) {
+            if let Ok(suffix) = inner.decode(tokens[end_idx + 1..context_end].to_vec()) {
                 result.push_str(" ");
                 result.push_str(&suffix);
                 result.push_str(" ...");
@@ -866,12 +873,13 @@ pub struct SimpleContaminationEntry {
     contamination_start_idx: Option<usize>, // Start index in token array
     contamination_end_idx: Option<usize>,   // End index in token array
     training_overlap_text: Option<String>,
-    ngram_match_cnt: usize,      // Number of unique n-gram matches
-    eval_unique_ngrams: usize,   // Total unique n-grams in the eval document
-    #[allow(dead_code)] length_penalty: Option<f32>, // Length penalty factor applied during scoring
+    ngram_match_cnt: usize,    // Number of unique n-gram matches
+    eval_unique_ngrams: usize, // Total unique n-grams in the eval document
+    #[allow(dead_code)]
+    length_penalty: Option<f32>, // Length penalty factor applied during scoring
     // Answer contamination fields
     answer_overlap_ratio: Option<f32>, // Overlap ratio for answer tokens
-    answer_idf_overlap: Option<f32>, // IDF overlap ratio for answer tokens
+    answer_idf_overlap: Option<f32>,   // IDF overlap ratio for answer tokens
     matched_answer_tokens: Option<Vec<String>>, // Matched answer tokens as text
     // Token length tracking fields
     cluster_token_length: Option<usize>, // Length of the matched cluster in tokens
@@ -912,24 +920,24 @@ impl SimpleContaminationEntry {
         token_doc_freq: &TokenDocFreqMap,
         total_docs: f32,
     ) -> (bool, Option<f32>, Option<Vec<String>>, Option<f32>) {
-        let question_contam = self
-            .score_question_contamination(config.simple_contamination_score_threshold)
-            >= config.simple_contamination_score_threshold;
+        let question_contam = self.score_question_contamination(config.question_threshold)
+            >= config.question_threshold;
 
         if question_contam {
             // Check if this document has a short answer
             if let Some(answer_token_set) = id_to_short_answer.get(&doc_id) {
                 // Use the new answer matching method
-                let (answer_found, answer_overlap_ratio, matched_token_strings, answer_idf_overlap) = has_matching_answer(
-                    answer_token_set.value(),
-                    cluster,
-                    doc_id,
-                    training_tokens,
-                    config,
-                    tokenizer,
-                    token_doc_freq,
-                    total_docs,
-                );
+                let (answer_found, answer_overlap_ratio, matched_token_strings, answer_idf_overlap) =
+                    has_matching_answer(
+                        answer_token_set.value(),
+                        cluster,
+                        doc_id,
+                        training_tokens,
+                        config,
+                        tokenizer,
+                        token_doc_freq,
+                        total_docs,
+                    );
 
                 // Require both question and answer contamination
                 let is_contaminated = question_contam && answer_found;
@@ -974,7 +982,7 @@ fn has_matching_answer(
     } else {
         prefix_matches.len() as f32 / answer_token_set.len() as f32
     };
-    
+
     let suffix_overlap_ratio = if answer_token_set.is_empty() {
         0.0
     } else {
@@ -1001,11 +1009,16 @@ fn has_matching_answer(
         token_doc_freq,
         total_docs,
     );
-    
+
     // Check if meets threshold using IDF overlap
-    let is_contaminated = answer_idf_overlap >= config.short_answer_contamination_threshold;
-    
-    (is_contaminated, answer_overlap_ratio, matched_token_strings, answer_idf_overlap)
+    let is_contaminated = answer_idf_overlap >= config.answer_threshold;
+
+    (
+        is_contaminated,
+        answer_overlap_ratio,
+        matched_token_strings,
+        answer_idf_overlap,
+    )
 }
 
 fn short_answer_tokens(
@@ -1057,45 +1070,58 @@ fn short_answer_tokens(
         if std::env::var("DEBUG_ANSWER").is_ok() {
             let prefix_text = if tokenizer.tokenizer_name == "word" {
                 // For word tokenizer, convert token IDs back to words
-                prefix_tokens.iter()
+                prefix_tokens
+                    .iter()
                     .filter_map(|&token_id| tokenizer.get_word(token_id as u32))
                     .collect::<Vec<_>>()
                     .join(" ")
             } else if let Some(inner) = tokenizer.inner.as_ref() {
                 // For BPE tokenizers, decode token array
-                inner.decode(prefix_tokens.clone()).unwrap_or_else(|_| "[decode error]".to_string())
+                inner
+                    .decode(prefix_tokens.clone())
+                    .unwrap_or_else(|_| "[decode error]".to_string())
             } else {
                 "[no decoder]".to_string()
             };
 
             let suffix_text = if tokenizer.tokenizer_name == "word" {
                 // For word tokenizer, convert token IDs back to words
-                suffix_tokens.iter()
+                suffix_tokens
+                    .iter()
                     .filter_map(|&token_id| tokenizer.get_word(token_id as u32))
                     .collect::<Vec<_>>()
                     .join(" ")
             } else if let Some(inner) = tokenizer.inner.as_ref() {
                 // For BPE tokenizers, decode token array
-                inner.decode(suffix_tokens.clone()).unwrap_or_else(|_| "[decode error]".to_string())
+                inner
+                    .decode(suffix_tokens.clone())
+                    .unwrap_or_else(|_| "[decode error]".to_string())
             } else {
                 "[no decoder]".to_string()
             };
 
             // Decode answer tokens to see what we're looking for
             let answer_text = if tokenizer.tokenizer_name == "word" {
-                answer_token_set.iter()
+                answer_token_set
+                    .iter()
                     .filter_map(|&token_id| tokenizer.get_word(token_id as u32))
                     .collect::<Vec<_>>()
                     .join(" ")
             } else if let Some(inner) = tokenizer.inner.as_ref() {
                 let answer_vec: Vec<usize> = answer_token_set.iter().copied().collect();
-                inner.decode(answer_vec).unwrap_or_else(|_| "[decode error]".to_string())
+                inner
+                    .decode(answer_vec)
+                    .unwrap_or_else(|_| "[decode error]".to_string())
             } else {
                 "[no decoder]".to_string()
             };
 
             println!("\n=== Answer Detection Debug (doc_id: {}) ===", doc_id);
-            println!("Answer text to find: \"{}\" ({} tokens)", answer_text, answer_token_set.len());
+            println!(
+                "Answer text to find: \"{}\" ({} tokens)",
+                answer_text,
+                answer_token_set.len()
+            );
             println!("Answer token IDs: {:?}", answer_token_set);
             println!("Prefix ({} tokens): {}", prefix_tokens.len(), prefix_text);
             println!("Suffix ({} tokens): {}", suffix_tokens.len(), suffix_text);
@@ -1106,7 +1132,11 @@ fn short_answer_tokens(
                 .filter(|token| training_token_set.contains(token))
                 .copied()
                 .collect();
-            println!("Found {} of {} answer tokens in training text", found_in_training.len(), answer_token_set.len());
+            println!(
+                "Found {} of {} answer tokens in training text",
+                found_in_training.len(),
+                answer_token_set.len()
+            );
             println!("Found token IDs: {:?}", found_in_training);
             let missing_tokens: HashSet<usize> = answer_token_set
                 .difference(&found_in_training)
@@ -1116,7 +1146,7 @@ fn short_answer_tokens(
 
             // Debug: Show the last few tokens of prefix and first few of suffix
             if prefix_tokens.len() >= 4 {
-                let last_prefix_tokens = &prefix_tokens[prefix_tokens.len()-4..];
+                let last_prefix_tokens = &prefix_tokens[prefix_tokens.len() - 4..];
                 println!("Last 4 prefix tokens: {:?}", last_prefix_tokens);
             }
             if suffix_tokens.len() >= 4 {
@@ -1128,19 +1158,19 @@ fn short_answer_tokens(
         // Find matching tokens separately for prefix and suffix
         let prefix_token_set: HashSet<usize> = prefix_tokens.iter().copied().collect();
         let suffix_token_set: HashSet<usize> = suffix_tokens.iter().copied().collect();
-        
+
         let prefix_matches: HashSet<usize> = answer_token_set
             .iter()
             .filter(|token| prefix_token_set.contains(token))
             .copied()
             .collect();
-            
+
         let suffix_matches: HashSet<usize> = answer_token_set
             .iter()
             .filter(|token| suffix_token_set.contains(token))
             .copied()
             .collect();
-            
+
         (prefix_matches, suffix_matches)
     } else {
         // Original behavior: search entire window including the question
@@ -1148,21 +1178,30 @@ fn short_answer_tokens(
         let prefix_start = doc_start_idx.saturating_sub(window_size);
         let prefix_end = doc_start_idx;
         let suffix_start = doc_end_idx + config.ngram_size - 1 + 1;
-        let suffix_end = suffix_start.saturating_add(window_size).min(training_tokens.len());
+        let suffix_end = suffix_start
+            .saturating_add(window_size)
+            .min(training_tokens.len());
 
         // Extract prefix tokens
         let prefix_token_set: HashSet<usize> = if prefix_start < prefix_end {
-            training_tokens[prefix_start..prefix_end].iter().copied().collect()
+            training_tokens[prefix_start..prefix_end]
+                .iter()
+                .copied()
+                .collect()
         } else {
             HashSet::new()
         };
 
-        // Extract suffix tokens  
-        let suffix_token_set: HashSet<usize> = if suffix_start < suffix_end && suffix_start < training_tokens.len() {
-            training_tokens[suffix_start..suffix_end.min(training_tokens.len())].iter().copied().collect()
-        } else {
-            HashSet::new()
-        };
+        // Extract suffix tokens
+        let suffix_token_set: HashSet<usize> =
+            if suffix_start < suffix_end && suffix_start < training_tokens.len() {
+                training_tokens[suffix_start..suffix_end.min(training_tokens.len())]
+                    .iter()
+                    .copied()
+                    .collect()
+            } else {
+                HashSet::new()
+            };
 
         // Find matching tokens separately
         let prefix_matches: HashSet<usize> = answer_token_set
@@ -1170,13 +1209,13 @@ fn short_answer_tokens(
             .filter(|token| prefix_token_set.contains(token))
             .copied()
             .collect();
-            
+
         let suffix_matches: HashSet<usize> = answer_token_set
             .iter()
             .filter(|token| suffix_token_set.contains(token))
             .copied()
             .collect();
-            
+
         (prefix_matches, suffix_matches)
     }
 }
@@ -1185,7 +1224,7 @@ fn short_answer_tokens(
 pub(crate) struct SimpleContaminationCluster {
     document_matches: HashMap<u32, HashSet<u64>>, // doc_id -> unique_ngram_ids that matched eval
     document_boundaries: HashMap<u32, (usize, usize)>, // doc_id -> (start_idx, end_idx)
-    end_idx: usize
+    end_idx: usize,
 }
 
 pub fn process_simple_training_file(
@@ -1273,7 +1312,7 @@ pub fn process_simple_training_file(
                     // We kind of have a hard coded short circuit here.
                     // Basically we reject anything with less than this much raw overlap.
                     // TODO move this to even prevent cluster creation at some point.
-                    if overlap_ratio < config.simple_contamination_score_threshold - 0.1 {
+                    if overlap_ratio < config.question_threshold - 0.1 {
                         continue;
                     }
 
@@ -1320,26 +1359,30 @@ pub fn process_simple_training_file(
 
                     // Calculate and store the length penalty
                     // entry.length_penalty = Some(
-                    //     entry.calculate_length_penalty(config.simple_contamination_score_threshold),
+                    //     entry.calculate_length_penalty(config.question_threshold),
                     // );
 
                     // Check if this entry represents contamination using score threshold
-                    let (is_contaminated, answer_overlap_ratio, matched_answer_tokens, answer_idf_overlap) = entry
-                        .is_contaminated(
-                            *doc_id,
-                            id_to_short_answer,
-                            &cluster,
-                            &word_tokens,
-                            config,
-                            tokenizer,
-                            token_doc_freq,
-                            total_docs,
-                        );
+                    let (
+                        is_contaminated,
+                        answer_overlap_ratio,
+                        matched_answer_tokens,
+                        answer_idf_overlap,
+                    ) = entry.is_contaminated(
+                        *doc_id,
+                        id_to_short_answer,
+                        &cluster,
+                        &word_tokens,
+                        config,
+                        tokenizer,
+                        token_doc_freq,
+                        total_docs,
+                    );
 
                     // Track if question was contaminated but excluded due to no answer match
                     let question_contam = entry
-                        .score_question_contamination(config.simple_contamination_score_threshold)
-                        >= config.simple_contamination_score_threshold;
+                        .score_question_contamination(config.question_threshold)
+                        >= config.question_threshold;
                     if question_contam && !is_contaminated {
                         EXCLUDED_NO_ANSWER_MATCH.fetch_add(1, Ordering::Relaxed);
                     }
@@ -1473,7 +1516,6 @@ fn check_ngram_for_match(
     }
     None
 }
-
 
 /// Expand contamination cluster using intersection-based left/right traversal
 /// Note that we don't care if we go over a little, because we are solving a containment
@@ -1764,7 +1806,7 @@ fn calculate_answer_idf_overlap(
             }
         }
     }
-    
+
     // Calculate IDF sum for matched tokens only
     let mut matched_idf_sum = 0.0f32;
     for token in matched_tokens {
@@ -1776,7 +1818,7 @@ fn calculate_answer_idf_overlap(
             }
         }
     }
-    
+
     // Calculate overlap ratio
     if answer_idf_sum > 0.0 {
         matched_idf_sum / answer_idf_sum
@@ -1796,11 +1838,8 @@ fn calculate_idf_overlap(
     total_docs: f32,
 ) -> Option<f32> {
     // Calculate IDF sum for matched n-grams (shared between training and eval)
-    let (matched_idf_sum, _max_idf) = calculate_idf_values(
-        matched_ngram_ids,
-        id_to_question_docs,
-        total_docs,
-    );
+    let (matched_idf_sum, _max_idf) =
+        calculate_idf_values(matched_ngram_ids, id_to_question_docs, total_docs);
 
     // Get or calculate the eval document's total IDF sum
     let eval_total_idf = if let Some(cached_idf_ref) = eval_document_idf_cache.get(&doc_id) {
@@ -1875,8 +1914,8 @@ pub fn save_contamination_results_toxic_format_with_filename_and_eval_text(
                 "overlap_ratio": contamination_entry.overlap_ratio,
                 "ngram_match_cnt": contamination_entry.ngram_match_cnt,
                 "eval_unique_ngrams": contamination_entry.eval_unique_ngrams,
-                "contamination_score": contamination_entry.score_question_contamination(config.simple_contamination_score_threshold),
-                //"length_penalty": contamination_entry.length_penalty.unwrap_or_else(|| contamination_entry.calculate_length_penalty(config.simple_contamination_score_threshold)),
+                "contamination_score": contamination_entry.score_question_contamination(config.question_threshold),
+                //"length_penalty": contamination_entry.length_penalty.unwrap_or_else(|| contamination_entry.calculate_length_penalty(config.question_threshold)),
                 "method": "simple"
             });
 

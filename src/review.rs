@@ -180,7 +180,9 @@ pub fn review_contamination(
         all_results.sort_by(|a, b| {
             let score_a = a.contamination_score.unwrap_or(0.0);
             let score_b = b.contamination_score.unwrap_or(0.0);
-            score_a.partial_cmp(&score_b).unwrap_or(std::cmp::Ordering::Equal)
+            score_a
+                .partial_cmp(&score_b)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         let original_count = all_results.len();
@@ -322,7 +324,9 @@ pub fn review_contamination(
     contamination_results.sort_by(|a, b| {
         let score_a = a.contamination_score.unwrap_or(0.0);
         let score_b = b.contamination_score.unwrap_or(0.0);
-        score_a.partial_cmp(&score_b).unwrap_or(std::cmp::Ordering::Equal)
+        score_a
+            .partial_cmp(&score_b)
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
 
     let original_count = contamination_results.len();
@@ -396,7 +400,9 @@ pub fn review_contamination(
     filtered_results.sort_by(|a, b| {
         let score_a = a.contamination_score.unwrap_or(0.0);
         let score_b = b.contamination_score.unwrap_or(0.0);
-        score_a.partial_cmp(&score_b).unwrap_or(std::cmp::Ordering::Equal)
+        score_a
+            .partial_cmp(&score_b)
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
 
     if filtered_results.is_empty() {
@@ -872,7 +878,6 @@ fn display_contamination_case_internal(result: &ContaminationResult) -> Result<(
                 println!("📊 EVAL UNIQUE N-GRAMS: {}\n", eval_unique_ngrams);
             }
 
-
             // if let Some(penalty) = result.length_penalty {
             //     println!("📏 LENGTH PENALTY: {:.3}\n", penalty);
             // }
@@ -900,7 +905,8 @@ fn display_contamination_case_internal(result: &ContaminationResult) -> Result<(
             }
             if let Some(ref answer_tokens) = result.matched_answer_tokens {
                 if !answer_tokens.is_empty() {
-                    let display_tokens: Vec<String> = answer_tokens.iter()
+                    let display_tokens: Vec<String> = answer_tokens
+                        .iter()
                         .map(|token| {
                             if token.trim().is_empty() {
                                 "<whitespace>".to_string()
@@ -929,7 +935,10 @@ fn display_contamination_case_internal(result: &ContaminationResult) -> Result<(
         if let (Some(start_idx), Some(end_idx)) =
             (result.contamination_start_idx, result.contamination_end_idx)
         {
-            println!("   📍 Training overlap (tokens {} to {}):", start_idx, end_idx);
+            println!(
+                "   📍 Training overlap (tokens {} to {}):",
+                start_idx, end_idx
+            );
         } else {
             println!("   📍 Training overlap:");
         }

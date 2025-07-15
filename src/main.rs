@@ -84,7 +84,10 @@ enum Commands {
         #[arg(long, help = "N-gram size for SIMPLE mode")]
         ngram_size: Option<usize>,
 
-        #[arg(long, help = "Sample every M tokens for SIMPLE mode (defaults to ngram_size + 1)")]
+        #[arg(
+            long,
+            help = "Sample every M tokens for SIMPLE mode (defaults to ngram_size + 1)"
+        )]
         sample_every_m_tokens: Option<usize>,
 
         #[arg(
@@ -93,8 +96,17 @@ enum Commands {
         )]
         max_consecutive_misses: Option<usize>,
 
-        #[arg(long, help = "Contamination score threshold for SIMPLE mode")]
-        simple_contamination_score_threshold: Option<f32>,
+        #[arg(
+            long,
+            help = "Contamination score threshold for questions in SIMPLE mode"
+        )]
+        question_threshold: Option<f32>,
+
+        #[arg(
+            long,
+            help = "Contamination score threshold for answers in SIMPLE mode"
+        )]
+        answer_threshold: Option<f32>,
 
         // MinHash mode specific
         #[arg(long, help = "Number of bands for MinHash LSH")]
@@ -251,7 +263,10 @@ enum Commands {
         #[arg(long, help = "N-gram size for SIMPLE mode")]
         ngram_size: Option<usize>,
 
-        #[arg(long, help = "Sample every M tokens for SIMPLE mode (defaults to ngram_size + 1)")]
+        #[arg(
+            long,
+            help = "Sample every M tokens for SIMPLE mode (defaults to ngram_size + 1)"
+        )]
         sample_every_m_tokens: Option<usize>,
 
         #[arg(
@@ -260,8 +275,17 @@ enum Commands {
         )]
         max_consecutive_misses: Option<usize>,
 
-        #[arg(long, help = "Contamination score threshold for SIMPLE mode")]
-        simple_contamination_score_threshold: Option<f32>,
+        #[arg(
+            long,
+            help = "Contamination score threshold for questions in SIMPLE mode"
+        )]
+        question_threshold: Option<f32>,
+
+        #[arg(
+            long,
+            help = "Contamination score threshold for answers in SIMPLE mode"
+        )]
+        answer_threshold: Option<f32>,
 
         // MinHash mode specific
         #[arg(long, help = "Number of bands for MinHash LSH")]
@@ -388,14 +412,14 @@ pub struct Config {
     // Short answer detection parameters
     #[serde(default = "default_min_short_answer_distance")]
     pub min_short_answer_distance: usize,
-    #[serde(default = "default_short_answer_contamination_threshold")]
-    pub short_answer_contamination_threshold: f32,
+    #[serde(default = "default_answer_threshold")]
+    pub answer_threshold: f32,
     #[serde(default = "default_exclude_question_from_answer_sweep")]
     pub exclude_question_from_answer_sweep: bool,
 
     // Simple mode contamination score threshold
-    #[serde(default = "default_simple_contamination_score_threshold")]
-    pub simple_contamination_score_threshold: f32,
+    #[serde(default = "default_question_threshold")]
+    pub question_threshold: f32,
 
     // Purify option - create cleaned files with contaminated lines removed
     #[serde(default)]
@@ -492,11 +516,11 @@ fn default_min_short_answer_distance() -> usize {
     30 // Default maximum token distance to search for short answers
 }
 
-fn default_short_answer_contamination_threshold() -> f32 {
+fn default_answer_threshold() -> f32 {
     0.8 // Default threshold for short answer contamination
 }
 
-fn default_simple_contamination_score_threshold() -> f32 {
+fn default_question_threshold() -> f32 {
     0.79 // Default contamination score threshold for SIMPLE mode
 }
 
@@ -604,7 +628,7 @@ pub fn write_purified_file_bytes(
     let mut reader: Box<dyn BufRead> = match input_path.extension().and_then(|s| s.to_str()) {
         Some("gz") => Box::new(BufReader::new(GzDecoder::new(file))),
         Some("zst") => Box::new(BufReader::new(ZstdDecoder::new(file)?)),
-        _ => Box::new(BufReader::new(file))
+        _ => Box::new(BufReader::new(file)),
     };
 
     // Create output file with gzip compression
@@ -657,7 +681,7 @@ pub fn write_purified_file_with_utf8_lossy_conversion(
     let mut reader: Box<dyn BufRead> = match input_path.extension().and_then(|s| s.to_str()) {
         Some("gz") => Box::new(BufReader::new(GzDecoder::new(file))),
         Some("zst") => Box::new(BufReader::new(ZstdDecoder::new(file)?)),
-        _ => Box::new(BufReader::new(file))
+        _ => Box::new(BufReader::new(file)),
     };
 
     // Create output file with gzip compression
@@ -755,16 +779,8 @@ impl OmniTokenizer {
 
     pub fn encode(&self, text: &str) -> Vec<usize> {
         match self.tokenizer_name.as_str() {
-            "p50k" => self
-                .inner
-                .as_ref()
-                .unwrap()
-                .encode_ordinary(text),
-            "cl100k" => self
-                .inner
-                .as_ref()
-                .unwrap()
-                .encode_ordinary(text),
+            "p50k" => self.inner.as_ref().unwrap().encode_ordinary(text),
+            "cl100k" => self.inner.as_ref().unwrap().encode_ordinary(text),
             "uniseg" => text
                 .split_word_bounds()
                 .map(|w| {
@@ -923,9 +939,16 @@ fn contamination_detect_with_config(config_obj: &Config) -> Result<(), Error> {
         "simple" => {
             println!("Using Simple contamination detection...");
             println!("  N-gram size: {}", config_obj.ngram_size);
-            println!("  Sample every M tokens: {}", config_obj.sample_every_m_tokens);
-            println!("  Max consecutive misses: {}", config_obj.max_consecutive_misses);
-            println!("  Contamination score threshold: {}", config_obj.simple_contamination_score_threshold);
+            println!(
+                "  Sample every M tokens: {}",
+                config_obj.sample_every_m_tokens
+            );
+            println!(
+                "  Max consecutive misses: {}",
+                config_obj.max_consecutive_misses
+            );
+            println!("  Question threshold: {}", config_obj.question_threshold);
+            println!("  Answer threshold: {}", config_obj.answer_threshold);
             println!("  Tokenizer: {}", config_obj.tokenizer_str);
             simple::contamination_detect(&config_obj)
         }
@@ -972,7 +995,8 @@ fn main() -> Result<(), Error> {
             ngram_size,
             sample_every_m_tokens,
             max_consecutive_misses,
-            simple_contamination_score_threshold,
+            question_threshold,
+            answer_threshold,
             num_bands,
             band_size,
             jaccard_similarity_threshold,
@@ -1029,8 +1053,11 @@ fn main() -> Result<(), Error> {
             if let Some(mcm) = max_consecutive_misses {
                 loaded_config.max_consecutive_misses = *mcm;
             }
-            if let Some(scst) = simple_contamination_score_threshold {
-                loaded_config.simple_contamination_score_threshold = *scst;
+            if let Some(qt) = question_threshold {
+                loaded_config.question_threshold = *qt;
+            }
+            if let Some(at) = answer_threshold {
+                loaded_config.answer_threshold = *at;
             }
 
             // MinHash mode overrides
@@ -1116,7 +1143,8 @@ fn main() -> Result<(), Error> {
             ngram_size,
             sample_every_m_tokens,
             max_consecutive_misses,
-            simple_contamination_score_threshold,
+            question_threshold,
+            answer_threshold,
             num_bands,
             band_size,
             jaccard_similarity_threshold,
@@ -1173,8 +1201,11 @@ fn main() -> Result<(), Error> {
             if let Some(mcm) = max_consecutive_misses {
                 loaded_config.max_consecutive_misses = *mcm;
             }
-            if let Some(scst) = simple_contamination_score_threshold {
-                loaded_config.simple_contamination_score_threshold = *scst;
+            if let Some(qt) = question_threshold {
+                loaded_config.question_threshold = *qt;
+            }
+            if let Some(at) = answer_threshold {
+                loaded_config.answer_threshold = *at;
             }
 
             // MinHash mode overrides
