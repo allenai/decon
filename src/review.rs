@@ -870,9 +870,9 @@ fn display_contamination_case_internal(result: &ContaminationResult) -> Result<(
             }
 
 
-            if let Some(penalty) = result.length_penalty {
-                println!("📏 LENGTH PENALTY: {:.3}\n", penalty);
-            }
+            // if let Some(penalty) = result.length_penalty {
+            //     println!("📏 LENGTH PENALTY: {:.3}\n", penalty);
+            // }
             // Display token length information
             if let Some(delta) = result.token_length_delta {
                 let delta_str = if delta > 0 {

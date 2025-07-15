@@ -8,6 +8,7 @@ fixtures/cleaned/*.*
 fixtures/local_input/*.*
 fixtures/big_input
 fixtures/dumps
+fixtures/output_cl100k/
 fixtures/reference-download-questions
 fixtures/reference-download-questions-and-answers
 fixtures/reference-download-best-available

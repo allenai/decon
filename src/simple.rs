@@ -323,23 +323,6 @@ fn hash_ngram(tokens: &[usize]) -> u64 {
     hasher.finish()
 }
 
-/// Calculate Jaccard similarity between two sets of n-grams
-/// Returns the Jaccard index: |intersection| / |union|
-fn calculate_jaccard_similarity(set1: &HashSet<u64>, set2: &HashSet<u64>) -> f32 {
-    if set1.is_empty() && set2.is_empty() {
-        return 1.0; // Both empty sets are considered identical
-    }
-
-    let intersection_size = set1.intersection(set2).count();
-    let union_size = set1.len() + set2.len() - intersection_size;
-
-    if union_size == 0 {
-        0.0
-    } else {
-        intersection_size as f32 / union_size as f32
-    }
-}
-
 fn get_or_create_ngram_id(
     ngram_tokens: &[usize],
     ngram_to_id: &NgramToIdMap,
@@ -826,18 +809,18 @@ pub struct SimpleContaminationEntry {
     training_overlap_text: Option<String>,
     ngram_match_cnt: usize,      // Number of unique n-gram matches
     eval_unique_ngrams: usize,   // Total unique n-grams in the eval document
-    length_penalty: Option<f32>, // Length penalty factor applied during scoring
+    #[allow(dead_code)] length_penalty: Option<f32>, // Length penalty factor applied during scoring
     // Answer contamination fields
     answer_overlap_ratio: Option<f32>, // Overlap ratio for answer tokens
     matched_answer_tokens: Option<Vec<String>>, // Matched answer tokens as text
     // Token length tracking fields
     cluster_token_length: Option<usize>, // Length of the matched cluster in tokens
     eval_token_length: Option<usize>,    // Total length of the eval document in tokens
-    ngram_jaccard: Option<f32>,          // Jaccard similarity between cluster and eval n-grams
 }
 
 impl SimpleContaminationEntry {
     /// Calculate the length penalty factor for this entry
+    #[allow(dead_code)]
     pub fn calculate_length_penalty(&self, min_length_penalty: f32) -> f32 {
         let l = self.eval_unique_ngrams as f32;
         let mut length_penalty =
@@ -849,19 +832,6 @@ impl SimpleContaminationEntry {
     /// Calculate contamination score based on overlap ratio and IDF, with length penalty
     /// Returns a score between 0.0 and 1.0, where higher scores indicate more likely contamination
     pub fn score_question_contamination(&self, _min_length_penalty: f32) -> f32 {
-        // Perfect matches always get maximum score
-        // if self.overlap_ratio >= 1.0 {
-        //     return 1.0;
-        // }
-
-        // Create a combined score using linear combination
-        // Weight overlap more heavily than IDF
-        // let jaccard_weight = 0.5;
-        // let idf_weight = 0.5;
-        // let base_score = (jaccard_weight * self.ngram_jaccard.unwrap_or(0.0)) + (idf_weight * self.idf_overlap.unwrap_or(0.0));
-
-        // Apply length penalty - shorter texts need to have higher scores to survive.
-        // They need to be more exact and have more salient tokens.
         //let length_penalty = self.calculate_length_penalty(min_length_penalty);
 
         // Final score with length penalty applied
@@ -998,7 +968,6 @@ fn short_answer_tokens(
 pub(crate) struct SimpleContaminationCluster {
     document_matches: HashMap<u32, HashSet<u64>>, // doc_id -> unique_ngram_ids that matched eval
     document_boundaries: HashMap<u32, (usize, usize)>, // doc_id -> (start_idx, end_idx)
-    document_cluster_ngrams: HashMap<u32, HashSet<u64>>, // doc_id -> all n-gram IDs in cluster for that doc
     end_idx: usize
 }
 
@@ -1031,8 +1000,6 @@ pub fn process_simple_training_file(
             .unwrap_or("unknown")
             .to_string(),
     };
-
-    // println!("Processing training file: {}", file_name); //debug
 
     let mut lines_processed = 0;
     let min_token_count = config.ngram_size * 2; // Minimum tokens needed for meaningful n-gram analysis
@@ -1118,7 +1085,6 @@ pub fn process_simple_training_file(
                         matched_answer_tokens: None,
                         cluster_token_length: Some(cluster_token_length),
                         eval_token_length: Some(*eval_token_count),
-                        ngram_jaccard: None, // Will be calculated below
                     };
 
                     // Calculate IDF overlap ratio
@@ -1132,23 +1098,9 @@ pub fn process_simple_training_file(
                     );
 
                     // Calculate and store the length penalty
-                    entry.length_penalty = Some(
-                        entry.calculate_length_penalty(config.simple_contamination_score_threshold),
-                    );
-
-                    // Calculate n-gram Jaccard similarity
-                    if let Some(eval_ngram_ids) = doc_to_ngram_ids.get(doc_id) {
-                        if let Some(cluster_ngrams_for_doc) = cluster.document_cluster_ngrams.get(doc_id) {
-                            entry.ngram_jaccard = Some(calculate_jaccard_similarity(
-                                cluster_ngrams_for_doc,
-                                eval_ngram_ids.value(),
-                            ));
-                        } else {
-                            entry.ngram_jaccard = Some(0.0);
-                        }
-                    } else {
-                        entry.ngram_jaccard = Some(0.0);
-                    }
+                    // entry.length_penalty = Some(
+                    //     entry.calculate_length_penalty(config.simple_contamination_score_threshold),
+                    // );
 
                     // Check if this entry represents contamination using score threshold
                     let (is_contaminated, answer_overlap_ratio, matched_answer_tokens) = entry
@@ -1215,9 +1167,6 @@ fn process_ngrams_with_simple_sampling(
     let mut clusters = Vec::new();
     let mut i = 0;
 
-
-    // println!("Starting sampling with M={}, word_tokens len={}", config.sample_every_m_tokens, word_tokens.len()); //debug
-
     // Calculate total n-grams
     let total_ngrams = if word_tokens.len() < config.ngram_size {
         if word_tokens.is_empty() {
@@ -1266,7 +1215,6 @@ fn process_ngrams_with_simple_sampling(
         }
     }
 
-    // println!("Sampling completed, found {} clusters", clusters.len()); //debug
     Ok(clusters)
 }
 
@@ -1291,12 +1239,10 @@ fn check_ngram_for_match(
 
     let ngram_hash = hash_ngram(&ngram_tokens);
 
-    // Look up n-gram ID
+    // Look up documents containing this n-gram
     if let Some(ngram_id) = ngram_to_id.get(&ngram_hash) {
-        // Look up documents containing this n-gram
         if let Some(doc_set) = id_to_question_docs.get(&ngram_id) {
             if !doc_set.is_empty() {
-                // println!("N-gram '{:?}' found in {} documents", ngram_tokens, doc_set.len()); //debug
                 return Some(doc_set.clone());
             }
         }
@@ -1304,50 +1250,6 @@ fn check_ngram_for_match(
     None
 }
 
-/// Extract all n-gram IDs from a range of tokens
-fn extract_ngrams_from_range(
-    word_tokens: &[usize],
-    start_idx: usize,
-    end_idx: usize,
-    ngram_size: usize,
-    ngram_to_id: &NgramToIdMap,
-) -> HashSet<u64> {
-    let mut ngram_ids = HashSet::new();
-
-    // Calculate the actual range for n-gram extraction
-    // end_idx is the position of the last n-gram start, so we need to go up to end_idx
-    let num_ngrams = if end_idx >= start_idx {
-        end_idx - start_idx + 1
-    } else {
-        0
-    };
-
-    // Extract each n-gram in the range
-    for i in 0..num_ngrams {
-        let ngram_start = start_idx + i;
-
-        // Check bounds
-        if ngram_start + ngram_size > word_tokens.len() {
-            break;
-        }
-
-        let ngram_tokens = &word_tokens[ngram_start..ngram_start + ngram_size];
-
-        // Skip n-grams containing unknown words
-        if ngram_tokens.iter().any(|&token| token == u32::MAX as usize) {
-            continue;
-        }
-
-        let ngram_hash = hash_ngram(ngram_tokens);
-
-        // Look up the n-gram ID
-        if let Some(ngram_id) = ngram_to_id.get(&ngram_hash) {
-            ngram_ids.insert(*ngram_id);
-        }
-    }
-
-    ngram_ids
-}
 
 /// Expand contamination cluster using intersection-based left/right traversal
 /// Note that we don't care if we go over a little, because we are solving a containment
@@ -1368,7 +1270,6 @@ fn expand_simple_contamination_cluster(
     let mut document_misses: HashMap<u32, usize> = HashMap::new();
     let mut document_boundaries: HashMap<u32, (usize, usize)> = HashMap::new();
     let mut active_documents: HashSet<u32> = initial_document_ids.clone();
-    let mut document_cluster_ngrams: HashMap<u32, HashSet<u64>> = HashMap::new();
 
     // Get the initial n-gram ID for tracking
     let initial_ngram_hash = hash_ngram(initial_training_ngram);
@@ -1383,11 +1284,7 @@ fn expand_simple_contamination_cluster(
         document_matches.insert(*doc_id, matched_ngrams);
         document_misses.insert(*doc_id, 0);
         document_boundaries.insert(*doc_id, (hit_idx, hit_idx));
-        // Note: document_cluster_ngrams will be populated after traversal completes
     }
-
-    // println!("Starting intersection walking with {} documents", initial_document_ids.len()); //debug
-    // println!("Initial n-gram: '{}'", initial_training_ngram); //debug
 
     let total_ngrams = if word_tokens.len() < config.ngram_size {
         if word_tokens.is_empty() {
@@ -1477,7 +1374,6 @@ fn expand_simple_contamination_cluster(
                 }
             }
         } else {
-            // println!("Left miss at {}: n-gram not in eval", left_idx); //debug
             // Increment miss count for all active documents
             let mut to_remove = Vec::new();
             for doc_id in &active_documents {
@@ -1489,7 +1385,6 @@ fn expand_simple_contamination_cluster(
             }
             for doc_id in to_remove {
                 active_documents.remove(&doc_id);
-                // println!("Removing doc {} after {} consecutive misses", doc_id, document_misses[&doc_id]); //debug
             }
         }
     }
@@ -1501,7 +1396,6 @@ fn expand_simple_contamination_cluster(
     }
 
     // Expand forward (right traversal)
-    // println!("Starting right traversal from index {}", hit_idx); //debug
     let mut right_idx = hit_idx;
     while right_idx + 1 < total_ngrams && !active_documents.is_empty() {
         right_idx += 1;
@@ -1562,11 +1456,9 @@ fn expand_simple_contamination_cluster(
                     *miss_count += 1;
                     if *miss_count >= config.max_consecutive_misses as usize {
                         active_documents.remove(&doc_id);
-                        // println!("Removing doc {} after {} consecutive misses", doc_id, miss_count); //debug
                     }
                 }
             } else {
-                // println!("Right miss at {}: no intersection", right_idx); //debug
                 // Increment miss count for all active documents
                 let mut to_remove = Vec::new();
                 for doc_id in &active_documents {
@@ -1596,22 +1488,9 @@ fn expand_simple_contamination_cluster(
         }
     }
 
-    // Now that we have the final boundaries, extract all n-grams within each document's cluster
-    for (doc_id, (start_idx, end_idx)) in &document_boundaries {
-        let cluster_ngrams = extract_ngrams_from_range(
-            word_tokens,
-            *start_idx,
-            *end_idx,
-            config.ngram_size,
-            ngram_to_id,
-        );
-        document_cluster_ngrams.insert(*doc_id, cluster_ngrams);
-    }
-
     Ok(SimpleContaminationCluster {
         document_matches,
         document_boundaries,
-        document_cluster_ngrams,
         end_idx: right_idx,
     })
 }
@@ -1733,18 +1612,13 @@ pub fn save_contamination_results_toxic_format_with_filename_and_eval_text(
                 "ngram_match_cnt": contamination_entry.ngram_match_cnt,
                 "eval_unique_ngrams": contamination_entry.eval_unique_ngrams,
                 "contamination_score": contamination_entry.score_question_contamination(config.simple_contamination_score_threshold),
-                "length_penalty": contamination_entry.length_penalty.unwrap_or_else(|| contamination_entry.calculate_length_penalty(config.simple_contamination_score_threshold)),
+                //"length_penalty": contamination_entry.length_penalty.unwrap_or_else(|| contamination_entry.calculate_length_penalty(config.simple_contamination_score_threshold)),
                 "method": "simple"
             });
 
             // Add IDF overlap if available
             if let Some(idf_overlap) = contamination_entry.idf_overlap {
                 result["idf_overlap"] = json!(idf_overlap);
-            }
-
-            // Add n-gram Jaccard similarity if available
-            if let Some(ngram_jaccard) = contamination_entry.ngram_jaccard {
-                result["ngram_jaccard"] = json!(ngram_jaccard);
             }
 
             // Add token indices if available

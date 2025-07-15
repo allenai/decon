@@ -33,7 +33,7 @@ sudo mv s5cmd /usr/local/bin/
 
 ## Configuration
 
-Create an orchestration configuration file (see `examples/orchestration.yaml`):
+Create an orchestration configuration file (see `config/orchestration.yaml`):
 
 ```yaml
 # S3 locations
@@ -63,7 +63,7 @@ cleanup_delay: 10
 make daemon
 
 # Run orchestration
-python python/orchestration.py --config examples/orchestration.yaml
+python python/orchestration.py --config config/orchestration.yaml
 ```
 
 ### Multiple Hosts

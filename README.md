@@ -49,7 +49,7 @@ s5cmd sync s3://decon-evals-best-available/* fixtures/reference-best-available
 s5cmd sync s3://your-data-set-prefix fixtures/local_input
 
 # Run contamination detection.
-cargo run --release detect --config examples/simple.yaml
+cargo run --release detect --config config/simple.yaml
 
 # For full set of options, help is available.
 # Note that the options mix all the different modes (I'll clean this up eventually)

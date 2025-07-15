@@ -23,7 +23,7 @@ help:
 	@echo "  status     - Check job status (usage: make status JOB_ID=<id>)"
 	@echo ""
 	@echo "Orchestration targets:"
-	@echo "  orchestrate       - Run distributed orchestration (default: examples/orchestration.yaml, or CONFIG=<path>)"
+	@echo "  orchestrate       - Run distributed orchestration (default: config/orchestration.yaml, or CONFIG=<path>)"
 	@echo "                      Optional parameters:"
 	@echo "                        REMOTE_FILE_INPUT=<s3://bucket/path>         - Override input data location"
 	@echo "                        REMOTE_REPORT_OUTPUT_DIR=<s3://bucket/path>  - Override report output location"
@@ -39,13 +39,16 @@ help:
 	@echo "  polling-auto-terminate - Monitor orchestrator logs and auto-terminate when complete (usage: make polling-auto-terminate NAME=<cluster-name>)"
 
 minhash:
-	cargo run --release detect --config examples/minhash.yaml
+	cargo run --release detect --config config/minhash.yaml
 
 toxic:
-	cargo run --release detect --config examples/toxic.yaml
+	cargo run --release detect --config config/toxic.yaml
 
 simple:
-	cargo run --release detect --config examples/simple.yaml
+	cargo run --release detect --config config/simple.yaml
+
+simple-cl:
+	cargo run --release detect --config config/simple-cl100k.yaml
 
 review:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
@@ -92,16 +95,16 @@ stats:
 	cargo run --release -- review --stats --dir $$DIR $$FILTER_ARGS
 
 fn:
-	cargo run -- review --config examples/simple.yaml --fn
+	cargo run -- review --config config/simple.yaml --fn
 
 fp:
-	cargo run -- review --config examples/simple.yaml --fp
+	cargo run -- review --config config/simple.yaml --fp
 
 tp:
-	cargo run -- review --config examples/simple.yaml --tp
+	cargo run -- review --config config/simple.yaml --tp
 
 tn:
-	cargo run -- review --config examples/simple.yaml --tn
+	cargo run -- review --config config/simple.yaml --tn
 
 
 
@@ -125,13 +128,13 @@ refine:
 	cargo run --release refine-references
 
 daemon:
-	cargo run --release daemon --config examples/simple.yaml --port 8080
+	cargo run --release daemon --config config/simple.yaml --port 8080
 
 daemon-toxic:
-	cargo run --release daemon --config examples/toxic.yaml --port 8080
+	cargo run --release daemon --config config/toxic.yaml --port 8080
 
 daemon-minhash:
-	cargo run --release daemon --config examples/minhash.yaml --port 8080
+	cargo run --release daemon --config config/minhash.yaml --port 8080
 
 health:
 	@curl -s http://localhost:8080/health | jq . || echo "Daemon is not running"
@@ -154,7 +157,7 @@ status:
 
 orchestrate:
 	@if [ -z "$(CONFIG)" ]; then \
-		CONFIG_FILE="examples/orchestration.yaml"; \
+		CONFIG_FILE="config/orchestration.yaml"; \
 	else \
 		CONFIG_FILE="$(CONFIG)"; \
 	fi; \
@@ -173,7 +176,7 @@ orchestrate:
 
 orchestrate-debug:
 	@echo "Testing orchestration in debug mode (max 5 files)"
-	MAX_FILES_DEBUG=100 python python/orchestration.py --config examples/orchestration.yaml
+	MAX_FILES_DEBUG=100 python python/orchestration.py --config config/orchestration.yaml
 
 # Deployment targets for managing remote clusters
 poormanray-command-generator:

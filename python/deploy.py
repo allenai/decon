@@ -166,7 +166,7 @@ class DeploymentManager:
         print(f"\n🎯 Starting Decon daemon on cluster '{self.config.cluster_name}'...")
 
         # Build daemon command with config overrides
-        daemon_cmd = "cd decon && nohup cargo run --release -- daemon --config examples/simple.yaml"
+        daemon_cmd = "cd decon && nohup cargo run --release -- daemon --config config/simple.yaml"
 
         # Add all configuration overrides
         daemon_cmd += f" --mode {self.config.mode}"
@@ -214,7 +214,7 @@ class DeploymentManager:
         print(f"\n🎼 Starting orchestrator on cluster '{self.config.cluster_name}'...")
 
         # Use custom orchestration config if provided
-        config_file = self.config.orchestration_config or "examples/orchestration.yaml"
+        config_file = self.config.orchestration_config or "config/orchestration.yaml"
 
         orchestrator_cmd = f"cd decon && nohup python python/orchestration.py --config {config_file}"
 
@@ -579,7 +579,7 @@ def wizard():
     print("\npoormanray run \\")
     print(f"  --name {cluster_name} \\")
     print("  --command \"cd decon && nohup cargo run --release -- daemon \\")
-    print("    --config examples/simple.yaml \\")
+    print("    --config config/simple.yaml \\")
     print(f"    --mode {mode} --content-key {content_key} \\")
     print(f"    --ngram-size {ngram_size} --sample-every-m-tokens {sample_every_m_tokens} \\")
     print(f"    --simple-contamination-score-threshold {simple_contamination_score_threshold} \\")
@@ -599,7 +599,7 @@ def wizard():
     print("\npoormanray run \\")
     print(f"  --name {cluster_name} \\")
     print("  --command \"cd decon && nohup python python/orchestration.py \\")
-    print("    --config examples/orchestration.yaml \\")
+    print("    --config config/orchestration.yaml \\")
     print(f"    --remote-file-input {remote_file_input} \\")
     print(f"    --remote-report-output-dir {remote_report_output_dir} \\")
     if remote_cleaned_output_dir:

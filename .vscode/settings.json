@@ -1,0 +1,6 @@
+{
+  "search.exclude": {
+    "fixtures/**": true,
+    "target/**": true
+  }
+}
