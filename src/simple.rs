@@ -1052,9 +1052,9 @@ pub fn process_simple_training_file(
 
                     // IMPORTANT BUT SUBTLE!!!!
                     // We kind of have a hard coded short circuit here.
-                    // Basically we reject anything with less than 80% overlap. Just on principle.
+                    // Basically we reject anything with less than this much raw overlap.
                     // TODO move this to even prevent cluster creation at some point.
-                    if overlap_ratio < 0.6 {
+                    if overlap_ratio < config.simple_contamination_score_threshold - 0.1 {
                         continue;
                     }
 
