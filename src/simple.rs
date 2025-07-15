@@ -958,8 +958,8 @@ fn has_matching_answer(
     token_doc_freq: &TokenDocFreqMap,
     total_docs: f32,
 ) -> (bool, f32, Vec<String>, f32) {
-    // Get matching tokens first
-    let matching_tokens = short_answer_tokens(
+    // Get matching tokens separately for prefix and suffix
+    let (prefix_matches, suffix_matches) = short_answer_tokens(
         answer_token_set,
         cluster,
         doc_id,
@@ -968,11 +968,24 @@ fn has_matching_answer(
         tokenizer,
     );
 
-    // Calculate overlap ratio
-    let answer_overlap_ratio = if answer_token_set.is_empty() {
+    // Calculate overlap ratios for prefix and suffix
+    let prefix_overlap_ratio = if answer_token_set.is_empty() {
         0.0
     } else {
-        matching_tokens.len() as f32 / answer_token_set.len() as f32
+        prefix_matches.len() as f32 / answer_token_set.len() as f32
+    };
+    
+    let suffix_overlap_ratio = if answer_token_set.is_empty() {
+        0.0
+    } else {
+        suffix_matches.len() as f32 / answer_token_set.len() as f32
+    };
+
+    // Use the better overlap ratio and corresponding matches
+    let (answer_overlap_ratio, matching_tokens) = if prefix_overlap_ratio >= suffix_overlap_ratio {
+        (prefix_overlap_ratio, prefix_matches)
+    } else {
+        (suffix_overlap_ratio, suffix_matches)
     };
 
     // Convert matching token IDs to text
@@ -981,7 +994,7 @@ fn has_matching_answer(
         .filter_map(|&token_id| tokenizer.get_word(token_id as u32))
         .collect();
 
-    // Calculate IDF overlap
+    // Calculate IDF overlap using the better match set
     let answer_idf_overlap = calculate_answer_idf_overlap(
         &matching_tokens,
         answer_token_set,
@@ -1002,7 +1015,7 @@ fn short_answer_tokens(
     training_tokens: &[usize],
     config: &Config,
     tokenizer: &OmniTokenizer,
-) -> HashSet<usize> {
+) -> (HashSet<usize>, HashSet<usize>) {
     // Calculate window size as max(answer_length*2, min_short_answer_distance)
     let answer_length = answer_token_set.len();
     let window_size = std::cmp::max(answer_length * 2, config.min_short_answer_distance);
@@ -1112,27 +1125,59 @@ fn short_answer_tokens(
             }
         }
 
-        // Find matching tokens
-        answer_token_set
+        // Find matching tokens separately for prefix and suffix
+        let prefix_token_set: HashSet<usize> = prefix_tokens.iter().copied().collect();
+        let suffix_token_set: HashSet<usize> = suffix_tokens.iter().copied().collect();
+        
+        let prefix_matches: HashSet<usize> = answer_token_set
             .iter()
-            .filter(|token| training_token_set.contains(token))
+            .filter(|token| prefix_token_set.contains(token))
             .copied()
-            .collect()
+            .collect();
+            
+        let suffix_matches: HashSet<usize> = answer_token_set
+            .iter()
+            .filter(|token| suffix_token_set.contains(token))
+            .copied()
+            .collect();
+            
+        (prefix_matches, suffix_matches)
     } else {
         // Original behavior: search entire window including the question
-        let search_start = doc_start_idx.saturating_sub(window_size);
-        let search_end = (doc_end_idx + window_size).min(training_tokens.len());
+        // Split into prefix (before question) and suffix (after question) parts
+        let prefix_start = doc_start_idx.saturating_sub(window_size);
+        let prefix_end = doc_start_idx;
+        let suffix_start = doc_end_idx + config.ngram_size - 1 + 1;
+        let suffix_end = suffix_start.saturating_add(window_size).min(training_tokens.len());
 
-        // Extract training tokens in the search window
-        let training_window = &training_tokens[search_start..search_end];
-        let training_token_set: HashSet<usize> = training_window.iter().copied().collect();
+        // Extract prefix tokens
+        let prefix_token_set: HashSet<usize> = if prefix_start < prefix_end {
+            training_tokens[prefix_start..prefix_end].iter().copied().collect()
+        } else {
+            HashSet::new()
+        };
 
-        // Find matching tokens
-        answer_token_set
+        // Extract suffix tokens  
+        let suffix_token_set: HashSet<usize> = if suffix_start < suffix_end && suffix_start < training_tokens.len() {
+            training_tokens[suffix_start..suffix_end.min(training_tokens.len())].iter().copied().collect()
+        } else {
+            HashSet::new()
+        };
+
+        // Find matching tokens separately
+        let prefix_matches: HashSet<usize> = answer_token_set
             .iter()
-            .filter(|token| training_token_set.contains(token))
+            .filter(|token| prefix_token_set.contains(token))
             .copied()
-            .collect()
+            .collect();
+            
+        let suffix_matches: HashSet<usize> = answer_token_set
+            .iter()
+            .filter(|token| suffix_token_set.contains(token))
+            .copied()
+            .collect();
+            
+        (prefix_matches, suffix_matches)
     }
 }
 
