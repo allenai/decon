@@ -937,7 +937,7 @@ impl SimpleContaminationEntry {
                     is_contaminated,
                     Some(answer_overlap_ratio),
                     Some(matched_token_strings),
-                    answer_idf_overlap,
+                    Some(answer_idf_overlap),
                 );
             }
         }
@@ -957,7 +957,7 @@ fn has_matching_answer(
     tokenizer: &OmniTokenizer,
     token_doc_freq: &TokenDocFreqMap,
     total_docs: f32,
-) -> (bool, f32, Vec<String>, Option<f32>) {
+) -> (bool, f32, Vec<String>, f32) {
     // Get matching tokens first
     let matching_tokens = short_answer_tokens(
         answer_token_set,
@@ -989,8 +989,8 @@ fn has_matching_answer(
         total_docs,
     );
     
-    // Check if meets threshold
-    let is_contaminated = answer_overlap_ratio >= config.short_answer_contamination_threshold;
+    // Check if meets threshold using IDF overlap
+    let is_contaminated = answer_idf_overlap >= config.short_answer_contamination_threshold;
     
     (is_contaminated, answer_overlap_ratio, matched_token_strings, answer_idf_overlap)
 }
@@ -1707,7 +1707,7 @@ fn calculate_answer_idf_overlap(
     answer_tokens: &HashSet<usize>,
     token_doc_freq: &TokenDocFreqMap,
     total_docs: f32,
-) -> Option<f32> {
+) -> f32 {
     // Calculate IDF sum for all answer tokens
     let mut answer_idf_sum = 0.0f32;
     for token in answer_tokens {
@@ -1734,9 +1734,9 @@ fn calculate_answer_idf_overlap(
     
     // Calculate overlap ratio
     if answer_idf_sum > 0.0 {
-        Some(matched_idf_sum / answer_idf_sum)
+        matched_idf_sum / answer_idf_sum
     } else {
-        Some(0.0)
+        0.0
     }
 }
 

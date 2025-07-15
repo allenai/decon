@@ -47,6 +47,8 @@ pub struct ContaminationResult {
     #[serde(default)]
     pub answer_overlap_ratio: Option<f32>,
     #[serde(default)]
+    pub answer_idf_overlap: Option<f32>,
+    #[serde(default)]
     pub matched_answer_tokens: Option<Vec<String>>,
     #[serde(default)]
     pub idf_overlap: Option<f32>,
@@ -692,6 +694,7 @@ fn filter_contamination_results(
                     contamination_score: None,
                     length_penalty: None,
                     answer_overlap_ratio: None,
+                    answer_idf_overlap: None,
                     matched_answer_tokens: None,
                     idf_overlap: None,
                     cluster_token_length: None,
@@ -892,9 +895,21 @@ fn display_contamination_case_internal(result: &ContaminationResult) -> Result<(
             if let Some(answer_ratio) = result.answer_overlap_ratio {
                 println!("🎯 ANSWER OVERLAP RATIO: {:.3}", answer_ratio);
             }
+            if let Some(answer_idf) = result.answer_idf_overlap {
+                println!("📊 ANSWER IDF OVERLAP: {:.3}", answer_idf);
+            }
             if let Some(ref answer_tokens) = result.matched_answer_tokens {
                 if !answer_tokens.is_empty() {
-                    println!("📝 MATCHED ANSWER TOKENS: {}\n", answer_tokens.join(" "));
+                    let display_tokens: Vec<String> = answer_tokens.iter()
+                        .map(|token| {
+                            if token.trim().is_empty() {
+                                "<whitespace>".to_string()
+                            } else {
+                                token.clone()
+                            }
+                        })
+                        .collect();
+                    println!("📝 MATCHED ANSWER TOKENS: {}\n", display_tokens.join(" "));
                 }
             }
 
