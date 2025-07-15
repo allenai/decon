@@ -2,7 +2,7 @@ mode: simple
 
 content_key: text # json key for content in the training files
 local_input: fixtures/local_input
-reference_input: fixtures/reference-questions
+reference_input: fixtures/reference-questions-and-answers
 report_output_dir: fixtures/output  # The location contamination report files will be written
 cleaned_output_dir: fixtures/cleaned  # Optional: separate directory for purified files
 purify: false  # Enable creation of cleaned files in cleaned_output_dir
@@ -10,8 +10,8 @@ purify: false  # Enable creation of cleaned files in cleaned_output_dir
 tokenizer_str: cl100k
 ngram_size: 5  # Size of indexed n-grams scanned for question matches, I recommend an odd number :) TODO :)
 simple_contamination_score_threshold: 0.8 # Higher for more precision, lower for more recall
-
-min_short_answer_distance: 30 # The minimum window on either side of a question to look for an answer. max(answer_length*2, min_short_answer_distance)
+short_answer_contamination_threshold: 0.8
+min_short_answer_distance: 120 # The minimum window on either side of a question to look for an answer. max(answer_length*2, min_short_answer_distance)
 
 eval_min_token_count: 10  # Minimum post-cleaning token count necessary to include for eval file indexing.
 punctuation_chars: "!’\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~”“"  # (uses default if not specified)

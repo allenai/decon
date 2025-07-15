@@ -2,15 +2,16 @@ mode: simple
 
 content_key: text
 local_input: fixtures/local_input
-reference_input: fixtures/reference-questions
+reference_input: fixtures/reference-questions-and-answers
 report_output_dir: fixtures/output
 cleaned_output_dir: fixtures/cleaned
 purify: false
 
 tokenizer_str: word
 ngram_size: 4
-simple_contamination_score_threshold: 0.8
+simple_contamination_score_threshold: 0.6
 max_consecutive_misses: 8
+short_answer_contamination_threshold: 0.7
 min_short_answer_distance: 30
 
 eval_min_token_count: 10

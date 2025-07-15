@@ -510,6 +510,7 @@ fn process_answer_field(
             .map(|word| tokenizer.add_word(word) as usize)
             .collect()
     } else {
+        //let padded_answer = format!(" {} ", answer);
         let Ok(tokens) =
             catch_unwind(|| preprocess_text(answer, tokenizer, &config.punctuation_chars))
         else {
