@@ -761,12 +761,12 @@ impl OmniTokenizer {
                 .inner
                 .as_ref()
                 .unwrap()
-                .encode_with_special_tokens(text),
+                .encode_ordinary(text),
             "cl100k" => self
                 .inner
                 .as_ref()
                 .unwrap()
-                .encode_with_special_tokens(text),
+                .encode_ordinary(text),
             "uniseg" => text
                 .split_word_bounds()
                 .map(|w| {
