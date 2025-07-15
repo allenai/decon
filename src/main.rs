@@ -195,12 +195,6 @@ enum Commands {
 
         #[arg(
             long,
-            help = "Minimum IDF score to include in results (filters by toxic_score)"
-        )]
-        min_idf_score: Option<f32>,
-
-        #[arg(
-            long,
             help = "Minimum n-gram match count to include in results (filters by ngram_match_cnt)"
         )]
         min_length: Option<usize>,
@@ -1073,7 +1067,6 @@ fn main() -> Result<(), Error> {
             stats,
             all,
             min_overlap_ratio,
-            min_idf_score,
             min_length,
             eval,
             skip_exact,
@@ -1090,7 +1083,6 @@ fn main() -> Result<(), Error> {
             *stats,
             *all,
             *min_overlap_ratio,
-            *min_idf_score,
             *min_length,
             eval.as_deref(),
             *skip_exact,

@@ -819,8 +819,6 @@ pub struct SimpleContaminationEntry {
     eval_name: String,
     eval_line: usize,
     overlap_ratio: f32,
-    idf_sum: f32,             // Sum of IDF scores for all matching n-grams
-    max_idf: f32,             // Maximum IDF score among matching n-grams
     idf_overlap: Option<f32>, // IDF overlap ratio: matched_idf_sum / eval_total_idf_sum
     // Token indices for position recovery
     contamination_start_idx: Option<usize>, // Start index in token array
@@ -1001,6 +999,7 @@ pub(crate) struct SimpleContaminationCluster {
     document_matches: HashMap<u32, HashSet<u64>>, // doc_id -> unique_ngram_ids that matched eval
     document_boundaries: HashMap<u32, (usize, usize)>, // doc_id -> (start_idx, end_idx)
     document_cluster_ngrams: HashMap<u32, HashSet<u64>>, // doc_id -> all n-gram IDs in cluster for that doc
+    end_idx: usize
 }
 
 pub fn process_simple_training_file(
@@ -1091,10 +1090,6 @@ pub fn process_simple_training_file(
                         continue;
                     }
 
-                    // Calculate IDF scores using the unique ngram IDs for this document
-                    let (idf_sum, max_idf) =
-                        calculate_idf_values(matched_ngram_ids, id_to_question_docs, total_docs);
-
                     // Get document-specific boundaries
                     let (doc_start_idx, doc_end_idx) = cluster
                         .document_boundaries
@@ -1112,8 +1107,6 @@ pub fn process_simple_training_file(
                         eval_name: eval_name.clone(),
                         eval_line: *eval_line,
                         overlap_ratio,
-                        idf_sum,
-                        max_idf,
                         idf_overlap: None, // Will be calculated below
                         contamination_start_idx: Some(doc_start_idx),
                         contamination_end_idx: Some(doc_end_idx + config.ngram_size - 1),
@@ -1253,8 +1246,6 @@ fn process_ngrams_with_simple_sampling(
                 word_tokens[i..i + config.ngram_size].to_vec()
             };
 
-            // println!("HIT DETECTED at n-gram {}: '{:?}' with {} documents", i, ngram_tokens, document_ids.len()); //debug
-
             // Found contamination! Expand around this hit using intersection-based walking
             let cluster = expand_simple_contamination_cluster(
                 i,
@@ -1267,19 +1258,11 @@ fn process_ngrams_with_simple_sampling(
                 id_to_ngram_tokens,
             )?;
 
+            let cluster_end = cluster.end_idx;
             clusters.push(cluster);
-            // println!("Cluster completed: {} document matches", //debug
-            //          cluster.document_matches.len());
-
-            // Jump by max_consecutive_misses - 1 to allow documents that dropped off
-            // to potentially match again shortly after the cluster
-            let jump_distance = (config.max_consecutive_misses as usize)
-                .saturating_add(1)
-                .max(1);
-            i += jump_distance;
+            i = cluster_end + 1;
         } else {
-            // No hit, continue sampling
-            i += config.sample_every_m_tokens.max(1);
+            i += config.sample_every_m_tokens.max(1); // No hit, continue sampling
         }
     }
 
@@ -1417,7 +1400,6 @@ fn expand_simple_contamination_cluster(
     };
 
     // Expand backward (left traversal)
-    // println!("Starting left traversal from index {}", hit_idx); //debug
     let mut left_idx = hit_idx;
     while left_idx > 0 && !active_documents.is_empty() {
         left_idx -= 1;
@@ -1440,8 +1422,6 @@ fn expand_simple_contamination_cluster(
             ngram_to_id,
             id_to_question_docs,
         ) {
-            // println!("Left traversal: checking n-gram {} '{:?}'", left_idx, ngram_tokens); //debug
-
             // Check intersection with active documents
             let intersection: Vec<u32> = active_documents
                 .intersection(&matched_docs)
@@ -1449,8 +1429,6 @@ fn expand_simple_contamination_cluster(
                 .collect();
 
             if !intersection.is_empty() {
-                // println!("Left hit at {}: {} docs intersect", left_idx, intersection.len()); //debug
-
                 // Get ngram_id for tracking matches
                 let ngram_id = ngram_to_id.get(&ngram_hash).map(|id| *id).unwrap_or(0);
 
@@ -1482,11 +1460,9 @@ fn expand_simple_contamination_cluster(
                     *miss_count += 1;
                     if *miss_count >= config.max_consecutive_misses as usize {
                         active_documents.remove(&doc_id);
-                        // println!("Removing doc {} after {} consecutive misses", doc_id, miss_count); //debug
                     }
                 }
             } else {
-                // println!("Left miss at {}: no intersection", left_idx); //debug
                 // Increment miss count for all active documents
                 let mut to_remove = Vec::new();
                 for doc_id in &active_documents {
@@ -1498,7 +1474,6 @@ fn expand_simple_contamination_cluster(
                 }
                 for doc_id in to_remove {
                     active_documents.remove(&doc_id);
-                    // println!("Removing doc {} after {} consecutive misses", doc_id, document_misses[&doc_id]); //debug
                 }
             }
         } else {
@@ -1549,9 +1524,6 @@ fn expand_simple_contamination_cluster(
             ngram_to_id,
             id_to_question_docs,
         ) {
-
-            // println!("Right traversal: checking n-gram {} '{:?}'", right_idx, ngram_tokens); //debug
-
             // Check intersection with active documents
             let intersection: Vec<u32> = active_documents
                 .intersection(&matched_docs)
@@ -1559,8 +1531,6 @@ fn expand_simple_contamination_cluster(
                 .collect();
 
             if !intersection.is_empty() {
-                // println!("Right hit at {}: {} docs intersect", right_idx, intersection.len()); //debug
-
                 // Get ngram_id for tracking matches
                 let ngram_id = ngram_to_id.get(&ngram_hash).map(|id| *id).unwrap_or(0);
 
@@ -1642,6 +1612,7 @@ fn expand_simple_contamination_cluster(
         document_matches,
         document_boundaries,
         document_cluster_ngrams,
+        end_idx: right_idx,
     })
 }
 
@@ -1759,9 +1730,6 @@ pub fn save_contamination_results_toxic_format_with_filename_and_eval_text(
                 "eval_dataset": contamination_entry.eval_name,
                 "eval_line": contamination_entry.eval_line,
                 "overlap_ratio": contamination_entry.overlap_ratio,
-                "toxic_score": contamination_entry.idf_sum,  // Keep for backward compatibility
-                "idf_sum": contamination_entry.idf_sum,
-                "max_idf": contamination_entry.max_idf,
                 "ngram_match_cnt": contamination_entry.ngram_match_cnt,
                 "eval_unique_ngrams": contamination_entry.eval_unique_ngrams,
                 "contamination_score": contamination_entry.score_question_contamination(config.simple_contamination_score_threshold),

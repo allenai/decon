@@ -21,8 +21,6 @@ pub struct ContaminationResult {
     #[serde(alias = "overlap_ratio")]
     pub jaccard_similarity: f32,
     #[serde(default)]
-    pub toxic_score: f32,
-    #[serde(default)]
     pub method: Option<String>,
     #[serde(default)]
     pub matching_ngrams: Option<Vec<String>>,
@@ -151,7 +149,6 @@ pub fn review_contamination(
     stats: bool,
     all: bool,
     min_overlap_ratio: Option<f32>,
-    min_idf_score: Option<f32>,
     min_length: Option<usize>,
     eval_filter: Option<&str>,
     skip_exact: bool,
@@ -177,13 +174,19 @@ pub fn review_contamination(
             return Ok(());
         }
 
+        // Sort by contamination_score in ascending order
+        all_results.sort_by(|a, b| {
+            let score_a = a.contamination_score.unwrap_or(0.0);
+            let score_b = b.contamination_score.unwrap_or(0.0);
+            score_a.partial_cmp(&score_b).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
         let original_count = all_results.len();
 
         // Apply filters if specified
         all_results = filter_contamination_results_by_thresholds(
             all_results,
             min_overlap_ratio,
-            min_idf_score,
             min_length,
             eval_filter,
             skip_exact,
@@ -197,9 +200,6 @@ pub fn review_contamination(
                     "  - Minimum overlap ratio: {:.3}",
                     min_overlap_ratio.unwrap()
                 );
-            }
-            if min_idf_score.is_some() {
-                println!("  - Minimum IDF score: {:.3}", min_idf_score.unwrap());
             }
             if min_length.is_some() {
                 println!("  - Minimum n-gram matches: {}", min_length.unwrap());
@@ -316,13 +316,19 @@ pub fn review_contamination(
         return Ok(());
     }
 
+    // Sort by contamination_score in ascending order
+    contamination_results.sort_by(|a, b| {
+        let score_a = a.contamination_score.unwrap_or(0.0);
+        let score_b = b.contamination_score.unwrap_or(0.0);
+        score_a.partial_cmp(&score_b).unwrap_or(std::cmp::Ordering::Equal)
+    });
+
     let original_count = contamination_results.len();
 
     // Apply filters if specified
     contamination_results = filter_contamination_results_by_thresholds(
         contamination_results,
         min_overlap_ratio,
-        min_idf_score,
         min_length,
         eval_filter,
         skip_exact,
@@ -336,9 +342,6 @@ pub fn review_contamination(
                 "  - Minimum overlap ratio: {:.3}",
                 min_overlap_ratio.unwrap()
             );
-        }
-        if min_idf_score.is_some() {
-            println!("  - Minimum IDF score: {:.3}", min_idf_score.unwrap());
         }
         if min_length.is_some() {
             println!("  - Minimum n-gram matches: {}", min_length.unwrap());
@@ -381,11 +384,18 @@ pub fn review_contamination(
 
     // Handle filtering flags
     let filter_requested = fp || fn_ || tp || tn;
-    let filtered_results = if filter_requested {
+    let mut filtered_results = if filter_requested {
         filter_contamination_results(&contamination_results, &ground_truth, fp, fn_, tp, tn)?
     } else {
         contamination_results.clone()
     };
+
+    // Re-sort after filtering to maintain ascending contamination_score order
+    filtered_results.sort_by(|a, b| {
+        let score_a = a.contamination_score.unwrap_or(0.0);
+        let score_b = b.contamination_score.unwrap_or(0.0);
+        score_a.partial_cmp(&score_b).unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     if filtered_results.is_empty() {
         if filter_requested {
@@ -669,7 +679,6 @@ fn filter_contamination_results(
                     eval_dataset: "N/A".to_string(),
                     eval_line: 0,
                     jaccard_similarity: 0.0,
-                    toxic_score: 0.0,
                     method: Some("true_negative".to_string()),
                     matching_ngrams: None,
                     bucket_sizes: None,
@@ -732,7 +741,6 @@ fn load_contamination_results(results_path: &PathBuf) -> Result<Vec<Contaminatio
 fn filter_contamination_results_by_thresholds(
     results: Vec<ContaminationResult>,
     min_overlap_ratio: Option<f32>,
-    min_idf_score: Option<f32>,
     min_length: Option<usize>,
     eval_filter: Option<&str>,
     skip_exact: bool,
@@ -759,13 +767,6 @@ fn filter_contamination_results_by_thresholds(
             // Check overlap ratio (jaccard_similarity)
             if let Some(min_ratio) = min_overlap_ratio {
                 if result.jaccard_similarity < min_ratio {
-                    return false;
-                }
-            }
-
-            // Check IDF score (toxic_score)
-            if let Some(min_idf) = min_idf_score {
-                if result.toxic_score < min_idf {
                     return false;
                 }
             }
@@ -860,11 +861,6 @@ fn display_contamination_case_internal(result: &ContaminationResult) -> Result<(
             if let Some(ngram_jaccard) = result.ngram_jaccard {
                 println!("🔗 N-GRAM JACCARD: {:.3}\n", ngram_jaccard);
             }
-
-            if result.toxic_score > 0.0 {
-                println!("🧪 IDF SUM:    {:.3}\n", result.toxic_score);
-            }
-
 
             if let Some(ngram_match_cnt) = result.ngram_match_cnt {
                 println!("🔢 N-GRAM MATCHES: {}", ngram_match_cnt);
