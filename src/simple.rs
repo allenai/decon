@@ -52,6 +52,7 @@ type EvalTextSnippets = DashMap<(String, usize), String>; // Maps (eval_name, li
 type IdToNgramTokens = DashMap<u64, Vec<usize>>; // Maps unique ID to token IDs for display
 type EvalDocumentIdfCache = DashMap<u32, f32>; // Maps doc_id to total IDF sum for all ngrams in the eval document
 type DocToNgramIdsMap = DashMap<u32, HashSet<u64>>; // Maps doc_id to set of ngram IDs for efficient IDF calculation
+type TokenDocFreqMap = DashMap<usize, AtomicUsize>; // Maps token ID to number of documents containing that token
 
 // Note: CONTAMINATION_SCORE_THRESHOLD is now configurable via Config.simple_contamination_score_threshold
 
@@ -104,6 +105,7 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
         eval_text_snippets,
         eval_document_idf_cache,
         doc_to_ngram_ids,
+        token_doc_freq,
     ) = build_simple_index(config)?;
     let index_time = index_start.elapsed();
     println!(
@@ -126,6 +128,7 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
         &eval_text_snippets,
         &eval_document_idf_cache,
         &doc_to_ngram_ids,
+        &token_doc_freq,
     )?;
     let detection_time = detection_start.elapsed();
 
@@ -173,6 +176,7 @@ pub type SimpleIndex = (
     EvalTextSnippets,
     EvalDocumentIdfCache,
     DocToNgramIdsMap,
+    TokenDocFreqMap,
 );
 
 pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
@@ -184,6 +188,7 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
     let eval_text_snippets: EvalTextSnippets = DashMap::new();
     let eval_document_idf_cache: EvalDocumentIdfCache = DashMap::new();
     let doc_to_ngram_ids: DocToNgramIdsMap = DashMap::new();
+    let token_doc_freq: TokenDocFreqMap = DashMap::new();
 
     use std::sync::atomic::AtomicU64;
     let next_ngram_id = AtomicU64::new(0);
@@ -213,6 +218,7 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
             &id_to_ngram_tokens,
             &eval_text_snippets,
             &doc_to_ngram_ids,
+            &token_doc_freq,
         ) {
             println!("Error processing reference file {:?}: {:?}", file_path, e);
         }
@@ -232,6 +238,7 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
         eval_text_snippets,
         eval_document_idf_cache,
         doc_to_ngram_ids,
+        token_doc_freq,
     ))
 }
 
@@ -247,6 +254,7 @@ fn process_simple_reference_file(
     id_to_ngram_tokens: &IdToNgramTokens,
     eval_text_snippets: &EvalTextSnippets,
     doc_to_ngram_ids: &DocToNgramIdsMap,
+    token_doc_freq: &TokenDocFreqMap,
 ) -> Result<(), Error> {
     let data = read_pathbuf_to_mem(file_path)?;
 
@@ -300,13 +308,14 @@ fn process_simple_reference_file(
                 &mut _lines_processed,
                 &mut _skipped_entries,
                 doc_to_ngram_ids,
+                token_doc_freq,
             )?;
         }
 
         if has_answer_fields {
             // Process answer field
             if let Some(answer) = json_obj.get("answer").and_then(|v| v.as_str()) {
-                process_answer_field(answer, doc_id, config, tokenizer, id_to_short_answer)?;
+                process_answer_field(answer, doc_id, config, tokenizer, id_to_short_answer, token_doc_freq)?;
             }
         }
     }
@@ -379,6 +388,7 @@ fn process_question_field(
     lines_processed: &mut usize,
     skipped_entries: &mut usize,
     doc_to_ngram_ids: &DocToNgramIdsMap,
+    token_doc_freq: &TokenDocFreqMap,
 ) -> Result<(), Error> {
     // Clean text for both tokenizer types
     let cleaned = clean_text(question, &config.punctuation_chars);
@@ -423,6 +433,15 @@ fn process_question_field(
     }
 
     *lines_processed += 1;
+
+    // Track unique tokens for this document for IDF calculation
+    let unique_tokens: HashSet<usize> = word_tokens.iter().copied().collect();
+    for token in &unique_tokens {
+        token_doc_freq
+            .entry(*token)
+            .or_insert_with(|| AtomicUsize::new(0))
+            .fetch_add(1, Ordering::Relaxed);
+    }
 
     // Calculate total n-grams for this document
     let total_ngrams = if word_tokens.len() < config.ngram_size {
@@ -494,6 +513,7 @@ fn process_answer_field(
     config: &Config,
     tokenizer: &OmniTokenizer,
     id_to_short_answer: &IdToShortAnswerMap,
+    token_doc_freq: &TokenDocFreqMap,
 ) -> Result<(), Error> {
     // Clean text for both tokenizer types
     let cleaned = clean_text(answer, &config.punctuation_chars);
@@ -523,7 +543,7 @@ fn process_answer_field(
         let padded_answer = format!(" {}", lowercase_answer);
 
         // Get tokens for both versions
-        let Ok(unpadded_tokens) = catch_unwind(|| tokenizer.encode(&lowercase_answer)) else {
+        let Ok(_unpadded_tokens) = catch_unwind(|| tokenizer.encode(&lowercase_answer)) else {
             return Ok(());
         };
         let Ok(padded_tokens) = catch_unwind(|| tokenizer.encode(&padded_answer)) else {
@@ -531,13 +551,21 @@ fn process_answer_field(
         };
 
         // Combine both token sets
-        let mut all_tokens = padded_tokens;
+        let all_tokens = padded_tokens;
         //all_tokens.extend(padded_tokens);
         all_tokens
     };
 
     // Store in short answer map
     let token_set: HashSet<usize> = word_tokens.into_iter().collect();
+    
+    // Track unique tokens for this document for IDF calculation
+    for token in &token_set {
+        token_doc_freq
+            .entry(*token)
+            .or_insert_with(|| AtomicUsize::new(0))
+            .fetch_add(1, Ordering::Relaxed);
+    }
     
     // Debug logging for stored tokens
     if std::env::var("DEBUG_ANSWER").is_ok() && doc_id == 454571 {
@@ -566,6 +594,7 @@ fn detect_simple_contamination(
     eval_text_snippets: &EvalTextSnippets,
     eval_document_idf_cache: &EvalDocumentIdfCache,
     doc_to_ngram_ids: &DocToNgramIdsMap,
+    token_doc_freq: &TokenDocFreqMap,
 ) -> Result<usize, Error> {
     // println!("Starting training data contamination detection..."); //debug
 
@@ -612,6 +641,7 @@ fn detect_simple_contamination(
             total_docs,
             eval_document_idf_cache,
             doc_to_ngram_ids,
+            token_doc_freq,
         ) {
             Ok(lines_processed) => {
                 total_lines_processed
@@ -841,6 +871,7 @@ pub struct SimpleContaminationEntry {
     #[allow(dead_code)] length_penalty: Option<f32>, // Length penalty factor applied during scoring
     // Answer contamination fields
     answer_overlap_ratio: Option<f32>, // Overlap ratio for answer tokens
+    answer_idf_overlap: Option<f32>, // IDF overlap ratio for answer tokens
     matched_answer_tokens: Option<Vec<String>>, // Matched answer tokens as text
     // Token length tracking fields
     cluster_token_length: Option<usize>, // Length of the matched cluster in tokens
@@ -869,7 +900,7 @@ impl SimpleContaminationEntry {
     }
 
     /// Check if this entry represents contamination (score >= threshold)
-    /// Returns (is_contaminated, answer_overlap_ratio, matched_answer_tokens)
+    /// Returns (is_contaminated, answer_overlap_ratio, matched_answer_tokens, answer_idf_overlap)
     pub fn is_contaminated(
         &self,
         doc_id: u32,
@@ -878,7 +909,9 @@ impl SimpleContaminationEntry {
         training_tokens: &[usize],
         config: &Config,
         tokenizer: &OmniTokenizer,
-    ) -> (bool, Option<f32>, Option<Vec<String>>) {
+        token_doc_freq: &TokenDocFreqMap,
+        total_docs: f32,
+    ) -> (bool, Option<f32>, Option<Vec<String>>, Option<f32>) {
         let question_contam = self
             .score_question_contamination(config.simple_contamination_score_threshold)
             >= config.simple_contamination_score_threshold;
@@ -887,13 +920,15 @@ impl SimpleContaminationEntry {
             // Check if this document has a short answer
             if let Some(answer_token_set) = id_to_short_answer.get(&doc_id) {
                 // Use the new answer matching method
-                let (answer_found, answer_overlap_ratio, matched_token_strings) = has_matching_answer(
+                let (answer_found, answer_overlap_ratio, matched_token_strings, answer_idf_overlap) = has_matching_answer(
                     answer_token_set.value(),
                     cluster,
                     doc_id,
                     training_tokens,
                     config,
                     tokenizer,
+                    token_doc_freq,
+                    total_docs,
                 );
 
                 // Require both question and answer contamination
@@ -902,16 +937,17 @@ impl SimpleContaminationEntry {
                     is_contaminated,
                     Some(answer_overlap_ratio),
                     Some(matched_token_strings),
+                    answer_idf_overlap,
                 );
             }
         }
 
-        (question_contam, None, None)
+        (question_contam, None, None, None)
     }
 }
 
 /// Check if the answer matches - exact same behavior as before
-/// Returns (is_contaminated, overlap_ratio, matched_tokens_text)
+/// Returns (is_contaminated, overlap_ratio, matched_tokens_text, answer_idf_overlap)
 fn has_matching_answer(
     answer_token_set: &HashSet<usize>,
     cluster: &SimpleContaminationCluster,
@@ -919,7 +955,9 @@ fn has_matching_answer(
     training_tokens: &[usize],
     config: &Config,
     tokenizer: &OmniTokenizer,
-) -> (bool, f32, Vec<String>) {
+    token_doc_freq: &TokenDocFreqMap,
+    total_docs: f32,
+) -> (bool, f32, Vec<String>, Option<f32>) {
     // Get matching tokens first
     let matching_tokens = short_answer_tokens(
         answer_token_set,
@@ -943,10 +981,18 @@ fn has_matching_answer(
         .filter_map(|&token_id| tokenizer.get_word(token_id as u32))
         .collect();
 
+    // Calculate IDF overlap
+    let answer_idf_overlap = calculate_answer_idf_overlap(
+        &matching_tokens,
+        answer_token_set,
+        token_doc_freq,
+        total_docs,
+    );
+    
     // Check if meets threshold
     let is_contaminated = answer_overlap_ratio >= config.short_answer_contamination_threshold;
     
-    (is_contaminated, answer_overlap_ratio, matched_token_strings)
+    (is_contaminated, answer_overlap_ratio, matched_token_strings, answer_idf_overlap)
 }
 
 fn short_answer_tokens(
@@ -1111,6 +1157,7 @@ pub fn process_simple_training_file(
     total_docs: f32,
     eval_document_idf_cache: &EvalDocumentIdfCache,
     doc_to_ngram_ids: &DocToNgramIdsMap,
+    token_doc_freq: &TokenDocFreqMap,
 ) -> Result<usize, Error> {
     let data = read_compressed_file(file_path)?;
 
@@ -1210,6 +1257,7 @@ pub fn process_simple_training_file(
                         eval_unique_ngrams: *unique_ngrams,
                         length_penalty: None, // Will be calculated and set below
                         answer_overlap_ratio: None,
+                        answer_idf_overlap: None,
                         matched_answer_tokens: None,
                         cluster_token_length: Some(cluster_token_length),
                         eval_token_length: Some(*eval_token_count),
@@ -1231,7 +1279,7 @@ pub fn process_simple_training_file(
                     // );
 
                     // Check if this entry represents contamination using score threshold
-                    let (is_contaminated, answer_overlap_ratio, matched_answer_tokens) = entry
+                    let (is_contaminated, answer_overlap_ratio, matched_answer_tokens, answer_idf_overlap) = entry
                         .is_contaminated(
                             *doc_id,
                             id_to_short_answer,
@@ -1239,6 +1287,8 @@ pub fn process_simple_training_file(
                             &word_tokens,
                             config,
                             tokenizer,
+                            token_doc_freq,
+                            total_docs,
                         );
 
                     // Track if question was contaminated but excluded due to no answer match
@@ -1266,6 +1316,7 @@ pub fn process_simple_training_file(
                         let mut entry_with_text = entry;
                         entry_with_text.training_overlap_text = training_overlap_text;
                         entry_with_text.answer_overlap_ratio = answer_overlap_ratio;
+                        entry_with_text.answer_idf_overlap = answer_idf_overlap;
                         entry_with_text.matched_answer_tokens = matched_answer_tokens;
                         cluster_results.push(entry_with_text);
                     }
@@ -1649,6 +1700,46 @@ fn calculate_eval_document_idf_sum(
     idf_sum
 }
 
+/// Calculate IDF overlap ratio for answer tokens
+/// Returns the ratio of matched token IDF sum to total answer token IDF sum
+fn calculate_answer_idf_overlap(
+    matched_tokens: &HashSet<usize>,
+    answer_tokens: &HashSet<usize>,
+    token_doc_freq: &TokenDocFreqMap,
+    total_docs: f32,
+) -> Option<f32> {
+    // Calculate IDF sum for all answer tokens
+    let mut answer_idf_sum = 0.0f32;
+    for token in answer_tokens {
+        if let Some(doc_freq) = token_doc_freq.get(token) {
+            let freq = doc_freq.load(Ordering::Relaxed) as f32;
+            if freq > 0.0 {
+                let idf = (total_docs / freq).ln();
+                answer_idf_sum += idf;
+            }
+        }
+    }
+    
+    // Calculate IDF sum for matched tokens only
+    let mut matched_idf_sum = 0.0f32;
+    for token in matched_tokens {
+        if let Some(doc_freq) = token_doc_freq.get(token) {
+            let freq = doc_freq.load(Ordering::Relaxed) as f32;
+            if freq > 0.0 {
+                let idf = (total_docs / freq).ln();
+                matched_idf_sum += idf;
+            }
+        }
+    }
+    
+    // Calculate overlap ratio
+    if answer_idf_sum > 0.0 {
+        Some(matched_idf_sum / answer_idf_sum)
+    } else {
+        Some(0.0)
+    }
+}
+
 /// Calculate IDF overlap ratio between matched n-grams and eval document
 /// Returns the ratio of matched n-gram IDF sum to total eval document IDF sum
 fn calculate_idf_overlap(
@@ -1776,6 +1867,9 @@ pub fn save_contamination_results_toxic_format_with_filename_and_eval_text(
             // Add answer contamination fields
             if let Some(ratio) = contamination_entry.answer_overlap_ratio {
                 result["answer_overlap_ratio"] = json!(ratio);
+            }
+            if let Some(idf_overlap) = contamination_entry.answer_idf_overlap {
+                result["answer_idf_overlap"] = json!(idf_overlap);
             }
             if let Some(ref tokens) = contamination_entry.matched_answer_tokens {
                 result["matched_answer_tokens"] = json!(tokens);
