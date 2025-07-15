@@ -845,7 +845,7 @@ fn display_contamination_case_internal(result: &ContaminationResult) -> Result<(
             println!();
         }
         _ => {
-            println!("📋 EVAL DATASET:  {}", result.eval_dataset);
+            println!("📋 EVAL DATASET:  {}\n", result.eval_dataset);
             let similarity_label = match result.method.as_deref() {
                 Some("toxic") | Some("simple") => "OVERLAP RATIO",
                 _ => "JACCARD SIM",
@@ -854,26 +854,27 @@ fn display_contamination_case_internal(result: &ContaminationResult) -> Result<(
                 "🎯 {}:   {:.3}",
                 similarity_label, result.jaccard_similarity
             );
-            if result.toxic_score > 0.0 {
-                println!("🧪 IDF SUM:    {:.3}", result.toxic_score);
-            }
             if let Some(idf_overlap) = result.idf_overlap {
                 println!("📈 IDF OVERLAP:    {:.3}", idf_overlap);
             }
             if let Some(ngram_jaccard) = result.ngram_jaccard {
-                println!("🔗 N-GRAM JACCARD: {:.3}", ngram_jaccard);
+                println!("🔗 N-GRAM JACCARD: {:.3}\n", ngram_jaccard);
             }
+
+            if result.toxic_score > 0.0 {
+                println!("🧪 IDF SUM:    {:.3}\n", result.toxic_score);
+            }
+
+
             if let Some(ngram_match_cnt) = result.ngram_match_cnt {
                 println!("🔢 N-GRAM MATCHES: {}", ngram_match_cnt);
             }
             if let Some(eval_unique_ngrams) = result.eval_unique_ngrams {
-                println!("📊 EVAL UNIQUE N-GRAMS: {}", eval_unique_ngrams);
+                println!("📊 EVAL UNIQUE N-GRAMS: {}\n", eval_unique_ngrams);
             }
-            if let Some(score) = result.contamination_score {
-                println!("⚡ CONTAMINATION SCORE: {:.3}", score);
-            }
+
             if let Some(penalty) = result.length_penalty {
-                println!("📏 LENGTH PENALTY: {:.3}", penalty);
+                println!("📏 LENGTH PENALTY: {:.3}\n", penalty);
             }
 
             // Display answer contamination information
@@ -882,8 +883,12 @@ fn display_contamination_case_internal(result: &ContaminationResult) -> Result<(
             }
             if let Some(ref answer_tokens) = result.matched_answer_tokens {
                 if !answer_tokens.is_empty() {
-                    println!("📝 MATCHED ANSWER TOKENS: {}", answer_tokens.join(" "));
+                    println!("📝 MATCHED ANSWER TOKENS: {}\n", answer_tokens.join(" "));
                 }
+            }
+
+            if let Some(score) = result.contamination_score {
+                println!("⚡ CONTAMINATION SCORE: {:.3}", score);
             }
 
             // Display token length information

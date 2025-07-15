@@ -1013,7 +1013,6 @@ fn short_answer_tokens(
 pub(crate) struct SimpleContaminationCluster {
     document_matches: HashMap<u32, HashSet<u64>>, // doc_id -> unique_ngram_ids that matched eval
     document_boundaries: HashMap<u32, (usize, usize)>, // doc_id -> (start_idx, end_idx)
-    matching_ngrams: Vec<String>,
     document_cluster_ngrams: HashMap<u32, HashSet<u64>>, // doc_id -> all n-gram IDs in cluster for that doc
 }
 
@@ -1356,10 +1355,8 @@ fn expand_simple_contamination_cluster(
     id_to_question_docs: &IdToQuestionDocsMap,
     initial_document_ids: HashSet<u32>,
     initial_training_ngram: &[usize],
-    id_to_ngram_tokens: &IdToNgramTokens,
+    _id_to_ngram_tokens: &IdToNgramTokens,
 ) -> Result<SimpleContaminationCluster, Error> {
-    let mut matching_ngrams = Vec::new(); // debug output uses. See document matches for ngam ids
-
     // Initialize document match tracking - track consecutive misses for each document
     let mut document_matches: HashMap<u32, HashSet<u64>> = HashMap::new();
     let mut document_misses: HashMap<u32, usize> = HashMap::new();
@@ -1387,13 +1384,6 @@ fn expand_simple_contamination_cluster(
             cluster_ngrams.insert(initial_ngram_id);
         }
         document_cluster_ngrams.insert(*doc_id, cluster_ngrams);
-    }
-
-    // Store display format for the initial ngram
-    if let Some(tokens) = id_to_ngram_tokens.get(&initial_ngram_id) {
-        matching_ngrams.push(format!("{:?}", tokens.value()));
-    } else {
-        matching_ngrams.push(format!("{:?}", initial_training_ngram));
     }
 
     // println!("Starting intersection walking with {} documents", initial_document_ids.len()); //debug
@@ -1457,13 +1447,6 @@ fn expand_simple_contamination_cluster(
                 // Get ngram_id for tracking matches
                 let ngram_id = ngram_to_id.get(&ngram_hash).map(|id| *id).unwrap_or(0);
                 
-                // Store display format
-                if let Some(tokens) = id_to_ngram_tokens.get(&ngram_id) {
-                    matching_ngrams.insert(0, format!("{:?}", tokens.value()));
-                } else {
-                    matching_ngrams.insert(0, format!("{:?}", ngram_tokens));
-                }
-
                 // Update matches and reset misses for intersecting documents
                 for doc_id in &intersection {
                     let is_new_ngram = document_matches
@@ -1584,13 +1567,6 @@ fn expand_simple_contamination_cluster(
                 // Get ngram_id for tracking matches
                 let ngram_id = ngram_to_id.get(&ngram_hash).map(|id| *id).unwrap_or(0);
                 
-                // Store display format
-                if let Some(tokens) = id_to_ngram_tokens.get(&ngram_id) {
-                    matching_ngrams.push(format!("{:?}", tokens.value()));
-                } else {
-                    matching_ngrams.push(format!("{:?}", ngram_tokens));
-                }
-
                 // Update matches and reset misses for intersecting documents
                 for doc_id in &intersection {
                     let is_new_ngram = document_matches
@@ -1656,15 +1632,12 @@ fn expand_simple_contamination_cluster(
         }
     }
 
-    // println!("Cluster expansion complete: indices {}-{}, {} matching n-grams", //debug
-    //          start_idx, end_idx, matching_ngrams.len());
     //adjust end_idx by config.ngame_size - 1
     //end_idx = end_idx + config.ngram_size;
 
     Ok(SimpleContaminationCluster {
         document_matches,
         document_boundaries,
-        matching_ngrams,
         document_cluster_ngrams,
     })
 }
