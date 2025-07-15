@@ -84,12 +84,12 @@ enum Commands {
         #[arg(long, help = "N-gram size for SIMPLE mode")]
         ngram_size: Option<usize>,
 
-        #[arg(long, help = "Sample every M tokens for SIMPLE mode")]
+        #[arg(long, help = "Sample every M tokens for SIMPLE mode (defaults to ngram_size + 1)")]
         sample_every_m_tokens: Option<usize>,
 
         #[arg(
             long,
-            help = "Max consecutive misses before stopping cluster expansion"
+            help = "Max consecutive misses before stopping cluster expansion (defaults to ngram_size * 2)"
         )]
         max_consecutive_misses: Option<usize>,
 
@@ -251,12 +251,12 @@ enum Commands {
         #[arg(long, help = "N-gram size for SIMPLE mode")]
         ngram_size: Option<usize>,
 
-        #[arg(long, help = "Sample every M tokens for SIMPLE mode")]
+        #[arg(long, help = "Sample every M tokens for SIMPLE mode (defaults to ngram_size + 1)")]
         sample_every_m_tokens: Option<usize>,
 
         #[arg(
             long,
-            help = "Max consecutive misses before stopping cluster expansion"
+            help = "Max consecutive misses before stopping cluster expansion (defaults to ngram_size * 2)"
         )]
         max_consecutive_misses: Option<usize>,
 
@@ -390,7 +390,7 @@ pub struct Config {
     pub min_short_answer_distance: usize,
     #[serde(default = "default_short_answer_contamination_threshold")]
     pub short_answer_contamination_threshold: f32,
-    #[serde(default)]
+    #[serde(default = "default_exclude_question_from_answer_sweep")]
     pub exclude_question_from_answer_sweep: bool,
 
     // Simple mode contamination score threshold
@@ -402,8 +402,8 @@ pub struct Config {
     pub purify: bool,
 
     // Minimum word count for eval file indexing in SIMPLE mode
-    #[serde(default = "default_eval_min_word_count")]
-    pub eval_min_word_count: usize,
+    #[serde(default = "default_eval_min_token_count")]
+    pub eval_min_token_count: usize,
 
     // Whether to replace non-UTF8 characters when creating purified files
     #[serde(default = "default_replace_non_utf8_chars")]
@@ -463,11 +463,11 @@ fn default_skip_hot_bucket_threshold() -> i32 {
 }
 
 fn default_sample_every_m_tokens() -> usize {
-    1 // Disabled by default (sample every token = no sampling)
+    1 // Default to 1, will be set to ngram_size + 1 if not overridden
 }
 
 fn default_max_consecutive_misses() -> usize {
-    2 // Stop expansion after 2 consecutive misses
+    2 // Default to 2, will be set to ngram_size * 2 if not overridden
 }
 
 fn default_ngram_bucket_lru_cache() -> usize {
@@ -484,7 +484,7 @@ fn default_worker_threads() -> usize {
         .unwrap_or(4) // Default to 4 if unable to detect CPU cores
 }
 
-fn default_eval_min_word_count() -> usize {
+fn default_eval_min_token_count() -> usize {
     10 // Default minimum word count for eval file indexing
 }
 
@@ -502,6 +502,10 @@ fn default_simple_contamination_score_threshold() -> f32 {
 
 fn default_replace_non_utf8_chars() -> bool {
     false // Default to preserving bytes exactly as they are
+}
+
+fn default_exclude_question_from_answer_sweep() -> bool {
+    true // Default to excluding question tokens when searching for answers
 }
 
 pub fn read_config(config_path: &PathBuf) -> Result<Config, Error> {
@@ -1013,8 +1017,16 @@ fn main() -> Result<(), Error> {
             if let Some(semt) = sample_every_m_tokens {
                 loaded_config.sample_every_m_tokens = *semt;
             }
+            // If sample_every_m_tokens is still 1 (default), set it to ngram_size + 1
+            if loaded_config.sample_every_m_tokens == 1 {
+                loaded_config.sample_every_m_tokens = loaded_config.ngram_size + 1;
+            }
             if let Some(mcm) = max_consecutive_misses {
                 loaded_config.max_consecutive_misses = *mcm;
+            }
+            // If max_consecutive_misses is still 2 (default), set it to ngram_size * 2
+            if loaded_config.max_consecutive_misses == 2 {
+                loaded_config.max_consecutive_misses = loaded_config.ngram_size * 2;
             }
             if let Some(scst) = simple_contamination_score_threshold {
                 loaded_config.simple_contamination_score_threshold = *scst;
@@ -1153,8 +1165,16 @@ fn main() -> Result<(), Error> {
             if let Some(semt) = sample_every_m_tokens {
                 loaded_config.sample_every_m_tokens = *semt;
             }
+            // If sample_every_m_tokens is still 1 (default), set it to ngram_size + 1
+            if loaded_config.sample_every_m_tokens == 1 {
+                loaded_config.sample_every_m_tokens = loaded_config.ngram_size + 1;
+            }
             if let Some(mcm) = max_consecutive_misses {
                 loaded_config.max_consecutive_misses = *mcm;
+            }
+            // If max_consecutive_misses is still 2 (default), set it to ngram_size * 2
+            if loaded_config.max_consecutive_misses == 2 {
+                loaded_config.max_consecutive_misses = loaded_config.ngram_size * 2;
             }
             if let Some(scst) = simple_contamination_score_threshold {
                 loaded_config.simple_contamination_score_threshold = *scst;

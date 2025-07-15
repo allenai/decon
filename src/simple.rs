@@ -417,7 +417,7 @@ fn process_question_field(
     let token_count = word_tokens.len();
 
     // Skip entries with insufficient tokens for meaningful n-gram analysis
-    if token_count < config.eval_min_word_count {
+    if token_count < config.eval_min_token_count {
         *skipped_entries += 1;
         return Ok(());
     }

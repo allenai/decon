@@ -51,8 +51,7 @@ class DeploymentConfig:
     mode: str = "simple"
     content_key: str = "text"
     ngram_size: int = 4
-    sample_every_m_tokens: int = 10
-    simple_contamination_score_threshold: float = 0.79
+    simple_contamination_score_threshold: float = 0.8
     tokenizer_str: str = "word"
     debug: bool = False
     purify: bool = False
@@ -458,35 +457,22 @@ def wizard():
     # Common parameters
     content_key = click.prompt("JSON field containing text in jsonl files to decontaminate", default="text")
 
-    print("\n\n💡 \033[1;93mSensible defaults are provided in [brackets]. See https://github.com/allenai/decon/blob/main/doc/simple.md for context.\033[0m\n")
-
     # Mode-specific parameters - always use simple mode configuration
     # if mode == "simple":
-    print("\n--- SIMPLE Mode Configuration ---")
-    ngram_size = click.prompt("N-gram size (values < 4 not recommended)", type=int, default=4)
-    sample_every_m_tokens = click.prompt("Sample every M tokens (1 = no sampling)", type=int, default=10)
+    print("\n=== SIMPLE Mode Configuration ===")
+    ngram_size = 5
+
     while True:
-        simple_contamination_score_threshold = click.prompt("Simple contamination score threshold [0-1] (lower = more matches)", type=float, default=0.79)
+        simple_contamination_score_threshold = click.prompt("Contamination score threshold [0-1] (higher = more precision, lower = more recall)", type=float, default=0.8)
         if 0.0 <= simple_contamination_score_threshold <= 1.0:
             break
         else:
             print("❌ Error: Threshold must be between 0 and 1. Please try again.")
-    # else:
-    #     # Use defaults for other modes
-    #     ngram_size = 4
-    #     sample_every_m_tokens = 10
-    #     simple_contamination_score_threshold = 2.0
 
-    # Tokenizer
-    print("\nTokenizer options:")
-    print("  word    - Simple word tokenization (fastest)")
-    print("  p50k    - OpenAI's P50K tokenizer")
-    print("  cl100k  - OpenAI's CL100K tokenizer")
-    tokenizer_str = click.prompt("Tokenizer", default="word",
-                                type=click.Choice(['word', 'p50k', 'cl100k']))
+    tokenizer_str = 'cl100k'
 
     # Reference dataset selection
-    print("\n--- Reference Dataset Selection ---")
+    print("\n=== Reference Dataset Selection ===")
     print("\nChoose which evaluation dataset to use for contamination detection:")
     print("  questions              - All question prompts from covered evals (likely many reference/context 'fp')")
     print("  questions-and-answers  - All eval entries that have both a question and answer")
@@ -524,7 +510,6 @@ def wizard():
         mode=mode,
         content_key=content_key,
         ngram_size=ngram_size,
-        sample_every_m_tokens=sample_every_m_tokens,
         simple_contamination_score_threshold=simple_contamination_score_threshold,
         tokenizer_str=tokenizer_str,
         debug=debug,
@@ -544,7 +529,6 @@ def wizard():
     print(f"  Tokenizer: {deploy_config.tokenizer_str}")
     print(f"  Reference dataset: {reference_choice}")
     print(f"  N-gram size: {deploy_config.ngram_size}")
-    print(f"  Sampling: every {deploy_config.sample_every_m_tokens} tokens")
     print(f"  Purification: {'enabled' if deploy_config.purify else 'disabled'}")
 
     if remote_file_input:
@@ -579,11 +563,9 @@ def wizard():
     print("\npoormanray run \\")
     print(f"  --name {cluster_name} \\")
     print("  --command \"cd decon && nohup cargo run --release -- daemon \\")
-    print("    --config config/simple.yaml \\")
+    print("    --config config/cl100k.yaml \\")
     print(f"    --mode {mode} --content-key {content_key} \\")
-    print(f"    --ngram-size {ngram_size} --sample-every-m-tokens {sample_every_m_tokens} \\")
     print(f"    --simple-contamination-score-threshold {simple_contamination_score_threshold} \\")
-    print(f"    --tokenizer {tokenizer_str} \\")
     print(f"    --reference-input {reference_input} \\")
     print(f"    --report-output-dir {local_work_dir}/results \\")
     print(f"    --cleaned-output-dir {local_work_dir}/cleaned", end="")
@@ -631,7 +613,7 @@ def wizard():
 @click.option("--content-key", default="text", help="JSON field containing text")
 @click.option("--ngram-size", default=4, type=int, help="N-gram size")
 @click.option("--sample-every-m-tokens", default=10, type=int, help="Sampling rate")
-@click.option("--simple-contamination-score-threshold", default=0.79, type=float, help="Simple contamination score threshold [0-1]")
+@click.option("--simple-contamination-score-threshold", default=0.8, type=float, help="Simple contamination score threshold [0-1]")
 @click.option("--tokenizer", default="word", type=click.Choice(['word', 'p50k', 'cl100k']), help="Tokenizer")
 @click.option("--debug/--no-debug", default=False, help="Enable debug mode")
 @click.option("--purify/--no-purify", default=False, help="Enable data purification")
@@ -641,7 +623,7 @@ def wizard():
 @click.option("--remote-cleaned-output-dir", help="S3 path for cleaned files")
 @click.option("--local-work-dir", default="/mnt/decon-work", help="Local working directory for orchestrator")
 def deploy(name, owner, instances, instance_type, ssh_key, github_token, daemon_port,
-          mode, content_key, ngram_size, sample_every_m_tokens,
+          mode, content_key, ngram_size,
           simple_contamination_score_threshold, tokenizer,
           debug, purify, remote_file_input, remote_report_output_dir,
           remote_cleaned_output_dir, local_work_dir):
@@ -658,7 +640,6 @@ def deploy(name, owner, instances, instance_type, ssh_key, github_token, daemon_
         mode=mode,
         content_key=content_key,
         ngram_size=ngram_size,
-        sample_every_m_tokens=sample_every_m_tokens,
         simple_contamination_score_threshold=simple_contamination_score_threshold,
         tokenizer_str=tokenizer,
         debug=debug,

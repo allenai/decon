@@ -898,12 +898,9 @@ fn display_contamination_case_internal(result: &ContaminationResult) -> Result<(
                 }
             }
 
-
             if let Some(score) = result.contamination_score {
                 println!("⚡ CONTAMINATION SCORE: {:.3}", score);
             }
-
-
 
             println!();
         }
@@ -917,10 +914,7 @@ fn display_contamination_case_internal(result: &ContaminationResult) -> Result<(
         if let (Some(start_idx), Some(end_idx)) =
             (result.contamination_start_idx, result.contamination_end_idx)
         {
-            println!(
-                "   📍 Training overlap (tokens {} to {}):",
-                start_idx, end_idx
-            );
+            println!("   📍 Training overlap (tokens {} to {}):", start_idx, end_idx);
         } else {
             println!("   📍 Training overlap:");
         }
