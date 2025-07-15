@@ -498,6 +498,13 @@ fn process_answer_field(
     // Clean text for both tokenizer types
     let cleaned = clean_text(answer, &config.punctuation_chars);
 
+    // Debug logging for answer processing
+    if std::env::var("DEBUG_ANSWER").is_ok() && doc_id == 454571 {
+        println!("\n=== Processing Answer (doc_id: {}) ===", doc_id);
+        println!("Raw answer: \"{}\"", answer);
+        println!("Cleaned answer: \"{}\"", cleaned);
+    }
+
     // Get token IDs
     let word_tokens = if config.tokenizer_str == "word" {
         let words: Vec<String> = cleaned
@@ -510,18 +517,39 @@ fn process_answer_field(
             .map(|word| tokenizer.add_word(word) as usize)
             .collect()
     } else {
-        //let padded_answer = format!(" {} ", answer);
-        let Ok(tokens) =
-            catch_unwind(|| preprocess_text(answer, tokenizer, &config.punctuation_chars))
-        else {
-            // Skip this answer if tokenization fails
+        // For BPE tokenizers, include both padded and unpadded versions
+        // This handles answers at the beginning of documents vs in the middle
+        let lowercase_answer = answer.to_lowercase();
+        let padded_answer = format!(" {}", lowercase_answer);
+
+        // Get tokens for both versions
+        let Ok(unpadded_tokens) = catch_unwind(|| tokenizer.encode(&lowercase_answer)) else {
             return Ok(());
         };
-        tokens
+        let Ok(padded_tokens) = catch_unwind(|| tokenizer.encode(&padded_answer)) else {
+            return Ok(());
+        };
+
+        // Combine both token sets
+        let mut all_tokens = padded_tokens;
+        //all_tokens.extend(padded_tokens);
+        all_tokens
     };
 
     // Store in short answer map
     let token_set: HashSet<usize> = word_tokens.into_iter().collect();
+    
+    // Debug logging for stored tokens
+    if std::env::var("DEBUG_ANSWER").is_ok() && doc_id == 454571 {
+        println!("Token IDs stored: {:?}", token_set);
+        if let Some(inner) = tokenizer.inner.as_ref() {
+            let token_vec: Vec<usize> = token_set.iter().copied().collect();
+            if let Ok(decoded) = inner.decode(token_vec) {
+                println!("Tokens decode to: \"{}\"", decoded);
+            }
+        }
+    }
+    
     id_to_short_answer.insert(doc_id, token_set);
 
     Ok(())
@@ -858,30 +886,18 @@ impl SimpleContaminationEntry {
         if question_contam {
             // Check if this document has a short answer
             if let Some(answer_token_set) = id_to_short_answer.get(&doc_id) {
-                // Get matching tokens first
-                let matching_tokens = short_answer_tokens(
+                // Use the new answer matching method
+                let (answer_found, answer_overlap_ratio, matched_token_strings) = has_matching_answer(
                     answer_token_set.value(),
                     cluster,
                     doc_id,
                     training_tokens,
                     config,
+                    tokenizer,
                 );
 
-                // Calculate overlap ratio
-                let answer_overlap_ratio = if answer_token_set.is_empty() {
-                    0.0
-                } else {
-                    matching_tokens.len() as f32 / answer_token_set.len() as f32
-                };
-
-                // Convert matching token IDs to text
-                let matched_token_strings: Vec<String> = matching_tokens
-                    .iter()
-                    .filter_map(|&token_id| tokenizer.get_word(token_id as u32))
-                    .collect();
-
                 // Require both question and answer contamination
-                let is_contaminated = question_contam && answer_overlap_ratio >= config.short_answer_contamination_threshold;
+                let is_contaminated = question_contam && answer_found;
                 return (
                     is_contaminated,
                     Some(answer_overlap_ratio),
@@ -894,12 +910,52 @@ impl SimpleContaminationEntry {
     }
 }
 
+/// Check if the answer matches - exact same behavior as before
+/// Returns (is_contaminated, overlap_ratio, matched_tokens_text)
+fn has_matching_answer(
+    answer_token_set: &HashSet<usize>,
+    cluster: &SimpleContaminationCluster,
+    doc_id: u32,
+    training_tokens: &[usize],
+    config: &Config,
+    tokenizer: &OmniTokenizer,
+) -> (bool, f32, Vec<String>) {
+    // Get matching tokens first
+    let matching_tokens = short_answer_tokens(
+        answer_token_set,
+        cluster,
+        doc_id,
+        training_tokens,
+        config,
+        tokenizer,
+    );
+
+    // Calculate overlap ratio
+    let answer_overlap_ratio = if answer_token_set.is_empty() {
+        0.0
+    } else {
+        matching_tokens.len() as f32 / answer_token_set.len() as f32
+    };
+
+    // Convert matching token IDs to text
+    let matched_token_strings: Vec<String> = matching_tokens
+        .iter()
+        .filter_map(|&token_id| tokenizer.get_word(token_id as u32))
+        .collect();
+
+    // Check if meets threshold
+    let is_contaminated = answer_overlap_ratio >= config.short_answer_contamination_threshold;
+    
+    (is_contaminated, answer_overlap_ratio, matched_token_strings)
+}
+
 fn short_answer_tokens(
     answer_token_set: &HashSet<usize>,
     cluster: &SimpleContaminationCluster,
     doc_id: u32,
     training_tokens: &[usize],
     config: &Config,
+    tokenizer: &OmniTokenizer,
 ) -> HashSet<usize> {
     // Calculate window size as max(answer_length*2, min_short_answer_distance)
     let answer_length = answer_token_set.len();
@@ -916,28 +972,98 @@ fn short_answer_tokens(
         // When excluding question tokens, search in prefix and suffix regions
         let prefix_search_start = doc_start_idx.saturating_sub(window_size);
         let prefix_search_end = doc_start_idx;
-        let suffix_search_start = doc_end_idx;
-        let suffix_search_end = (doc_end_idx + window_size).min(training_tokens.len());
+        // Fix: doc_end_idx is the last n-gram position, but we need the last token position
+        let suffix_search_start = doc_end_idx + config.ngram_size - 1 + 1;
+        let suffix_search_end = (suffix_search_start + window_size).min(training_tokens.len());
 
         // Collect tokens from both regions
         let mut training_token_set = HashSet::new();
 
-        // Add prefix tokens
+        // Add prefix tokens and decode for debug display
+        let mut prefix_tokens = Vec::new();
         if prefix_search_start < prefix_search_end {
-            training_token_set.extend(
-                training_tokens[prefix_search_start..prefix_search_end]
-                    .iter()
-                    .copied(),
-            );
+            prefix_tokens.extend(&training_tokens[prefix_search_start..prefix_search_end]);
+            training_token_set.extend(prefix_tokens.iter().copied());
         }
 
-        // Add suffix tokens
-        if suffix_search_start < suffix_search_end {
-            training_token_set.extend(
-                training_tokens[suffix_search_start..suffix_search_end]
-                    .iter()
-                    .copied(),
-            );
+        // Add suffix tokens and decode for debug display
+        let mut suffix_tokens = Vec::new();
+        if suffix_search_start < suffix_search_end && suffix_search_start < training_tokens.len() {
+            let end = suffix_search_end.min(training_tokens.len());
+            suffix_tokens.extend(&training_tokens[suffix_search_start..end]);
+            training_token_set.extend(suffix_tokens.iter().copied());
+        }
+
+        // Debug logging - decode and display the prefix and suffix text
+        if std::env::var("DEBUG_ANSWER").is_ok() {
+            let prefix_text = if tokenizer.tokenizer_name == "word" {
+                // For word tokenizer, convert token IDs back to words
+                prefix_tokens.iter()
+                    .filter_map(|&token_id| tokenizer.get_word(token_id as u32))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            } else if let Some(inner) = tokenizer.inner.as_ref() {
+                // For BPE tokenizers, decode token array
+                inner.decode(prefix_tokens.clone()).unwrap_or_else(|_| "[decode error]".to_string())
+            } else {
+                "[no decoder]".to_string()
+            };
+
+            let suffix_text = if tokenizer.tokenizer_name == "word" {
+                // For word tokenizer, convert token IDs back to words
+                suffix_tokens.iter()
+                    .filter_map(|&token_id| tokenizer.get_word(token_id as u32))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            } else if let Some(inner) = tokenizer.inner.as_ref() {
+                // For BPE tokenizers, decode token array
+                inner.decode(suffix_tokens.clone()).unwrap_or_else(|_| "[decode error]".to_string())
+            } else {
+                "[no decoder]".to_string()
+            };
+
+            // Decode answer tokens to see what we're looking for
+            let answer_text = if tokenizer.tokenizer_name == "word" {
+                answer_token_set.iter()
+                    .filter_map(|&token_id| tokenizer.get_word(token_id as u32))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            } else if let Some(inner) = tokenizer.inner.as_ref() {
+                let answer_vec: Vec<usize> = answer_token_set.iter().copied().collect();
+                inner.decode(answer_vec).unwrap_or_else(|_| "[decode error]".to_string())
+            } else {
+                "[no decoder]".to_string()
+            };
+
+            println!("\n=== Answer Detection Debug (doc_id: {}) ===", doc_id);
+            println!("Answer text to find: \"{}\" ({} tokens)", answer_text, answer_token_set.len());
+            println!("Answer token IDs: {:?}", answer_token_set);
+            println!("Prefix ({} tokens): {}", prefix_tokens.len(), prefix_text);
+            println!("Suffix ({} tokens): {}", suffix_tokens.len(), suffix_text);
+
+            // Show what tokens we found in common
+            let found_in_training: HashSet<usize> = answer_token_set
+                .iter()
+                .filter(|token| training_token_set.contains(token))
+                .copied()
+                .collect();
+            println!("Found {} of {} answer tokens in training text", found_in_training.len(), answer_token_set.len());
+            println!("Found token IDs: {:?}", found_in_training);
+            let missing_tokens: HashSet<usize> = answer_token_set
+                .difference(&found_in_training)
+                .copied()
+                .collect();
+            println!("Missing token IDs: {:?}", missing_tokens);
+
+            // Debug: Show the last few tokens of prefix and first few of suffix
+            if prefix_tokens.len() >= 4 {
+                let last_prefix_tokens = &prefix_tokens[prefix_tokens.len()-4..];
+                println!("Last 4 prefix tokens: {:?}", last_prefix_tokens);
+            }
+            if suffix_tokens.len() >= 4 {
+                let first_suffix_tokens = &suffix_tokens[..4.min(suffix_tokens.len())];
+                println!("First 4 suffix tokens: {:?}", first_suffix_tokens);
+            }
         }
 
         // Find matching tokens
