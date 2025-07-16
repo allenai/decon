@@ -36,14 +36,14 @@ make poormanray-command-generator
 ┌─────────────────────────────────────────────────────────────┐
 │                      EC2 Instance(s)                        │
 │                                                             │
-│  ┌──────────────┐         ┌────────────────────────────┐  │
-│  │ Orchestrator │ ────────▶│        Server              │  │
-│  │              │  Submit  │                            │  │
-│  │ • Downloads  │  Jobs    │  • Loads reference data   │  │
-│  │ • Distributes│          │  • Processes files        │  │
-│  │ • Uploads    │◀──────── │  • Detects contamination │  │
-│  │              │  Results │  • Creates cleaned files  │  │
-│  └──────┬───────┘         └────────────────────────────┘  │
+│  ┌──────────────┐         ┌────────────────────────────┐    │
+│  │ Orchestrator │ ────────▶│        Server             │    │
+│  │              │  Submit  │                           │    │
+│  │ • Downloads  │  Jobs    │  • Loads reference data   │    │
+│  │ • Distributes│          │  • Processes files        │    │
+│  │ • Uploads    │◀──────── │  • Detects contamination  │    │
+│  │              │  Results │  • Creates cleaned files  │    │
+│  └──────┬───────┘         └────────────────────────────┘    │
 │         │                                                   │
 └─────────┼───────────────────────────────────────────────────┘
           │

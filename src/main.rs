@@ -20,9 +20,9 @@ use std::sync::{Arc, Mutex};
 use mj_io::read_pathbuf_to_mem;
 
 // Internal modules
-mod server;
 mod reference;
 mod review;
+mod server;
 mod simple;
 
 /*=================================================================
@@ -46,65 +46,96 @@ struct ArgParser {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
+    #[command(
+        about = "Detect contamination in training data",
+        long_about = "Detect and report on contamination between a reference dataset and a training dataset.\nCan optionally produce a clean dataset with contaminated documents removed."
+    )]
     Detect {
-        #[arg(required = true, long, help = "Path to YAML configuration file")]
+        #[arg(
+            required = false,
+            long,
+            help = "Path to YAML configuration file",
+            display_order = 14
+        )]
         config: PathBuf,
 
         // Common config overrides
-
-        #[arg(long, help = "JSON field containing text content")]
+        #[arg(
+            long,
+            help = "JSON field containing text content in training documents",
+            display_order = 2
+        )]
         content_key: Option<String>,
 
-        #[arg(long, help = "Directory containing training data")]
+        #[arg(
+            long,
+            help = "Directory containing training data in jsonl format",
+            display_order = 1
+        )]
         local_input: Option<PathBuf>,
 
-        #[arg(long, help = "Directory containing evaluation/reference data")]
+        #[arg(
+            long,
+            help = "Directory containing reference data (evals) in decon expected format",
+            display_order = 4
+        )]
         reference_input: Option<PathBuf>,
 
-        #[arg(long, help = "Output directory for contamination reports")]
+        #[arg(
+            long,
+            help = "Output directory for contamination reports",
+            display_order = 5
+        )]
         report_output_dir: Option<PathBuf>,
 
-        #[arg(long, help = "Output directory for cleaned files")]
+        #[arg(long, help = "Output directory for cleaned files", display_order = 6)]
         cleaned_output_dir: Option<PathBuf>,
 
-        #[arg(long, help = "Enable creation of cleaned files")]
+        #[arg(
+            long,
+            help = "Produce cleaned files with contaminated lines removed",
+            display_order = 7
+        )]
         purify: Option<bool>,
 
-        #[arg(long, help = "Enable debug mode")]
-        debug: Option<bool>,
-
-        #[arg(long, help = "Tokenizer type: word, p50k, or cl100k")]
+        #[arg(
+            long,
+            help = "Tokenizer type: word, p50k, or cl100k",
+            display_order = 8
+        )]
         tokenizer: Option<String>,
 
         // SIMPLE mode specific
-        #[arg(long, help = "N-gram size for SIMPLE mode")]
+        #[arg(long, help = "N-gram size for SIMPLE mode", display_order = 9)]
         ngram_size: Option<usize>,
 
         #[arg(
             long,
-            help = "Sample every M tokens for SIMPLE mode (defaults to ngram_size + 1)"
+            help = "Sample every M tokens for SIMPLE mode (defaults to ngram_size + 1)",
+            display_order = 10
         )]
         sample_every_m_tokens: Option<usize>,
 
         #[arg(
             long,
-            help = "Max consecutive misses before stopping cluster expansion (defaults to ngram_size * 2)"
+            help = "Max consecutive misses before stopping cluster expansion (defaults to ngram_size * 2)",
+            display_order = 11
         )]
         max_consecutive_misses: Option<usize>,
 
         #[arg(
             long,
-            help = "Contamination score threshold for questions in SIMPLE mode"
+            help = "Contamination score threshold for questions in SIMPLE mode",
+            display_order = 12
         )]
         question_threshold: Option<f32>,
 
         #[arg(
             long,
-            help = "Contamination score threshold for answers in SIMPLE mode"
+            help = "Contamination score threshold for answers in SIMPLE mode",
+            display_order = 13
         )]
         answer_threshold: Option<f32>,
-
-
     },
 
     Review {
@@ -113,7 +144,6 @@ enum Commands {
 
         #[arg(long, help = "Directory containing result files to analyze for stats")]
         dir: Option<PathBuf>,
-
 
         #[arg(
             long,
@@ -127,10 +157,7 @@ enum Commands {
         )]
         all: bool,
 
-        #[arg(
-            long,
-            help = "Minimum contamination score to include in results"
-        )]
+        #[arg(long, help = "Minimum contamination score to include in results")]
         min_score: Option<f32>,
 
         #[arg(
@@ -144,7 +171,6 @@ enum Commands {
             help = "Filter by evaluation dataset name (strips suffix after last underscore)"
         )]
         eval: Option<String>,
-
     },
 
     Server {
@@ -155,11 +181,10 @@ enum Commands {
         port: u16,
 
         // Common config overrides
-
         #[arg(long, help = "JSON field containing text content")]
         content_key: Option<String>,
 
-        #[arg(long, help = "Directory containing training data")]
+        #[arg(long, help = "Directory containing training data in jsonl format")]
         local_input: Option<PathBuf>,
 
         #[arg(long, help = "Directory containing evaluation/reference data")]
@@ -173,9 +198,6 @@ enum Commands {
 
         #[arg(long, help = "Enable creation of cleaned files")]
         purify: Option<bool>,
-
-        #[arg(long, help = "Enable debug mode")]
-        debug: Option<bool>,
 
         #[arg(long, help = "Tokenizer type: word, p50k, or cl100k")]
         tokenizer: Option<String>,
@@ -207,8 +229,6 @@ enum Commands {
             help = "Contamination score threshold for answers in SIMPLE mode"
         )]
         answer_threshold: Option<f32>,
-
-
     },
 
     References {
@@ -218,10 +238,7 @@ enum Commands {
         )]
         refine: bool,
 
-        #[arg(
-            long,
-            help = "Show statistics for reference datasets in a directory"
-        )]
+        #[arg(long, help = "Show statistics for reference datasets in a directory")]
         stats: Option<PathBuf>,
 
         #[arg(
@@ -275,10 +292,6 @@ pub struct Config {
     #[serde(default = "default_punctuation_chars")]
     pub punctuation_chars: String,
 
-    // Debug options
-    #[serde(default = "default_debug")]
-    pub debug: bool,
-
     // Server options
     #[serde(default = "default_worker_threads")]
     pub worker_threads: usize,
@@ -318,10 +331,6 @@ pub struct Config {
 
 fn default_mode() -> String {
     "simple".to_string()
-}
-
-fn default_debug() -> bool {
-    false // Debug logging disabled by default
 }
 
 fn default_ngram_size() -> usize {
@@ -727,16 +736,6 @@ pub fn clean_text(text: &str, punctuation_chars: &str) -> String {
     text.trim().to_string()
 }
 
-// Debug logging macro - only prints when config.debug is true
-#[macro_export]
-macro_rules! debug_println {
-    ($config:expr, $($arg:tt)*) => {
-        if $config.debug {
-            println!($($arg)*);
-        }
-    };
-}
-
 /*=================================================================
 =                         CONTAMINATION DETECTION                =
 =================================================================*/
@@ -796,7 +795,6 @@ fn main() -> Result<(), Error> {
             report_output_dir,
             cleaned_output_dir,
             purify,
-            debug,
             tokenizer,
             ngram_size,
             sample_every_m_tokens,
@@ -826,9 +824,6 @@ fn main() -> Result<(), Error> {
             if let Some(p) = purify {
                 loaded_config.purify = *p;
             }
-            if let Some(d) = debug {
-                loaded_config.debug = *d;
-            }
             if let Some(t) = tokenizer {
                 loaded_config.tokenizer_str = t.clone();
             }
@@ -853,8 +848,6 @@ fn main() -> Result<(), Error> {
             if let Some(at) = answer_threshold {
                 loaded_config.answer_threshold = *at;
             }
-
-
 
             contamination_detect_with_config(&loaded_config)
         }
@@ -870,13 +863,13 @@ fn main() -> Result<(), Error> {
         } => review::review_contamination(
             config.as_ref(),
             dir.as_ref(),
-            !*stats && !*all,  // step is true when neither stats nor all is set
+            !*stats && !*all, // step is true when neither stats nor all is set
             *stats,
             *all,
             *min_score,
             *min_length,
             eval.as_deref(),
-            false,  // skip_exact is now always false
+            false, // skip_exact is now always false
         ),
 
         Commands::Server {
@@ -888,7 +881,6 @@ fn main() -> Result<(), Error> {
             report_output_dir,
             cleaned_output_dir,
             purify,
-            debug,
             tokenizer,
             ngram_size,
             sample_every_m_tokens,
@@ -918,9 +910,6 @@ fn main() -> Result<(), Error> {
             if let Some(p) = purify {
                 loaded_config.purify = *p;
             }
-            if let Some(d) = debug {
-                loaded_config.debug = *d;
-            }
             if let Some(t) = tokenizer {
                 loaded_config.tokenizer_str = t.clone();
             }
@@ -946,13 +935,15 @@ fn main() -> Result<(), Error> {
                 loaded_config.answer_threshold = *at;
             }
 
-
-
             let runtime = tokio::runtime::Runtime::new().unwrap();
             runtime.block_on(server::run_server(loaded_config, *port))
         }
 
-        Commands::References { refine, stats, dry_run } => {
+        Commands::References {
+            refine,
+            stats,
+            dry_run,
+        } => {
             if *refine {
                 reference::refine_reference_files(*dry_run)
             } else if let Some(stats_dir) = stats {
@@ -961,7 +952,7 @@ fn main() -> Result<(), Error> {
                 eprintln!("Error: Must specify either --refine or --stats");
                 std::process::exit(1);
             }
-        },
+        }
     };
     result
 }
@@ -969,5 +960,4 @@ fn main() -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
 }

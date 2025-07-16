@@ -79,7 +79,6 @@ pub enum ClassificationType {
     FalseNegative,
 }
 
-
 pub fn review_contamination(
     _config: Option<&PathBuf>,
     dir: Option<&PathBuf>,
@@ -95,11 +94,9 @@ pub fn review_contamination(
 
     // Directory is now required
     if dir.is_none() {
-        return Err(anyhow::anyhow!(
-            "--dir is required for review command"
-        ));
+        return Err(anyhow::anyhow!("--dir is required for review command"));
     }
-    
+
     let dir_path = dir.unwrap();
     if !dir_path.exists() {
         println!("Directory not found: {:?}", dir_path);
@@ -141,10 +138,7 @@ pub fn review_contamination(
         println!("No contamination results matched the filter criteria.");
         println!("Original count: {}", original_count);
         if min_score.is_some() {
-            println!(
-                "  - Minimum contamination score: {:.3}",
-                min_score.unwrap()
-            );
+            println!("  - Minimum contamination score: {:.3}", min_score.unwrap());
         }
         if min_length.is_some() {
             println!("  - Minimum n-gram matches: {}", min_length.unwrap());
@@ -227,9 +221,6 @@ pub fn review_contamination(
     // This should not be reached anymore since we default to step mode
     Ok(())
 }
-
-
-
 
 #[allow(dead_code)]
 fn filter_contamination_results(
@@ -546,7 +537,10 @@ fn display_contamination_case_internal(result: &ContaminationResult) -> Result<(
             // Use pre-computed eval_overlap_text if available
             if let Some(ref overlap_text) = result.eval_overlap_text {
                 // Use cyan color for eval text - good readability on dark backgrounds
-                println!("   \"\x1b[36m{}\x1b[0m\"", format_with_bold_highlights(overlap_text));
+                println!(
+                    "   \"\x1b[36m{}\x1b[0m\"",
+                    format_with_bold_highlights(overlap_text)
+                );
             } else {
                 println!("   [No eval overlap text available in results]");
             }
@@ -628,7 +622,6 @@ fn display_contamination_case_internal(result: &ContaminationResult) -> Result<(
 
     Ok(())
 }
-
 
 fn display_eval_dataset_stats(contamination_results: &[ContaminationResult]) -> Result<(), Error> {
     // Count occurrences of each eval dataset

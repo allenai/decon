@@ -591,7 +591,11 @@ fn process_answer_field(
     // Debug logging for stored tokens
     if std::env::var("DEBUG_ANSWER").is_ok() && doc_id == 454571 {
         println!("Token IDs stored: {:?}", token_set);
-        println!("Actual token length: {}, Unique token count: {}", token_length, token_set.len());
+        println!(
+            "Actual token length: {}, Unique token count: {}",
+            token_length,
+            token_set.len()
+        );
         if let Some(inner) = tokenizer.inner.as_ref() {
             let token_vec: Vec<usize> = token_set.iter().copied().collect();
             if let Ok(decoded) = inner.decode(token_vec) {

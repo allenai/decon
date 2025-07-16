@@ -51,7 +51,7 @@ const MAX_HASH: u64 = BIG_PRIME;
 fn _expand_band_seeds(seeds: &[u32], num_bands: usize) -> Vec<u64> {
     use sha2::{Digest, Sha256};
     let mut expanded_seeds = Vec::with_capacity(num_bands);
-    
+
     for i in 0..num_bands {
         let mut hasher = Sha256::new();
         for seed in seeds {
@@ -62,7 +62,7 @@ fn _expand_band_seeds(seeds: &[u32], num_bands: usize) -> Vec<u64> {
         let seed_value = u64::from_le_bytes(result[0..8].try_into().unwrap());
         expanded_seeds.push(seed_value);
     }
-    
+
     expanded_seeds
 }
 
@@ -1252,7 +1252,10 @@ fn display_side_by_side(text1: &str, text2: &str, width: usize) {
 }
 
 pub fn collect_reference_stats(stats_dir: &PathBuf) -> Result<(), Error> {
-    println!("Collecting statistics for reference datasets in: {:?}", stats_dir);
+    println!(
+        "Collecting statistics for reference datasets in: {:?}",
+        stats_dir
+    );
     println!();
 
     // Check if directory exists
@@ -1305,14 +1308,12 @@ fn process_file_for_stats(
         .and_then(|s| s.to_str())
         .unwrap_or("unknown");
 
-    let eval_name = filename
-        .split('_')
-        .next()
-        .unwrap_or(filename)
-        .to_string();
+    let eval_name = filename.split('_').next().unwrap_or(filename).to_string();
 
     // Get or create stats for this eval
-    let stats = eval_stats.entry(eval_name).or_insert_with(EvalStats::default);
+    let stats = eval_stats
+        .entry(eval_name)
+        .or_insert_with(EvalStats::default);
 
     // Open file
     let file = File::open(file_path)?;
@@ -1366,17 +1367,43 @@ fn display_stats_table(eval_stats: &HashMap<String, EvalStats>) {
     let eval_width = 20;
 
     // Print table header
-    println!("┌{:─<width$}┬{:─>11}┬{:─>11}┬{:─>9}┬{:─>9}┬{:─>9}┬{:─>9}┬{:─>9}┬{:─>9}┐",
-        "─", "─", "─", "─", "─", "─", "─", "─", "─",
+    println!(
+        "┌{:─<width$}┬{:─>11}┬{:─>11}┬{:─>9}┬{:─>9}┬{:─>9}┬{:─>9}┬{:─>9}┬{:─>9}┐",
+        "─",
+        "─",
+        "─",
+        "─",
+        "─",
+        "─",
+        "─",
+        "─",
+        "─",
         width = eval_width + 2
     );
-    println!("│ {:<width$} │ {:>9} │ {:>9} │ {:>7} │ {:>7} │ {:>7} │ {:>7} │ {:>7} │ {:>7} │",
-        "Eval Name", "Questions", "Answers", "Min Q", "Avg Q", "Max Q",
-        "Min A", "Avg A", "Max A",
+    println!(
+        "│ {:<width$} │ {:>9} │ {:>9} │ {:>7} │ {:>7} │ {:>7} │ {:>7} │ {:>7} │ {:>7} │",
+        "Eval Name",
+        "Questions",
+        "Answers",
+        "Min Q",
+        "Avg Q",
+        "Max Q",
+        "Min A",
+        "Avg A",
+        "Max A",
         width = eval_width
     );
-    println!("├{:─<width$}┼{:─>11}┼{:─>11}┼{:─>9}┼{:─>9}┼{:─>9}┼{:─>9}┼{:─>9}┼{:─>9}┤",
-        "─", "─", "─", "─", "─", "─", "─", "─", "─",
+    println!(
+        "├{:─<width$}┼{:─>11}┼{:─>11}┼{:─>9}┼{:─>9}┼{:─>9}┼{:─>9}┼{:─>9}┼{:─>9}┤",
+        "─",
+        "─",
+        "─",
+        "─",
+        "─",
+        "─",
+        "─",
+        "─",
+        "─",
         width = eval_width + 2
     );
 
@@ -1384,7 +1411,8 @@ fn display_stats_table(eval_stats: &HashMap<String, EvalStats>) {
     for (eval_name, stats) in sorted_evals {
         let (min_q, avg_q, max_q) = if !stats.question_lengths.is_empty() {
             let min = *stats.question_lengths.iter().min().unwrap();
-            let avg = stats.question_lengths.iter().sum::<usize>() as f64 / stats.question_lengths.len() as f64;
+            let avg = stats.question_lengths.iter().sum::<usize>() as f64
+                / stats.question_lengths.len() as f64;
             let max = *stats.question_lengths.iter().max().unwrap();
             (min.to_string(), format!("{:.0}", avg), max.to_string())
         } else {
@@ -1393,26 +1421,41 @@ fn display_stats_table(eval_stats: &HashMap<String, EvalStats>) {
 
         let (min_a, avg_a, max_a) = if !stats.answer_lengths.is_empty() {
             let min = *stats.answer_lengths.iter().min().unwrap();
-            let avg = stats.answer_lengths.iter().sum::<usize>() as f64 / stats.answer_lengths.len() as f64;
+            let avg = stats.answer_lengths.iter().sum::<usize>() as f64
+                / stats.answer_lengths.len() as f64;
             let max = *stats.answer_lengths.iter().max().unwrap();
             (min.to_string(), format!("{:.0}", avg), max.to_string())
         } else {
             ("-".to_string(), "-".to_string(), "-".to_string())
         };
 
-        println!("│ {:<width$} │ {:>9} │ {:>9} │ {:>7} │ {:>7} │ {:>7} │ {:>7} │ {:>7} │ {:>7} │",
+        println!(
+            "│ {:<width$} │ {:>9} │ {:>9} │ {:>7} │ {:>7} │ {:>7} │ {:>7} │ {:>7} │ {:>7} │",
             eval_name,
             stats.question_count,
             stats.answer_count,
-            min_q, avg_q, max_q,
-            min_a, avg_a, max_a,
+            min_q,
+            avg_q,
+            max_q,
+            min_a,
+            avg_a,
+            max_a,
             width = eval_width
         );
     }
 
     // Print table footer
-    println!("└{:─<width$}┴{:─>11}┴{:─>11}┴{:─>9}┴{:─>9}┴{:─>9}┴{:─>9}┴{:─>9}┴{:─>9}┘",
-        "─", "─", "─", "─", "─", "─", "─", "─", "─",
+    println!(
+        "└{:─<width$}┴{:─>11}┴{:─>11}┴{:─>9}┴{:─>9}┴{:─>9}┴{:─>9}┴{:─>9}┴{:─>9}┘",
+        "─",
+        "─",
+        "─",
+        "─",
+        "─",
+        "─",
+        "─",
+        "─",
+        "─",
         width = eval_width + 2
     );
 
