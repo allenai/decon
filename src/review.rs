@@ -4,12 +4,11 @@ use std::collections::HashMap;
 use std::io::{self, BufRead};
 use std::path::PathBuf;
 
-use crate::Config;
 use mj_io::{expand_dirs, read_pathbuf_to_mem};
 
-// Helper function to convert bracket highlights to ANSI bold formatting
+// Helper function to convert bracket highlights to ANSI red formatting
 fn format_with_bold_highlights(text: &str) -> String {
-    text.replace("【", "\x1b[1m").replace("】", "\x1b[0m")
+    text.replace("【", "\x1b[31m").replace("】", "\x1b[0m")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,63 +79,6 @@ pub enum ClassificationType {
     FalseNegative,
 }
 
-#[derive(Debug)]
-pub struct ClassificationStats {
-    pub true_positives: usize,
-    pub false_positives: usize,
-    pub true_negatives: usize,
-    pub false_negatives: usize,
-    pub total_ground_truth: usize,
-    pub total_detected: usize,
-}
-
-impl ClassificationStats {
-    pub fn new() -> Self {
-        Self {
-            true_positives: 0,
-            false_positives: 0,
-            true_negatives: 0,
-            false_negatives: 0,
-            total_ground_truth: 0,
-            total_detected: 0,
-        }
-    }
-
-    pub fn precision(&self) -> f64 {
-        if self.total_detected == 0 {
-            0.0
-        } else {
-            self.true_positives as f64 / self.total_detected as f64
-        }
-    }
-
-    pub fn recall(&self) -> f64 {
-        let total_contaminated = self.true_positives + self.false_negatives;
-        if total_contaminated == 0 {
-            0.0
-        } else {
-            self.true_positives as f64 / total_contaminated as f64
-        }
-    }
-
-    pub fn accuracy(&self) -> f64 {
-        if self.total_ground_truth == 0 {
-            0.0
-        } else {
-            (self.true_positives + self.true_negatives) as f64 / self.total_ground_truth as f64
-        }
-    }
-
-    pub fn f1_score(&self) -> f64 {
-        let p = self.precision();
-        let r = self.recall();
-        if p + r == 0.0 {
-            0.0
-        } else {
-            2.0 * (p * r) / (p + r)
-        }
-    }
-}
 
 pub fn review_contamination(
     _config: Option<&PathBuf>,
@@ -288,195 +230,8 @@ pub fn review_contamination(
     Ok(())
 }
 
-fn load_ground_truth(input_dir: &PathBuf) -> Result<Vec<GroundTruthRecord>, Error> {
-    let mut ground_truth = Vec::new();
-    let training_files = expand_dirs(vec![input_dir.clone()], Some(vec![".jsonl"].as_slice()))?;
 
-    // Load eval data for resolving ground truth when not explicitly present
-    let eval_data = load_eval_data_for_ground_truth()?;
 
-    for file_path in training_files {
-        let data = read_pathbuf_to_mem(&file_path)?;
-        let file_name = file_path
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("unknown");
-
-        for (line_idx, line) in data.lines().enumerate() {
-            let line = line?;
-            if !line.trim().is_empty() {
-                let json_obj: serde_json::Value = serde_json::from_str(&line)?;
-
-                // Check if this record has ground truth information
-                if let Some(text) = json_obj.get("text").and_then(|v| v.as_str()) {
-                    let label = json_obj
-                        .get("label")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("UNKNOWN");
-
-                    let ground_truth_text = if let Some(explicit_gt) =
-                        json_obj.get("ground_truth").and_then(|v| v.as_str())
-                    {
-                        // Use explicit ground truth field
-                        explicit_gt.to_string()
-                    } else if let (Some(eval_dataset), Some(eval_line)) = (
-                        json_obj.get("eval_dataset").and_then(|v| v.as_str()),
-                        json_obj.get("eval_line").and_then(|v| v.as_u64()),
-                    ) {
-                        // Map eval_dataset to file names and resolve from eval data
-                        let eval_file_name = format!("{}_test", eval_dataset);
-                        let key = format!("{}:{}", eval_file_name, eval_line);
-                        eval_data.get(&key).cloned().unwrap_or_else(|| {
-                            // Try alternative mappings
-                            let alt_key = format!("{}:{}", eval_dataset, eval_line);
-                            eval_data.get(&alt_key).cloned().unwrap_or_else(|| {
-                                format!("Could not resolve {}:{}", eval_dataset, eval_line)
-                            })
-                        })
-                    } else if label == "CLEAN" {
-                        // For clean records, use the text itself as ground truth
-                        text.to_string()
-                    } else {
-                        // No ground truth available for non-clean records without eval references
-                        continue;
-                    };
-
-                    ground_truth.push(GroundTruthRecord {
-                        text: text.to_string(),
-                        source: file_name.to_string(),
-                        id: line_idx,
-                        annotation: label.to_string(),
-                        ground_truth: ground_truth_text,
-                    });
-                }
-            }
-        }
-    }
-
-    Ok(ground_truth)
-}
-
-fn load_eval_data_for_ground_truth() -> Result<std::collections::HashMap<String, String>, Error> {
-    let mut eval_data = std::collections::HashMap::new();
-
-    // Load eval files from fixtures/reference
-    let eval_dir = std::path::PathBuf::from("fixtures/reference");
-    if eval_dir.exists() {
-        let eval_files = expand_dirs(vec![eval_dir], Some(vec![".jsonl"].as_slice()))?;
-
-        for file_path in eval_files {
-            let file_stem = file_path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown");
-
-            let data = read_pathbuf_to_mem(&file_path)?;
-            for line in data.lines() {
-                let line = line?;
-                if !line.trim().is_empty() {
-                    if let Ok(json_obj) = serde_json::from_str::<serde_json::Value>(&line) {
-                        if let (Some(text), Some(index), Some(record_type)) = (
-                            json_obj.get("text").and_then(|v| v.as_str()),
-                            json_obj.get("index").and_then(|v| v.as_u64()),
-                            json_obj.get("type").and_then(|v| v.as_str()),
-                        ) {
-                            // Only use question records for ground truth
-                            if record_type == "question" {
-                                let key = format!("{}:{}", file_stem, index);
-                                eval_data.insert(key, text.to_string());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(eval_data)
-}
-
-fn calculate_and_display_stats(
-    contamination_results: &[ContaminationResult],
-    ground_truth: &[GroundTruthRecord],
-) -> Result<(), Error> {
-    if ground_truth.is_empty() {
-        println!("No ground truth data available. Cannot calculate classification statistics.");
-        println!(
-            "Found {} contamination detections total.",
-            contamination_results.len()
-        );
-        return Ok(());
-    }
-
-    let mut stats = ClassificationStats::new();
-
-    // Simple count of detections
-    let total_detections = contamination_results.len();
-    stats.total_detected = total_detections;
-
-    // Count ground truth annotations
-    stats.total_ground_truth = ground_truth.len();
-
-    // Note: This is a simplified stats calculation
-    // Without the actual text content, we can only provide basic statistics
-    println!("Warning: Statistics are simplified without access to training file contents.");
-
-    // Since we don't have the actual text, we can't calculate precise TP/FP/TN/FN
-    // Just show the detection counts
-
-    // Display statistics
-    println!("=== CLASSIFICATION STATISTICS ===");
-    println!();
-    println!("CONFUSION MATRIX:");
-    println!("                    Predicted");
-    println!("                CONTAMINATED  CLEAN");
-    println!(
-        "    CONTAMINATED    {:>4}     {:>4}    (TP: {}, FN: {})",
-        stats.true_positives, stats.false_negatives, stats.true_positives, stats.false_negatives
-    );
-    println!(
-        "Actual CLEAN        {:>4}     {:>4}    (FP: {}, TN: {})",
-        stats.false_positives, stats.true_negatives, stats.false_positives, stats.true_negatives
-    );
-    println!();
-
-    println!("PERFORMANCE METRICS:");
-    println!(
-        "  Document-level Precision: {:.3} ({} TP / {} unique detected)",
-        stats.precision(),
-        stats.true_positives,
-        stats.total_detected
-    );
-    // Removed detection-level precision since we don't have unique detection counts
-    println!(
-        "  Recall:     {:.3} ({} TP / {} actual contaminated)",
-        stats.recall(),
-        stats.true_positives,
-        stats.true_positives + stats.false_negatives
-    );
-    println!(
-        "  Accuracy:   {:.3} ({} correct / {} total)",
-        stats.accuracy(),
-        stats.true_positives + stats.true_negatives,
-        stats.total_ground_truth
-    );
-    println!("  F1 Score:   {:.3}", stats.f1_score());
-    println!();
-
-    println!("DETECTION SUMMARY:");
-    println!("  Total samples:      {}", stats.total_ground_truth);
-    println!(
-        "  Ground truth contaminated: {}",
-        stats.true_positives + stats.false_negatives
-    );
-    println!(
-        "  Ground truth clean:        {}",
-        stats.true_negatives + stats.false_positives
-    );
-    println!("  Total detections:           {}", total_detections);
-
-    Ok(())
-}
 
 #[allow(dead_code)]
 fn filter_contamination_results(
@@ -787,7 +542,8 @@ fn display_contamination_case_internal(result: &ContaminationResult) -> Result<(
             println!("🔍 EVAL TEXT (line {}):", result.eval_line);
             // Use pre-computed eval_overlap_text if available
             if let Some(ref overlap_text) = result.eval_overlap_text {
-                println!("   \"{}\"", format_with_bold_highlights(overlap_text));
+                // Use cyan color for eval text - good readability on dark backgrounds
+                println!("   \"\x1b[36m{}\x1b[0m\"", format_with_bold_highlights(overlap_text));
             } else {
                 println!("   [No eval overlap text available in results]");
             }
@@ -870,14 +626,6 @@ fn display_contamination_case_internal(result: &ContaminationResult) -> Result<(
     Ok(())
 }
 
-fn display_contamination_case(
-    result: &ContaminationResult,
-    _ground_truth: &[GroundTruthRecord],
-    _config: &Config,
-) -> Result<(), Error> {
-    // Just call the internal function since we don't use ground_truth or config
-    display_contamination_case_internal(result)
-}
 
 fn display_eval_dataset_stats(contamination_results: &[ContaminationResult]) -> Result<(), Error> {
     // Count occurrences of each eval dataset

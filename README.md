@@ -102,21 +102,6 @@ Efficient n-gram matching with ngram sampling and cluster expansion.
 - **Memory**: Indexes only evaluation data, streams training data
 - **Accuracy**: High precision for substantial overlaps, tunable via sampling rate
 
-### 📊 [Windowed MinHash Detection](doc/minhash.md) (`mode: minhash`)
-Memory-efficient detection using Jaccard similarity and LSH.
-- WIP
-- Needs sliding window approach tuned, may not outperform simple
-
-### 🧬 [TOXIC Detection](doc/toxic.md) (`mode: toxic`)
-Semantic contamination detection using word embeddings and poison tokens.
-- WIP
-- Not yet satisfied with collision behavior
-
-**Use SIMPLE as it is tested and complete**
-
-## Configuration
-
-See the [Configuration Guide](doc/configuration.md) for detailed information about all available options.
 
 ## Evaluation Datasets
 
