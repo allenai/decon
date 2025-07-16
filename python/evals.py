@@ -191,7 +191,7 @@ EVAL_CONFIG = {
                 "answer_field": "answer"
             }
         },
-        "alpaca": { # TODO
+        "alpaca": {
             "hf_path": "tatsu-lab/alpaca",
             "splits": [
                 "eval"
@@ -202,7 +202,7 @@ EVAL_CONFIG = {
             }
 
         },
-        "alpaca-multiturn": { # TODO
+        "alpaca-multiturn": {
             "hf_path": "VGraf/TurnWise",
             "splits": [
                 "eval"
@@ -554,17 +554,17 @@ EVAL_CONFIG = {
                 "answer_field": "reference_code"
             }
         },
+        # ['', 'gpqa_main', 'gpqa_diamond', 'gpqa_experts']
         "gpqa": { # TODO: Update hugging face token to download this. We want. All splits all configs.
             "hf_path": "Idavidrein/gpqa",
-            # "hf_config": "main",
-            # "splits": [
-            #     "train",
-            #     "test"
-            # ],
-            # "transform": {
-            #     "text_field": "question",
-            #     "answer_field": "answer"
-            # }
+            "hf_config": "gpqa_extended",
+            "splits": [
+                "train",
+            ],
+            "transform": {
+                "text_field": "Question",
+                "answer_field": "Correct Answer"
+            }
         },
         "gsm8k": {
             "hf_path": "openai/gsm8k",
@@ -1437,7 +1437,7 @@ EVAL_CONFIG = {
                 "answer_field": "possible_answers"
             }
         },
-        "qasper_yesno": {  # TODO let's concatenate the last piece of the "passage" with the question as the question.
+        "qasper_yesno": {
             "hf_path": "allenai/qasper-yesno",
             "splits": [
                 "train",
@@ -1446,7 +1446,8 @@ EVAL_CONFIG = {
             ],
             "transform": {
                 "text_field": "question",
-                "context_field": "context", # AND THIS WRONG .... we want last index of full_text.paragraphs
+                "last_paragraph_field": "full_text.paragraphs",
+                "min_paragraph_words": 10,
                 "answer_field": "answer"
             }
         },
@@ -1827,322 +1828,6 @@ EVAL_CONFIG = {
     }
 }
 
-#         # Please pick one among the available configs: ['cpp', 'c', 'javascript', 'java', 'python', 'php', 'csharp', 'typescript', 'bash', 'swift', 'go', 'rust', 'ruby', 'r', 'matlab', 'scala', 'haskell']
-#         # TODO iterate over these ^
-#         'multilingual_mbpp_python': {
-#             'hf_path': 'allenai/multilingual_mbpp',
-#             'hf_config': 'python',
-#             'splits': ['test', 'train', 'validation'],
-#             'transform': {
-#                 'text_field': 'text',
-#                 'answer_field': 'code'
-#             }
-#         },
-
-#         'nq_open_mc': {
-#             'hf_path': 'allenai/nq_open_mc',
-#             'splits': ['validation'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'answer_field': 'answer_original'
-#             }
-#         },
-
-#         'qasper_yesno': {
-#             'hf_path': 'allenai/qasper-yesno',
-#             'splits': ['train', 'validation', 'test'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'context_field': 'context',
-#                 'answer_field': 'answer'
-#             }
-#         },
-
-#         'sciriff_yesno': {
-#             'hf_path': 'allenai/sciriff-yesno',
-#             'splits': ['train', 'validation', 'test'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'context_field': 'context',
-#                 'answer_field': 'answer'
-#             }
-#         },
-
-#         'simple_tom_mental_state': {
-#             'hf_path': 'allenai/SimpleToM',
-#             'hf_config': 'mental-state-qa',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'context_field': 'story',
-#                 'answer_field': 'answerKey'
-#             }
-#         },
-
-#         'squad_mc': {
-#             'hf_path': 'allenai/squad_mc',
-#             'splits': ['validation'],
-#             'transform': {
-#                 'text_field': 'question_original',
-#                 'context_field': 'context_original',
-#                 'answer_field': 'answers_original'
-#             }
-#         },
-
-#         'zebra_logic_grid': {
-#             'hf_path': 'allenai/ZebraLogicBench-private',
-#             'hf_config': 'grid_mode',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'puzzle',
-#                 'answer_field': 'solution'
-#             }
-#         },
-
-#         'zebra_logic_mc': {
-#             'hf_path': 'allenai/ZebraLogicBench-private',
-#             'hf_config': 'mc_mode',
-#             'splits': ['test'],
-#             'transform': {
-#                 'combine_context_and_question': True,
-#                 'context_field': 'puzzle',
-#                 'text_field': 'question',
-#                 'answer_field': 'answer'
-#             }
-#         },
-
-#         'gsm_symbolic': {
-#             'hf_path': 'apple/GSM-Symbolic',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'answer_field': 'answer'
-#             }
-#         },
-
-#         'bigcodebench': {
-#             'hf_path': 'bigcode/bigcodebench',
-#             'splits': ['v0.1.4'],
-#             'transform': {
-#                 'text_field': 'complete_prompt',
-#                 'answer_field': 'canonical_solution'
-#             }
-#         },
-
-#         'bigcodebench_hard': {
-#             'hf_path': 'bigcode/bigcodebench-hard',
-#             'splits': ['v0.1.4'],
-#             'transform': {
-#                 'text_field': 'complete_prompt',
-#                 'answer_field': 'canonical_solution'
-#             }
-#         },
-
-#         'cosmos_qa': {
-#             'hf_path': 'allenai/cosmos_qa',
-#             'splits': ['train', 'test', 'validation'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'context_field': 'context',
-#                 'answer_field': 'answer',
-#                 'answer_key_field': 'label',
-#                 'answer_prefix': 'answer'
-#             },
-#             'no_answer_splits': ['test']
-#         },
-
-#         'cruxeval': {
-#             'hf_path': 'cruxeval-org/cruxeval',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'code',
-#                 'answer_field': 'output'
-#             }
-#         },
-
-#         'deepseek_leetcode': {  # Settled
-#             'hf_path': 'davidheineman/deepseek-leetcode',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'prompt'
-#             },
-#             'no_answer_splits': ['test']
-#         },
-
-#         'medqa_en': {
-#             'hf_path': 'davidheineman/medqa-en',
-#             'splits': ['train', 'test', 'dev'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'answer_field': 'answer'
-#             }
-#         },
-
-#         'coqa': {
-#             'hf_path': 'EleutherAI/coqa',
-#             'splits': ['train', 'validation'],
-#             'transform': {
-#                 'context_field': 'story',
-#                 'parallel_arrays': {
-#                     'question_array': 'questions.input_text',
-#                     'answer_array': 'answers.input_text'
-#                 }
-#             }
-#         },
-
-#         'drop': {
-#             'hf_path': 'EleutherAI/drop',
-#             'splits': ['train', 'validation'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'context_field': 'passage',
-#                 'answer_field': 'answer.spans.0'
-#             }
-#         },
-
-#         'hendrycks_math_algebra': {
-#             'hf_path': 'EleutherAI/hendrycks_math',
-#             'hf_config': 'algebra',
-#             'splits': ['train', 'test'],
-#             'transform': {
-#                 'text_field': 'problem',
-#                 'answer_field': 'solution'
-#             }
-#         },
-
-#         'hendrycks_math_counting_and_probability': {
-#             'hf_path': 'EleutherAI/hendrycks_math',
-#             'hf_config': 'counting_and_probability',
-#             'splits': ['train', 'test'],
-#             'transform': {
-#                 'text_field': 'problem',
-#                 'answer_field': 'solution'
-#             }
-#         },
-
-#         'hendrycks_math_geometry': {
-#             'hf_path': 'EleutherAI/hendrycks_math',
-#             'hf_config': 'geometry',
-#             'splits': ['train', 'test'],
-#             'transform': {
-#                 'text_field': 'problem',
-#                 'answer_field': 'solution'
-#             }
-#         },
-
-#         'hendrycks_math_intermediate_algebra': {
-#             'hf_path': 'EleutherAI/hendrycks_math',
-#             'hf_config': 'intermediate_algebra',
-#             'splits': ['train', 'test'],
-#             'transform': {
-#                 'text_field': 'problem',
-#                 'answer_field': 'solution'
-#             }
-#         },
-
-#         'hendrycks_math_number_theory': {
-#             'hf_path': 'EleutherAI/hendrycks_math',
-#             'hf_config': 'number_theory',
-#             'splits': ['train', 'test'],
-#             'transform': {
-#                 'text_field': 'problem',
-#                 'answer_field': 'solution'
-#             }
-#         },
-
-#         'hendrycks_math_prealgebra': {
-#             'hf_path': 'EleutherAI/hendrycks_math',
-#             'hf_config': 'prealgebra',
-#             'splits': ['train', 'test'],
-#             'transform': {
-#                 'text_field': 'problem',
-#                 'answer_field': 'solution'
-#             }
-#         },
-
-#         'hendrycks_math_precalculus': {
-#             'hf_path': 'EleutherAI/hendrycks_math',
-#             'hf_config': 'precalculus',
-#             'splits': ['train', 'test'],
-#             'transform': {
-#                 'text_field': 'problem',
-#                 'answer_field': 'solution'
-#             }
-#         },
-
-#         'lambada_openai': {  # Settled
-#             'hf_path': 'EleutherAI/lambada_openai',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'text'
-#             },
-#             'no_answer_splits': ['test']
-#         },
-
-#         'humaneval_plus': {
-#             'hf_path': 'evalplus/humanevalplus',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'prompt',
-#                 'answer_field': 'canonical_solution'
-#             }
-#         },
-
-#         'mbpp_plus': {
-#             'hf_path': 'evalplus/mbppplus',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'prompt',
-#                 'answer_field': 'code'
-#             }
-#         },
-
-#         'mbpp': {
-#             'hf_path': 'google-research-datasets/mbpp',
-#             'splits': ['train', 'test', 'validation'],
-#             'transform': {
-#                 'text_field': 'text',
-#                 'answer_field': 'code'
-#             }
-#         },
-
-#         'nq_open': {
-#             'hf_path': 'google-research-datasets/nq_open',
-#             'splits': ['train', 'validation'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'answer_field': 'answer'
-#             }
-#         },
-
-#         # Massive with bad chars and unusual language.
-#         # 'tydiqa_primary': {
-#         #     'hf_path': 'google-research-datasets/tydiqa',
-#         #     'hf_config': 'primary_task',
-#         #     'splits': ['train', 'validation'],
-#         #     'transform': {
-#         #         'text_field': 'question_text',
-#         #         'context_field': 'document_plaintext'
-#         #     }
-#         # },
-
-#         'ifeval': {  # Settled
-#             'hf_path': 'HuggingFaceH4/ifeval',
-#             'splits': ['train'],
-#             'transform': {
-#                 'text_field': 'prompt'
-#             },
-#             'no_answer_splits': ['train']
-#         },
-
-#         'math_500': {
-#             'hf_path': 'HuggingFaceH4/MATH-500',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'problem',
-#                 'answer_field': 'solution'
-#             }
-#         },
 
 #         # Please pick one among the available configs: ['mcq_4_choices', 'mcq_perturbation', 'open_question']
 #         'lexam_mcq': {
@@ -2155,134 +1840,6 @@ EVAL_CONFIG = {
 #             }
 #         },
 
-#         'simple_qa': {
-#             'hf_path': 'lighteval/SimpleQA',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'problem',
-#                 'answer_field': 'answer'
-#             }
-#         },
-
-#         'livecodebench': {  # Settled
-#             'hf_path': 'livecodebench/code_generation_lite',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'question_content'
-#             },
-#             'no_answer_splits': ['test']
-#         },
-
-#         'humaneval_infilling_multiline': {
-#             'hf_path': 'loubnabnl/humaneval_infilling',
-#             'hf_config': 'HumanEval-MultiLineInfilling',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'prompt',
-#                 'answer_field': 'canonical_solution'
-#             }
-#         },
-
-#         'humaneval_infilling_singleline': {
-#             'hf_path': 'loubnabnl/humaneval_infilling',
-#             'hf_config': 'HumanEval-SingleLineInfilling',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'prompt',
-#                 'answer_field': 'canonical_solution'
-#             }
-#         },
-
-#         'humaneval_infilling_randomspan': {
-#             'hf_path': 'loubnabnl/humaneval_infilling',
-#             'hf_config': 'HumanEval-RandomSpanInfilling',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'prompt',
-#                 'answer_field': 'canonical_solution'
-#             }
-#         },
-
-#         'logiqa': {
-#             'hf_path': 'lucasmccabe/logiqa',
-#             'splits': ['train', 'validation', 'test'],
-#             'transform': {
-#                 'text_field': 'query',
-#                 'context_field': 'context',
-#                 'answer_field': 'correct_option'
-#             }
-#         },
-
-#         # ['boolean_expressions', 'causal_judgement', 'date_understanding', 'disambiguation_qa', 'dyck_languages', 'formal_fallacies', 'geometric_shapes', 'hyperbaton', 'logical_deduction_five_objects', 'logical_deduction_seven_objects', 'logical_deduction_three_objects', 'movie_recommendation', 'multistep_arithmetic_two', 'navigate', 'object_counting', 'penguins_in_a_table', 'reasoning_about_colored_objects', 'ruin_names', 'salient_translation_error_detection', 'snarks', 'sports_understanding', 'temporal_sequences', 'tracking_shuffled_objects_five_objects', 'tracking_shuffled_objects_seven_objects', 'tracking_shuffled_objects_three_objects', 'web_of_lies', 'word_sorting']
-#         'bbh_boolean_expressions': {
-#             'hf_path': 'lukaemon/bbh',
-#             'hf_config': 'boolean_expressions',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'input',
-#                 'answer_field': 'target'
-#             }
-#         },
-
-#         'bbh_causal_judgement': {
-#             'hf_path': 'lukaemon/bbh',
-#             'hf_config': 'causal_judgement',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'input',
-#                 'answer_field': 'target'
-#             }
-#         },
-
-#         'bbh_date_understanding': {
-#             'hf_path': 'lukaemon/bbh',
-#             'hf_config': 'date_understanding',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'input',
-#                 'answer_field': 'target'
-#             }
-#         },
-
-#         'bbh_disambiguation_qa': {
-#             'hf_path': 'lukaemon/bbh',
-#             'hf_config': 'disambiguation_qa',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'input',
-#                 'answer_field': 'target'
-#             }
-#         },
-
-#         'bbh_formal_fallacies': {
-#             'hf_path': 'lukaemon/bbh',
-#             'hf_config': 'formal_fallacies',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'input',
-#                 'answer_field': 'target'
-#             }
-#         },
-
-#         'bbh_logical_deduction_three_objects': {
-#             'hf_path': 'lukaemon/bbh',
-#             'hf_config': 'logical_deduction_three_objects',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'input',
-#                 'answer_field': 'target'
-#             }
-#         },
-
-#         'trivia_qa': {
-#             'hf_path': 'mandarjoshi/trivia_qa',
-#             'hf_config': 'rc',
-#             'splits': ['train', 'validation', 'test'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'answer_field': 'answer.value'
-#             },
-#             'no_answer_splits': ['test']
 #         },
 
 #         'multipl_e_humaneval_python': {  # Answers for humaneval appear to be in separate files?
@@ -2294,197 +1851,6 @@ EVAL_CONFIG = {
 #             }
 #         },
 
-#         'multipl_e_humaneval_js': {
-#             'hf_path': 'nuprl/MultiPL-E',
-#             'hf_config': 'humaneval-js',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'prompt',
-#             },
-#             'no_answer_splits': ['test']
-#         },
-
-#         'multipl_e_humaneval_java': {
-#             'hf_path': 'nuprl/MultiPL-E',
-#             'hf_config': 'humaneval-java',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'prompt',
-#             },
-#             'no_answer_splits': ['test']
-#         },
-
-#         'multipl_e_humaneval_go': {
-#             'hf_path': 'nuprl/MultiPL-E',
-#             'hf_config': 'humaneval-go',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'prompt',
-#             },
-#             'no_answer_splits': ['test']
-#         },
-
-#         'multipl_e_humaneval_cpp': {
-#             'hf_path': 'nuprl/MultiPL-E',
-#             'hf_config': 'humaneval-cpp',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'prompt',
-#             },
-#             'no_answer_splits': ['test']
-#         },
-
-#         'multipl_e_mbpp_python': {
-#             'hf_path': 'nuprl/MultiPL-E',
-#             'hf_config': 'mbpp-python',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'prompt',
-#             }
-#         },
-
-#         # 'mrcr': {
-#         #     'hf_path': 'openai/mrcr',
-#         #     'splits': ['train'],
-#         #     'transform': {
-#         #         'text_field': 'prompt'
-#         #     }
-#         # },
-
-#         'openbookqa': {
-#             'hf_path': 'allenai/openbookqa',
-#             'splits': ['train', 'validation', 'test'],
-#             'transform': {
-#                 'text_field': 'question_stem',
-#                 'answer_field': 'choices'
-#             }
-#         },
-
-#         'medmcqa': {
-#             'hf_path': 'openlifescienceai/medmcqa',
-#             'splits': ['train', 'test', 'validation'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'answer_field': 'exp'
-#             },
-#             'no_answer_splits': ['test']
-#         },
-
-#         'gsm_plus': {
-#             'hf_path': 'qintongli/GSM-Plus',
-#             'splits': ['test', 'testmini'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'answer_field': 'solution',
-#                 'extra_fields': ['perturbation_type']
-#             }
-#         },
-
-#         'squad': {
-#             'hf_path': 'squad',
-#             'splits': ['train', 'validation'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'context_field': 'context',
-#                 'answer_field': 'answers'
-#             }
-#         },
-
-#         'squad_v2': {
-#             'hf_path': 'rajpurkar/squad_v2',
-#             'splits': ['train', 'validation'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'context_field': 'context',
-#                 'answer_field': 'answers'
-#             }
-#         },
-
-#         'copycolors_mcqa': {
-#             'hf_path': 'sarahwie/copycolors_mcqa',
-#             'hf_config': '4_answer_choices',
-#             'splits': ['validation', 'test'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'answer_field': 'choices.text',
-#                 'answer_key_field': 'answerKey'
-#             },
-#             'no_answer_splits': ['test']
-#         },
-
-#         'sciq': {
-#             'hf_path': 'allenai/sciq',
-#             'splits': ['train', 'validation', 'test'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'context_field': 'support',
-#                 'answer_field': 'correct_answer'
-#             }
-#         },
-
-#         'social_i_qa': {
-#             'hf_path': 'allenai/social_i_qa',
-#             'splits': ['train', 'validation'],
-#             'transform': {
-#                 'context_field': 'context',
-#                 'text_field': 'question',
-#                 'answer_key_field': 'label',
-#                 'answer_prefix': 'answer',
-#                 'answer_label_transform': 'numbers_to_letters'
-#             }
-#         },
-
-#         'jeopardy': {
-#             'hf_path': 'soldni/jeopardy',
-#             'hf_config': 'all_questions',
-#             'splits': ['train'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'answer_field': 'continuation'
-#             }
-#         },
-
-#         'zero_scrolls_qasper': {  # Settled
-#             'hf_path': 'tau/zero_scrolls',
-#             'hf_config': 'qasper',
-#             'splits': ['validation', 'test'],
-#             'transform': {
-#                 'text_field': 'input',
-#                 'answer_field': 'output'
-#             },
-#             'no_answer_splits': ['test']
-#         },
-
-#         'mt_eval_refinement': {
-#             'hf_path': 'wckwan/MT-Eval',
-#             'hf_config': 'refinement_single',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'conv.0.user'
-#             },
-#             'no_answer_splits': ['test']
-#         },
-
-#         'winogrande': { # Settled
-#             'hf_path': 'allenai/winogrande',
-#             'hf_config': 'winogrande_l',
-#             'splits': ['train', 'test', 'validation'],
-#             'transform': {
-#                 'text_field': 'sentence',
-#                 'answer_key_field': 'answer',
-#                 'answer_prefix': 'option',
-#             },
-#             'no_answer_splits': ['test']
-#         },
-
-#         'ds_1000': { # Settled
-#             'hf_path': 'xlangai/DS-1000',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'prompt',
-#                 'answer_field': 'reference_code'
-#             }
-#         },
 
 #         # These need configs selected
 #         # 'omega_compositional': {
@@ -2505,15 +1871,6 @@ EVAL_CONFIG = {
 #         #     'transform': 'auto'
 #         # },
 
-#         'commonsense_qa': {
-#             'hf_path': 'commonsense_qa',
-#             'splits': ['train', 'validation', 'test'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'answer_field': 'answerKey'
-#             },
-#             'no_answer_splits': ['test']
-#         },
 
 #         'hellaswag': {
 #             'hf_path': 'hellaswag',
@@ -2523,47 +1880,6 @@ EVAL_CONFIG = {
 #                 'answer_field': 'label'
 #             },
 #             'no_answer_splits': ['test']  # TODO: has answer options, but none labeled.
-#         },
-
-#         'piqa': {
-#             'hf_path': 'piqa',
-#             'splits': ['train', 'test', 'validation'],
-#             'transform': {
-#                 'text_field': 'goal',
-#                 'answer_field': 'label'
-#             }
-#         },
-
-#         'super_glue_boolq': {
-#             'hf_path': 'aps/super_glue',
-#             'hf_config': 'boolq',
-#             'splits': ['train', 'validation', 'test'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'context_field': 'passage',
-#                 'answer_field': 'label'
-#             }
-#         },
-
-#         'super_glue_rte': {
-#             'hf_path': 'aps/super_glue',
-#             'hf_config': 'rte',
-#             'splits': ['train', 'validation', 'test'],
-#             'transform': {
-#                 'text_field': 'hypothesis',
-#                 'context_field': 'premise',
-#                 'answer_field': 'label'
-#             }
-#         },
-
-#         'truthful_qa': {
-#             'hf_path': 'truthfulqa/truthful_qa',
-#             'hf_config': 'generation',
-#             'splits': ['validation'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'answer_field': 'best_answer'
-#             }
 #         },
 
 #         # 'ultrachat_200k': {
@@ -2580,27 +1896,6 @@ EVAL_CONFIG = {
 #         #     }
 #         # },
 
-#         'lab_bench_dbqa': {
-#             'hf_path': 'futurehouse/lab-bench',
-#             'hf_config': 'DbQA',
-#             'splits': ['train'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'answer_field': 'ideal',
-#                 'choices_field': 'distractors'
-#             }
-#         },
-
-#         'lab_bench_protocolqa': {
-#             'hf_path': 'futurehouse/lab-bench',
-#             'hf_config': 'ProtocolQA',
-#             'splits': ['train'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'answer_field': 'ideal',
-#                 'choices_field': 'distractors'
-#             }
-#         },
 
 #         # New datasets from TARGET_TO_EVAL_MAPPING
 #         # Note: cais/hle is a gated dataset requiring access approval
@@ -2616,162 +1911,6 @@ EVAL_CONFIG = {
 #             }
 #         },
 
-#         'super_gpqa': {
-#             'hf_path': 'm-a-p/SuperGPQA',
-#             'splits': ['train'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'answer_field': 'answer',
-#                 'choices_field': 'options',
-#                 'extra_fields': ['discipline', 'field', 'subfield']
-#             }
-#         },
-
-#         'bbeh': {
-#             'hf_path': 'hubert233/BigBenchExtraHard',
-#             'splits': ['boardgame_qa', 'boolean_expressions', 'buggy_tables', 'causal_understanding',
-#                       'disambiguation_qa', 'dyck_languages', 'geometric_shapes', 'hyperbaton', 'linguini',
-#                       'movie_recommendation', 'multistep_arithmetic', 'nycc', 'object_counting',
-#                       'object_properties', 'sarc_triples', 'shuffled_objects', 'spatial_reasoning',
-#                       'sportqa', 'temporal_sequence', 'time_arithmetic', 'web_of_lies', 'word_sorting',
-#                       'zebra_puzzles'],
-#             'transform': {
-#                 'text_field': 'input',
-#                 'answer_field': 'target'
-#             }
-#         },
-
-#         'aime_2025_i': {
-#             'hf_path': 'opencompass/AIME2025',
-#             'hf_config': 'AIME2025-I',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'answer_field': 'answer'
-#             }
-#         },
-
-#         'aime_2025_ii': {
-#             'hf_path': 'opencompass/AIME2025',
-#             'hf_config': 'AIME2025-II',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'answer_field': 'answer'
-#             }
-#         },
-
-#         'humaneval_pro': {
-#             'hf_path': 'CodeEval-Pro/humaneval-pro',
-#             'splits': ['train'],
-#             'transform': {
-#                 'text_field': 'new_problem',
-#                 'answer_field': 'new_solution'
-#             }
-#         },
-
-#         'mbpp_pro': {
-#             'hf_path': 'CodeEval-Pro/mbpp-pro',
-#             'splits': ['train'],
-#             'transform': {
-#                 'text_field': 'new_problem',
-#                 'answer_field': 'new_solution'
-#             }
-#         },
-
-#         'codeforces': {
-#             'hf_path': 'open-r1/codeforces',
-#             'splits': ['test'],  # Only decontaminate test split as requested
-#             'transform': {
-#                 'text_field': 'description',
-#                 'context_field': 'title',
-#                 'extra_fields': ['contest_name', 'rating', 'tags']
-#             },
-#             'no_answer_splits': ['test']
-#         },
-
-#         'ifbench_multiturn_constraints': {
-#             'hf_path': 'allenai/IFBench_multi-turn',
-#             'hf_config': 'ifbench_constraints',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'prompt',
-#                 'answer_field': 'messages.1.content'
-#             }
-#         },
-
-#         'ifbench_multiturn_ifeval': {
-#             'hf_path': 'allenai/IFBench_multi-turn',
-#             'hf_config': 'ifeval_constraints',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'prompt'
-#             },
-#             'no_answer_splits': ['test']
-#         },
-
-#         'truthfulqa': {
-#             'hf_path': 'domenicrosati/TruthfulQA',
-#             'splits': ['train'],
-#             'transform': {
-#                 'text_field': 'Question',
-#                 'answer_field': 'Best Answer',
-#                 'extra_fields': ['Type', 'Category']
-#             }
-#         },
-
-#         'lbpp': {
-#             'hf_path': 'CohereLabs/lbpp',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'instruction',
-#                 'answer_field': 'completion'
-#             }
-#         },
-
-#         'repobench_python_cross_file_first': {
-#             'hf_path': 'tianyang/repobench_python_v1.1',
-#             'splits': ['cross_file_first'],
-#             'transform': {
-#                 'text_field': 'cropped_code',
-#                 'answer_field': 'next_line',
-#                 'extra_fields': ['repo_name', 'file_path', 'level'],
-#                 'strip_python_comments': True
-
-#             }
-#         },
-
-#         'repobench_python_cross_file_random': {
-#             'hf_path': 'tianyang/repobench_python_v1.1',
-#             'splits': ['cross_file_random'],
-#             'transform': {
-#                 'text_field': 'cropped_code',
-#                 'answer_field': 'next_line',
-#                 'extra_fields': ['repo_name', 'file_path', 'level'],
-#                 'strip_python_comments': True
-#             }
-#         },
-
-#         'repobench_python_in_file': {
-#             'hf_path': 'tianyang/repobench_python_v1.1',
-#             'splits': ['in_file'],
-#             'transform': {
-#                 'text_field': 'cropped_code',
-#                 'answer_field': 'next_line',
-#                 'extra_fields': ['repo_name', 'file_path', 'level'],
-#                 'strip_python_comments': True
-#             }
-#         },
-
-#         'xstest': {
-#             'hf_path': 'walledai/XSTest',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'prompt',
-#                 'answer_field': 'label',
-#                 'extra_fields': ['focus', 'type']
-#             }
-#         },
 #         # TODO: Review whether to include these?
 #         'harmbench_contextual': {
 #             'hf_path': 'walledai/HarmBench',
@@ -2785,89 +1924,6 @@ EVAL_CONFIG = {
 #             'no_answer_splits': ['train']
 #         },
 
-#         'harmbench_copyright': {
-#             'hf_path': 'walledai/HarmBench',
-#             'hf_config': 'copyright',
-#             'splits': ['train'],
-#             'transform': {
-#                 'text_field': 'prompt',
-#                 'extra_fields': ['tags']
-#             },
-#             'no_answer_splits': ['train']
-#         },
-
-#         'harmbench_standard': {
-#             'hf_path': 'walledai/HarmBench',
-#             'hf_config': 'standard',
-#             'splits': ['train'],
-#             'transform': {
-#                 'text_field': 'prompt',
-#                 'extra_fields': ['category']
-#             },
-#             'no_answer_splits': ['train']
-#         },
-
-#         'tulu3_do_anything_now': {
-#             'hf_path': 'allenai/tulu-3-do-anything-now-eval',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'adversarial',
-#                 'extra_fields': ['vanilla', 'jailbreak', 'platform', 'source']
-#             },
-#             'no_answer_splits': ['test']
-#         },
-
-#         'tulu3_trustllm_jailbreak': {
-#             'hf_path': 'allenai/tulu-3-trustllm-jailbreaktrigger-eval',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'prompt',
-#                 'extra_fields': ['label', 'source']
-#             },
-#             'no_answer_splits': ['test']
-#         },
-
-#         'wildjailbreak_train': {
-#             'hf_path': 'allenai/wildjailbreak',
-#             'hf_config': 'train',
-#             'splits': ['train'],
-#             'transform': {
-#                 'text_field': 'vanilla',
-#                 'extra_fields': ['data_type']
-#             }
-#         },
-
-#         'wildjailbreak_eval': {
-#             'hf_path': 'allenai/wildjailbreak',
-#             'hf_config': 'eval',
-#             'splits': ['train'],
-#             'transform': {
-#                 'text_field': 'adversarial',
-#                 'extra_fields': ['label', 'data_type']
-#             },
-#             'no_answer_splits': ['train']
-#         },
-
-#         'wildguardtest': {
-#             'hf_path': 'walledai/WildGuardTest',
-#             'splits': ['train'],
-#             'transform': {
-#                 'text_field': 'prompt',
-#                 'answer_field': 'label',
-#                 'extra_fields': ['adversarial']
-#             }
-#         },
-
-#         # AGIEval English datasets (loaded from local files)
-#         'agi_eval_aqua_rat': {
-#             'local_path': 'fixtures/reference-static/aqua-rat.jsonl',
-#             'splits': ['train'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'context_field': 'passage',
-#                 'answer_field': 'other.solution',
-#             }
-#         },
 
 #         # TODO: needs regexp to extract
 #         'agi_eval_gaokao_english': {
@@ -2881,91 +1937,6 @@ EVAL_CONFIG = {
 #             }
 #         },
 
-#         'agi_eval_logiqa_en': {
-#             'local_path': 'fixtures/reference-static/logiqa-en.jsonl',
-#             'splits': ['train'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'context_field': 'passage',
-#                 'answer_field': 'label',
-#                 'choices_field': 'options',
-#                 'combine_context_and_question': True,
-#             }
-#         },
-
-#         'agi_eval_lsat_ar': {
-#             'local_path': 'fixtures/reference-static/lsat-ar.jsonl',
-#             'splits': ['train'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'context_field': 'passage',
-#                 'answer_field': 'label',
-#                 'choices_field': 'options'
-#             }
-#         },
-
-#         'agi_eval_lsat_lr': {
-#             'local_path': 'fixtures/reference-static/lsat-lr.jsonl',
-#             'splits': ['train'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'context_field': 'passage',
-#                 'answer_field': 'label',
-#                 'combine_context_and_question': True,
-#             }
-#         },
-
-#         'agi_eval_lsat_rc': {
-#             'local_path': 'fixtures/reference-static/lsat-rc.jsonl',
-#             'splits': ['train'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'context_field': 'passage',
-#                 'answer_field': 'label',
-#                 'combine_context_and_question': True,
-#             }
-#         },
-
-#         'agi_eval_math': {
-#             'local_path': 'fixtures/reference-static/math.jsonl',
-#             'splits': ['train'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'answer_field': 'other.solution'
-#             }
-#         },
-
-#         'agi_eval_sat_en': {
-#             'local_path': 'fixtures/reference-static/sat-en.jsonl',
-#             'splits': ['train'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'context_field': 'passage',
-#                 'answer_field': 'other.solution'
-#             }
-#         },
-
-#         'agi_eval_sat_en_without_passage': {
-#             'local_path': 'fixtures/reference-static/sat-en-without-passage.jsonl',
-#             'splits': ['train'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'answer_field': 'label',
-#                 'answer_field': 'other.solution'
-#             }
-#         },
-
-#         'agi_eval_sat_math': {
-#             'local_path': 'fixtures/reference-static/sat-math.jsonl',
-#             'splits': ['train'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'context_field': 'passage',
-#                 'answer_field': 'other.solution'
-#             }
-#         }
-#     }
-# }
 
 
 # split_document function removed - no longer needed without text concatenation
@@ -3512,8 +2483,40 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                     if not question or question.strip() == '':
                         continue
 
+                    # Handle last_paragraph_field if configured
+                    if 'last_paragraph_field' in eval_config['transform']:
+                        paragraph_field = eval_config['transform']['last_paragraph_field']
+                        min_words = eval_config['transform'].get('min_paragraph_words', 10)
+                        paragraphs = get_nested_field(example, paragraph_field)
+
+                        if paragraphs and isinstance(paragraphs, list):
+                            # Find the last non-empty paragraph with enough words
+                            last_paragraph = None
+                            # Iterate through paragraphs in reverse order
+                            for para_group in reversed(paragraphs):
+                                if isinstance(para_group, list):
+                                    # Iterate through inner paragraphs in reverse
+                                    for para in reversed(para_group):
+                                        if para and isinstance(para, str):
+                                            # Count words
+                                            word_count = len(para.split())
+                                            if word_count >= min_words:
+                                                last_paragraph = para
+                                                break
+                                elif isinstance(para_group, str) and para_group:
+                                    # Handle case where it's a flat list of strings
+                                    word_count = len(para_group.split())
+                                    if word_count >= min_words:
+                                        last_paragraph = para_group
+                                        break
+                                if last_paragraph:
+                                    break
+
+                            # Concatenate with question if we found a suitable paragraph
+                            if last_paragraph:
+                                question = f"{last_paragraph} {question}"
                     # Combine context and question if configured
-                    if eval_config['transform'].get('combine_context_and_question', False):
+                    elif eval_config['transform'].get('combine_context_and_question', False):
                         if context and context.strip():
                             # Combine context and question with a space separator
                             question = f"{context} {question}"
