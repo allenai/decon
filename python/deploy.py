@@ -50,11 +50,10 @@ class DeploymentConfig:
     # Server configuration
     mode: str = "simple"
     content_key: str = "text"
-    ngram_size: int = 4
+    ngram_size: int = 5
     question_threshold: float = 0.8
     answer_threshold: float = 0.8
-    tokenizer_str: str = "word"
-    debug: bool = False
+    tokenizer_str: str = "cl100k"
     purify: bool = False
     reference_input: str = "fixtures/reference-best-available"
 
@@ -172,7 +171,6 @@ class DeploymentManager:
         server_cmd = "cd decon && nohup cargo run --release -- server --config config/simple.yaml"
 
         # Add all configuration overrides
-        server_cmd += f" --mode {self.config.mode}"
         server_cmd += f" --content-key {self.config.content_key}"
         server_cmd += f" --ngram-size {self.config.ngram_size}"
         server_cmd += f" --question-threshold {self.config.question_threshold}"
@@ -187,11 +185,8 @@ class DeploymentManager:
         if self.config.server_port != 8080:
             server_cmd += f" --port {self.config.server_port}"
 
-        if self.config.debug:
-            server_cmd += " --debug true"
-
         if self.config.purify:
-            server_cmd += " --purify true"
+            server_cmd += " --purify"
 
         server_cmd += " > server.log 2>&1 & disown"
 
@@ -496,7 +491,6 @@ def wizard():
     reference_input = reference_input_map[reference_choice]
 
     # Other options
-    debug = False  # Debug mode hardcoded to false
     server_port = 8080  # Server port hardcoded to default
 
     # Force local work directory to /mnt/decon-work
@@ -518,7 +512,6 @@ def wizard():
         question_threshold=question_threshold,
         answer_threshold=answer_threshold,
         tokenizer_str=tokenizer_str,
-        debug=debug,
         purify=purify,
         reference_input=reference_input,
         # Orchestrator settings
@@ -572,7 +565,7 @@ def wizard():
     print(f"  --name {cluster_name} \\")
     print("  --command \"cd decon && nohup cargo run --release -- server \\")
     print("    --config config/simple-cl100k.yaml \\")
-    print(f"    --mode {mode} --content-key {content_key} \\")
+    print(f"    --content-key {content_key} \\")
     print(f"    --question-threshold {question_threshold} \\")
     print(f"    --answer-threshold {answer_threshold} \\")
     print(f"    --reference-input {reference_input} \\")
@@ -580,7 +573,7 @@ def wizard():
     print(f"    --cleaned-output-dir {local_work_dir}/cleaned", end="")
     if purify:
         print(" \\")
-        print("    --purify true", end="")
+        print("    --purify", end="")
     print(" \\")
     print("    > server.log 2>&1 & disown\" \\")
     print(f"  --ssh-key-path {ssh_key} \\")
@@ -620,11 +613,10 @@ def wizard():
 # Server options
 @click.option("--mode", default="simple", type=click.Choice(['simple', 'minhash', 'toxic']), help="Detection mode")
 @click.option("--content-key", default="text", help="JSON field containing text")
-@click.option("--ngram-size", default=4, type=int, help="N-gram size")
+@click.option("--ngram-size", default=5, type=int, help="N-gram size")
 @click.option("--question-threshold", default=0.8, type=float, help="Question contamination threshold [0-1]")
 @click.option("--answer-threshold", default=0.8, type=float, help="Answer contamination threshold [0-1]")
-@click.option("--tokenizer", default="word", type=click.Choice(['word', 'p50k', 'cl100k']), help="Tokenizer")
-@click.option("--debug/--no-debug", default=False, help="Enable debug mode")
+@click.option("--tokenizer", default="cl100k", type=click.Choice(['word', 'uniseg', 'p50k', 'cl100k']), help="Tokenizer")
 @click.option("--purify/--no-purify", default=False, help="Enable data purification")
 # Orchestrator options
 @click.option("--remote-file-input", help="S3 path for input data")
@@ -634,7 +626,7 @@ def wizard():
 def deploy(name, owner, instances, instance_type, ssh_key, github_token, server_port,
           mode, content_key, ngram_size,
           question_threshold, answer_threshold, tokenizer,
-          debug, purify, remote_file_input, remote_report_output_dir,
+          purify, remote_file_input, remote_report_output_dir,
           remote_cleaned_output_dir, local_work_dir):
     """Deploy Decon cluster (non-interactive)"""
     deploy_config = DeploymentConfig(
@@ -652,7 +644,6 @@ def deploy(name, owner, instances, instance_type, ssh_key, github_token, server_
         question_threshold=question_threshold,
         answer_threshold=answer_threshold,
         tokenizer_str=tokenizer,
-        debug=debug,
         purify=purify,
         # Orchestrator settings
         remote_file_input=remote_file_input,

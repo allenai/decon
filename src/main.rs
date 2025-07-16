@@ -324,14 +324,19 @@ enum Commands {
         )]
         refine: bool,
 
-        #[arg(long, help = "Show statistics for reference datasets in a directory\n")]
-        stats: Option<PathBuf>,
+        #[arg(
+            long,
+            help = "Perform a dry run - show statistics without writing files (for --refine)\n"
+        )]
+        dry_run: bool,
 
         #[arg(
             long,
-            help = "Perform a dry run - show statistics without writing files (for --refine)"
+            help = "Show statistics for reference datasets in a directory\n",
+            value_name = "DIR",
+            default_value = "fixtures/reference-best-available"
         )]
-        dry_run: bool,
+        stats: Option<PathBuf>,
     },
 }
 
@@ -847,6 +852,18 @@ fn contamination_detect_with_config(config_obj: &Config) -> Result<(), Error> {
             println!("  Question threshold: {}", config_obj.question_threshold);
             println!("  Answer threshold: {}", config_obj.answer_threshold);
             println!("  Tokenizer: {}", config_obj.tokenizer_str);
+            
+            println!("\nInput and Output:");
+            println!("  Local input: {}", config_obj.local_input.display());
+            println!("  Content key: {}", config_obj.content_key);
+            println!("  Reference input: {}", config_obj.reference_input.display());
+            println!("  Report output dir: {}", config_obj.report_output_dir.display());
+            if let Some(ref cleaned_dir) = config_obj.cleaned_output_dir {
+                println!("  Cleaned output dir: {}", cleaned_dir.display());
+            }
+            println!("  Purify: {}", config_obj.purify);
+            println!();
+            
             simple::contamination_detect(&config_obj)
         }
         unknown_mode => {
