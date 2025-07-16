@@ -320,10 +320,22 @@ enum Commands {
         skip_hot_bucket_threshold: Option<i32>,
     },
 
-    RefineReferences {
+    References {
         #[arg(
             long,
-            help = "Perform a dry run - show statistics without writing files"
+            help = "Refine reference files by removing duplicates and normalizing"
+        )]
+        refine: bool,
+
+        #[arg(
+            long,
+            help = "Show statistics for reference datasets in a directory"
+        )]
+        stats: Option<PathBuf>,
+
+        #[arg(
+            long,
+            help = "Perform a dry run - show statistics without writing files (for --refine)"
         )]
         dry_run: bool,
     },
@@ -1243,7 +1255,16 @@ fn main() -> Result<(), Error> {
             runtime.block_on(daemon::run_daemon(loaded_config, *port))
         }
 
-        Commands::RefineReferences { dry_run } => reference::refine_reference_files(*dry_run),
+        Commands::References { refine, stats, dry_run } => {
+            if *refine {
+                reference::refine_reference_files(*dry_run)
+            } else if let Some(stats_dir) = stats {
+                reference::collect_reference_stats(stats_dir)
+            } else {
+                eprintln!("Error: Must specify either --refine or --stats");
+                std::process::exit(1);
+            }
+        },
     };
     result
 }

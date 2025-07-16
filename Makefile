@@ -11,6 +11,7 @@ help:
 	@echo "  fp         - Run review mode to show False Positives"
 	@echo "  fn         - Run review mode to show False Negatives"
 	@echo "  refine     - Run reference data refinement"
+	@echo "  reference-stats - Display statistics for reference datasets (usage: make reference-stats <path>)"
 	@echo "  evals      - Download evaluation datasets using Python script"
 	@echo "  evals-s3   - Download evaluation datasets from S3 bucket decon-evals"
 	@echo "  push-evals - Push evaluation datasets to S3 bucket decon-evals (deletes existing content)"
@@ -125,7 +126,16 @@ embeddings:
 	python python/prepare_embeddings.py
 
 refine:
-	cargo run --release refine-references
+	cargo run --release references --refine
+
+reference-stats:
+	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
+		echo "Usage: make reference-stats <path-to-reference-directory>"; \
+		echo "Example: make reference-stats fixtures/reference-best-available"; \
+	else \
+		DIR=$(filter-out $@,$(MAKECMDGOALS)); \
+		cargo run --release references --stats $$DIR; \
+	fi
 
 daemon:
 	cargo run --release daemon --config config/simple.yaml --port 8080

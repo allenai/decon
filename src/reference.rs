@@ -1234,3 +1234,181 @@ fn display_side_by_side(text1: &str, text2: &str, width: usize) {
         }
     }
 }
+
+pub fn collect_reference_stats(stats_dir: &PathBuf) -> Result<(), Error> {
+    println!("Collecting statistics for reference datasets in: {:?}", stats_dir);
+    println!();
+
+    // Check if directory exists
+    if !stats_dir.exists() {
+        eprintln!("Error: Directory not found: {:?}", stats_dir);
+        return Err(anyhow::anyhow!("Directory not found"));
+    }
+
+    // Find all JSONL files in the directory
+    let reference_files = expand_dirs(
+        vec![stats_dir.clone()],
+        Some(vec![".jsonl", ".gz"].as_slice()),
+    )?;
+
+    if reference_files.is_empty() {
+        println!("No JSONL files found in {:?}", stats_dir);
+        return Ok(());
+    }
+
+    // Collect stats for each eval dataset
+    let mut eval_stats: HashMap<String, EvalStats> = HashMap::new();
+
+    for file_path in &reference_files {
+        if let Err(e) = process_file_for_stats(file_path, &mut eval_stats) {
+            eprintln!("Error processing file {:?}: {:?}", file_path, e);
+        }
+    }
+
+    // Display the stats in a table
+    display_stats_table(&eval_stats);
+
+    Ok(())
+}
+
+#[derive(Default)]
+struct EvalStats {
+    question_count: usize,
+    answer_count: usize,
+    question_lengths: Vec<usize>,
+    answer_lengths: Vec<usize>,
+}
+
+fn process_file_for_stats(
+    file_path: &PathBuf,
+    eval_stats: &mut HashMap<String, EvalStats>,
+) -> Result<(), Error> {
+    // Extract eval name from filename (part before first underscore)
+    let filename = file_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown");
+    
+    let eval_name = filename
+        .split('_')
+        .next()
+        .unwrap_or(filename)
+        .to_string();
+
+    // Get or create stats for this eval
+    let stats = eval_stats.entry(eval_name).or_insert_with(EvalStats::default);
+
+    // Open file
+    let file = File::open(file_path)?;
+    let reader: Box<dyn BufRead> = if file_path.extension().and_then(|s| s.to_str()) == Some("gz") {
+        Box::new(BufReader::new(GzDecoder::new(file)))
+    } else {
+        Box::new(BufReader::new(file))
+    };
+
+    // Process each line
+    for line in reader.lines() {
+        let line = line?;
+
+        // Skip empty lines and comments
+        if line.trim().is_empty() || line.trim_start().starts_with('#') {
+            continue;
+        }
+
+        // Parse JSON
+        let json_obj: Value = match serde_json::from_str(&line) {
+            Ok(obj) => obj,
+            Err(_) => continue, // Skip invalid JSON
+        };
+
+        // Check for question field
+        if let Some(question) = json_obj.get("question").and_then(|v| v.as_str()) {
+            if !question.trim().is_empty() {
+                stats.question_count += 1;
+                stats.question_lengths.push(question.len());
+            }
+        }
+
+        // Check for answer field
+        if let Some(answer) = json_obj.get("answer").and_then(|v| v.as_str()) {
+            if !answer.trim().is_empty() {
+                stats.answer_count += 1;
+                stats.answer_lengths.push(answer.len());
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn display_stats_table(eval_stats: &HashMap<String, EvalStats>) {
+    // Sort by question count descending
+    let mut sorted_evals: Vec<(&String, &EvalStats)> = eval_stats.iter().collect();
+    sorted_evals.sort_by(|a, b| b.1.question_count.cmp(&a.1.question_count));
+
+    // Calculate column widths - double the eval name width
+    let eval_width = sorted_evals
+        .iter()
+        .map(|(name, _)| name.len())
+        .max()
+        .unwrap_or(10)
+        .max(10) * 2; // Double the width for eval names
+
+    // Print table header
+    println!("┌{:─<width$}┬{:─>10}┬{:─>10}┬{:─>10}┬{:─>10}┬{:─>10}┬{:─>10}┬{:─>10}┬{:─>10}┐",
+        "─", "─", "─", "─", "─", "─", "─", "─", "─",
+        width = eval_width + 2
+    );
+    println!("│ {:<width$} │ {:>9} │ {:>9} │ {:>9} │ {:>9} │ {:>9} │ {:>9} │ {:>9} │ {:>9} │",
+        "Eval Name", "Questions", "Answers", "Min Q Len", "Avg Q Len", "Max Q Len", 
+        "Min A Len", "Avg A Len", "Max A Len",
+        width = eval_width
+    );
+    println!("├{:─<width$}┼{:─>10}┼{:─>10}┼{:─>10}┼{:─>10}┼{:─>10}┼{:─>10}┼{:─>10}┼{:─>10}┤",
+        "─", "─", "─", "─", "─", "─", "─", "─", "─",
+        width = eval_width + 2
+    );
+
+    // Print each eval's stats
+    for (eval_name, stats) in sorted_evals {
+        let (min_q, avg_q, max_q) = if !stats.question_lengths.is_empty() {
+            let min = *stats.question_lengths.iter().min().unwrap();
+            let avg = stats.question_lengths.iter().sum::<usize>() as f64 / stats.question_lengths.len() as f64;
+            let max = *stats.question_lengths.iter().max().unwrap();
+            (min.to_string(), format!("{:.0}", avg), max.to_string())
+        } else {
+            ("-".to_string(), "-".to_string(), "-".to_string())
+        };
+
+        let (min_a, avg_a, max_a) = if !stats.answer_lengths.is_empty() {
+            let min = *stats.answer_lengths.iter().min().unwrap();
+            let avg = stats.answer_lengths.iter().sum::<usize>() as f64 / stats.answer_lengths.len() as f64;
+            let max = *stats.answer_lengths.iter().max().unwrap();
+            (min.to_string(), format!("{:.0}", avg), max.to_string())
+        } else {
+            ("-".to_string(), "-".to_string(), "-".to_string())
+        };
+
+        println!("│ {:<width$} │ {:>9} │ {:>9} │ {:>9} │ {:>9} │ {:>9} │ {:>9} │ {:>9} │ {:>9} │",
+            eval_name, 
+            stats.question_count,
+            stats.answer_count,
+            min_q, avg_q, max_q,
+            min_a, avg_a, max_a,
+            width = eval_width
+        );
+    }
+
+    // Print table footer
+    println!("└{:─<width$}┴{:─>10}┴{:─>10}┴{:─>10}┴{:─>10}┴{:─>10}┴{:─>10}┴{:─>10}┴{:─>10}┘",
+        "─", "─", "─", "─", "─", "─", "─", "─", "─",
+        width = eval_width + 2
+    );
+
+    // Print summary
+    let total_questions: usize = eval_stats.values().map(|s| s.question_count).sum();
+    let total_answers: usize = eval_stats.values().map(|s| s.answer_count).sum();
+    println!("\nTotal evals: {}", eval_stats.len());
+    println!("Total questions: {}", total_questions);
+    println!("Total answers: {}", total_answers);
+}
