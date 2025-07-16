@@ -62,7 +62,7 @@ enum Commands {
 
         #[arg(
             long,
-            help = "JSON field containing text content in training documents",
+            help = "JSON field containing text content in training documents [default: text]",
             display_order = 2,
             help_heading = "Input and Output"
         )]
@@ -71,6 +71,7 @@ enum Commands {
         #[arg(
             long,
             help = "Directory containing reference data (evals) in decon expected format",
+            default_value = "fixtures/reference-best-available",
             display_order = 3,
             help_heading = "Input and Output"
         )]
@@ -86,7 +87,7 @@ enum Commands {
 
         #[arg(
             long,
-            help = "Output directory for cleaned files",
+            help = "Output directory for cleaned files when --purify option is set.",
             display_order = 5,
             help_heading = "Input and Output"
         )]
@@ -111,7 +112,7 @@ enum Commands {
         // Matching and Scoring
         #[arg(
             long,
-            help = "Tokenizer type: word, p50k, or cl100k [default: cl100k]",
+            help = "Tokenizer type: word, uniseg, p50k, or cl100k [default: cl100k]",
             display_order = 8,
             help_heading = "Matching and Scoring"
         )]
@@ -158,6 +159,7 @@ enum Commands {
         answer_threshold: Option<f32>,
     },
 
+    #[command(about = "Review and analyze detect results")]
     Review {
         #[arg(long)]
         config: Option<PathBuf>,
@@ -193,6 +195,7 @@ enum Commands {
         eval: Option<String>,
     },
 
+    #[command(about = "Run decon as an HTTP server for orchestrated pipelines")]
     Server {
         // Configuration
         #[arg(
@@ -216,7 +219,7 @@ enum Commands {
         // Input and Output
         #[arg(
             long,
-            help = "Directory containing training data in jsonl format",
+            help = "Directory containing training data in jsonl format\n",
             display_order = 3,
             help_heading = "Input and Output"
         )]
@@ -224,7 +227,7 @@ enum Commands {
 
         #[arg(
             long,
-            help = "JSON field containing text content",
+            help = "JSON field containing text content [default: text]\n",
             display_order = 4,
             help_heading = "Input and Output"
         )]
@@ -233,6 +236,7 @@ enum Commands {
         #[arg(
             long,
             help = "Directory containing evaluation/reference data",
+            default_value = "fixtures/reference-best-available",
             display_order = 5,
             help_heading = "Input and Output"
         )]
@@ -240,7 +244,7 @@ enum Commands {
 
         #[arg(
             long,
-            help = "Output directory for contamination reports",
+            help = "Output directory for contamination reports\n",
             display_order = 6,
             help_heading = "Input and Output"
         )]
@@ -248,7 +252,7 @@ enum Commands {
 
         #[arg(
             long,
-            help = "Output directory for cleaned files",
+            help = "Output directory for cleaned files when --purify option is set.\n",
             display_order = 7,
             help_heading = "Input and Output"
         )]
@@ -273,7 +277,7 @@ enum Commands {
 
         #[arg(
             long,
-            help = "N-gram size for SIMPLE mode [default: 5]",
+            help = "N-gram size for SIMPLE mode [default: 5]\n",
             display_order = 10,
             help_heading = "Matching and Scoring"
         )]
@@ -281,7 +285,7 @@ enum Commands {
 
         #[arg(
             long,
-            help = "Sample every M tokens for SIMPLE mode [default: ngram_size + 1]",
+            help = "Sample every M tokens for SIMPLE mode [default: ngram_size + 1]\n",
             display_order = 11,
             help_heading = "Matching and Scoring"
         )]
@@ -289,7 +293,7 @@ enum Commands {
 
         #[arg(
             long,
-            help = "Max consecutive misses before stopping cluster expansion [default: 2]",
+            help = "Max consecutive misses before stopping cluster expansion [default: 2]\n",
             display_order = 12,
             help_heading = "Matching and Scoring"
         )]
@@ -297,7 +301,7 @@ enum Commands {
 
         #[arg(
             long,
-            help = "Contamination score threshold for questions in SIMPLE mode [default: 0.8]",
+            help = "Contamination score threshold for questions in SIMPLE mode [default: 0.8]\n",
             display_order = 13,
             help_heading = "Matching and Scoring"
         )]
@@ -312,14 +316,15 @@ enum Commands {
         answer_threshold: Option<f32>,
     },
 
+    #[command(about = "Manage and analyze reference datasets")]
     References {
         #[arg(
             long,
-            help = "Refine reference files by removing duplicates and normalizing"
+            help = "Refine reference files by removing duplicates and normalizing\n"
         )]
         refine: bool,
 
-        #[arg(long, help = "Show statistics for reference datasets in a directory")]
+        #[arg(long, help = "Show statistics for reference datasets in a directory\n")]
         stats: Option<PathBuf>,
 
         #[arg(
@@ -348,6 +353,7 @@ pub struct Config {
     pub hash_seed: usize,
 
     // Data configuration
+    #[serde(default = "default_content_key")]
     pub content_key: String,
 
     // Directory paths
@@ -420,6 +426,10 @@ fn default_ngram_size() -> usize {
 
 fn default_tokenizer_str() -> String {
     "cl100k".to_string() // Default tokenizer
+}
+
+fn default_content_key() -> String {
+    "text".to_string() // Default content key
 }
 
 fn default_sample_every_m_tokens() -> usize {
