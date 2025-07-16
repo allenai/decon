@@ -1350,7 +1350,7 @@ fn display_stats_table(eval_stats: &HashMap<String, EvalStats>) {
     let eval_width = 20;
 
     // Print table header
-    println!("┌{:─<width$}┬{:─>11}┬{:─>11}┬{:─>9}┬{:─>9}┬{:─>8}┬{:─>8}┬{:─>8}┬{:─>8}┐",
+    println!("┌{:─<width$}┬{:─>11}┬{:─>11}┬{:─>9}┬{:─>9}┬{:─>9}┬{:─>9}┬{:─>9}┬{:─>9}┐",
         "─", "─", "─", "─", "─", "─", "─", "─", "─",
         width = eval_width + 2
     );
@@ -1359,7 +1359,7 @@ fn display_stats_table(eval_stats: &HashMap<String, EvalStats>) {
         "Min A", "Avg A", "Max A",
         width = eval_width
     );
-    println!("├{:─<width$}┼{:─>10}┼{:─>10}┼{:─>8}┼{:─>8}┼{:─>8}┼{:─>8}┼{:─>8}┼{:─>8}┤",
+    println!("├{:─<width$}┼{:─>11}┼{:─>11}┼{:─>9}┼{:─>9}┼{:─>9}┼{:─>9}┼{:─>9}┼{:─>9}┤",
         "─", "─", "─", "─", "─", "─", "─", "─", "─",
         width = eval_width + 2
     );
@@ -1395,7 +1395,7 @@ fn display_stats_table(eval_stats: &HashMap<String, EvalStats>) {
     }
 
     // Print table footer
-    println!("└{:─<width$}┴{:─>10}┴{:─>10}┴{:─>8}┴{:─>8}┴{:─>8}┴{:─>8}┴{:─>8}┴{:─>8}┘",
+    println!("└{:─<width$}┴{:─>11}┴{:─>11}┴{:─>9}┴{:─>9}┴{:─>9}┴{:─>9}┴{:─>9}┴{:─>9}┘",
         "─", "─", "─", "─", "─", "─", "─", "─", "─",
         width = eval_width + 2
     );

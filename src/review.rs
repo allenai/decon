@@ -144,10 +144,6 @@ pub fn review_contamination(
     dir: Option<&PathBuf>,
     step: bool,
     metric: bool,
-    fp: bool,
-    fn_: bool,
-    tp: bool,
-    tn: bool,
     stats: bool,
     all: bool,
     min_overlap_ratio: Option<f32>,
@@ -388,13 +384,9 @@ pub fn review_contamination(
         return Ok(());
     }
 
-    // Handle filtering flags
-    let filter_requested = fp || fn_ || tp || tn;
-    let mut filtered_results = if filter_requested {
-        filter_contamination_results(&contamination_results, &ground_truth, fp, fn_, tp, tn)?
-    } else {
-        contamination_results.clone()
-    };
+    // No filtering flags anymore
+    let filter_requested = false;
+    let mut filtered_results = contamination_results.clone();
 
     // Re-sort after filtering to maintain ascending contamination_score order
     filtered_results.sort_by(|a, b| {
@@ -406,22 +398,14 @@ pub fn review_contamination(
     });
 
     if filtered_results.is_empty() {
-        if filter_requested {
-            println!("No contamination instances match the selected filter criteria.");
-        } else {
-            println!("No contamination found in results file.");
-        }
+        println!("No contamination found in results file.");
         return Ok(());
     }
 
     println!(
         "Found {} contamination instances to review{}\n",
         filtered_results.len(),
-        if filter_requested {
-            " (after filtering)"
-        } else {
-            ""
-        }
+        ""
     );
 
     // Review each contamination case

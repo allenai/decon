@@ -6,10 +6,6 @@ help:
 	@echo "  simple     - Run simple contamination detection with dev config"
 	@echo "  review     - Review contamination cases from a directory (usage: make review [directory], default: fixtures/output)"
 	@echo "  stats      - Display eval dataset statistics from a directory (usage: make stats [directory], default: fixtures/output)"
-	@echo "  tp         - Run review mode to show True Positives"
-	@echo "  tn         - Run review mode to show True Negatives"
-	@echo "  fp         - Run review mode to show False Positives"
-	@echo "  fn         - Run review mode to show False Negatives"
 	@echo "  refine     - Run reference data refinement"
 	@echo "  reference-stats - Display statistics for reference datasets (usage: make reference-stats <path>)"
 	@echo "  evals      - Download evaluation datasets using Python script"
@@ -94,18 +90,6 @@ stats:
 		FILTER_ARGS="$$FILTER_ARGS --eval $(EVAL)"; \
 	fi; \
 	cargo run --release -- review --stats --dir $$DIR $$FILTER_ARGS
-
-fn:
-	cargo run -- review --config config/simple.yaml --fn
-
-fp:
-	cargo run -- review --config config/simple.yaml --fp
-
-tp:
-	cargo run -- review --config config/simple.yaml --tp
-
-tn:
-	cargo run -- review --config config/simple.yaml --tn
 
 
 

@@ -163,29 +163,6 @@ enum Commands {
         )]
         metric: bool,
 
-        #[arg(
-            long,
-            help = "Show only false positives (detected as contaminated but actually clean)"
-        )]
-        fp: bool,
-
-        #[arg(
-            long,
-            help = "Show only false negatives (missed contamination - actually contaminated but not detected)"
-        )]
-        fn_: bool,
-
-        #[arg(
-            long,
-            help = "Show only true positives (correctly detected contamination)"
-        )]
-        tp: bool,
-
-        #[arg(
-            long,
-            help = "Show only true negatives (correctly identified as clean - requires ground truth)"
-        )]
-        tn: bool,
 
         #[arg(
             long,
@@ -1112,10 +1089,6 @@ fn main() -> Result<(), Error> {
             dir,
             step,
             metric,
-            fp,
-            fn_,
-            tp,
-            tn,
             stats,
             all,
             min_overlap_ratio,
@@ -1128,10 +1101,6 @@ fn main() -> Result<(), Error> {
             dir.as_ref(),
             *step,
             *metric,
-            *fp,
-            *fn_,
-            *tp,
-            *tn,
             *stats,
             *all,
             *min_overlap_ratio,
