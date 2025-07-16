@@ -7,7 +7,7 @@ This directory contains the Python orchestration scripts for running distributed
 The orchestration system allows you to:
 - Distribute contamination detection across multiple hosts
 - Download training files from S3 (supports .jsonl, .jsonl.gz, .jsonl.zst, .jsonl.bz2, .jsonl.xz)
-- Submit files to the local daemon for processing
+- Submit files to the local server for processing
 - Upload results and cleaned files back to S3
 - Handle failures gracefully
 
@@ -41,8 +41,8 @@ remote_file_input: s3://your-bucket/training-data/
 remote_report_output_dir: s3://your-bucket/output/  # Contamination reports go here
 remote_cleaned_output_dir: s3://your-bucket/cleaned/  # Cleaned files go here (when purify=true)
 
-# Daemon configuration
-daemon_url: http://localhost:8080
+# Server configuration
+server_url: http://localhost:8080
 
 # Local working directory
 local_work_dir: /tmp/decon-work
@@ -59,8 +59,8 @@ cleanup_delay: 10
 ### Single Host
 
 ```bash
-# Start the daemon first
-make daemon
+# Start the server first
+make server
 
 # Run orchestration
 python python/orchestration.py --config config/orchestration.yaml
@@ -109,7 +109,7 @@ When `MAX_FILES_DEBUG` is set:
 
 1. **File Distribution**: Each host is assigned files based on a hash of the filename modulo the host count
 2. **Download**: Uses s5cmd for efficient batch downloads from S3
-3. **Processing**: Submits files to the local daemon and tracks job status
+3. **Processing**: Submits files to the local server and tracks job status
 4. **Upload**: Uploads contamination results and cleaned files to S3
 5. **Cleanup**: Removes local files after successful processing
 

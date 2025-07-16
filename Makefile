@@ -13,9 +13,9 @@ help:
 	@echo "  push-evals - Push evaluation datasets to S3 bucket decon-evals (deletes existing content)"
 	@echo "  embeddings - Download and prepare word embeddings using Python script"
 	@echo ""
-	@echo "Daemon targets:"
-	@echo "  daemon     - Start the daemon server on port 8080"
-	@echo "  health     - Check daemon health status"
+	@echo "Server targets:"
+	@echo "  server     - Start the server on port 8080"
+	@echo "  health     - Check server health status"
 	@echo "  submit     - Submit a file for processing (usage: make submit FILE=<path>)"
 	@echo "  status     - Check job status (usage: make status JOB_ID=<id>)"
 	@echo ""
@@ -31,7 +31,7 @@ help:
 	@echo "Deployment targets (requires poormanray):"
 	@echo "  poormanray-command-generator - Interactive walk to setup Decon on EC2"
 	@echo "  deploy-status     - Check status of a deployment (usage: make deploy-status NAME=<cluster-name>)"
-	@echo "  deploy-logs       - View deployment logs (usage: make deploy-logs NAME=<cluster-name> [LOG=daemon|orchestrator])"
+	@echo "  deploy-logs       - View deployment logs (usage: make deploy-logs NAME=<cluster-name> [LOG=server|orchestrator])"
 	@echo "  deploy-terminate  - Terminate a deployment (usage: make deploy-terminate NAME=<cluster-name>)"
 	@echo "  polling-auto-terminate - Monitor orchestrator logs and auto-terminate when complete (usage: make polling-auto-terminate NAME=<cluster-name>)"
 
@@ -122,11 +122,11 @@ reference-stats:
 		cargo run --release references --stats $$DIR; \
 	fi
 
-daemon:
-	cargo run --release daemon --config config/simple.yaml --port 8080
+server:
+	cargo run --release server --config config/simple.yaml --port 8080
 
 health:
-	@curl -s http://localhost:8080/health | jq . || echo "Daemon is not running"
+	@curl -s http://localhost:8080/health | jq . || echo "Server is not running"
 
 submit:
 	@if [ -z "$(FILE)" ]; then \
@@ -180,10 +180,10 @@ deploy-status:
 
 deploy-logs:
 	@if [ -z "$(NAME)" ]; then \
-		echo "Error: NAME parameter required. Usage: make deploy-logs NAME=<cluster-name> [LOG=daemon|orchestrator]"; \
+		echo "Error: NAME parameter required. Usage: make deploy-logs NAME=<cluster-name> [LOG=server|orchestrator]"; \
 		exit 1; \
 	fi
-	@LOG_TYPE=$${LOG:-daemon}; \
+	@LOG_TYPE=$${LOG:-server}; \
 	python python/deploy.py logs --name $(NAME) --log-type $$LOG_TYPE
 
 deploy-terminate:

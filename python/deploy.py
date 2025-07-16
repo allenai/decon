@@ -27,7 +27,7 @@ class DeploymentStage(Enum):
     """Stages of the deployment process"""
     CREATE_CLUSTER = "create_cluster"
     SETUP_DECON = "setup_decon"
-    START_DAEMON = "start_daemon"
+    START_SERVER = "start_server"
     START_ORCHESTRATOR = "start_orchestrator"
     MONITOR = "monitor"
     TERMINATE = "terminate"
@@ -44,10 +44,10 @@ class DeploymentConfig:
     ssh_key_path: str = "~/.ssh/id_rsa"
     github_token: Optional[str] = None
     config_path: Optional[str] = None
-    daemon_port: int = 8080
+    server_port: int = 8080
     orchestration_config: Optional[str] = None
 
-    # Daemon configuration
+    # Server configuration
     mode: str = "simple"
     content_key: str = "text"
     ngram_size: int = 4
@@ -164,52 +164,52 @@ class DeploymentManager:
             print("❌ Failed to setup Decon")
             return False
 
-    def start_daemon(self) -> bool:
-        """Start the Decon daemon on all instances"""
-        print(f"\n🎯 Starting Decon daemon on cluster '{self.config.cluster_name}'...")
+    def start_server(self) -> bool:
+        """Start the Decon server on all instances"""
+        print(f"\n🎯 Starting Decon server on cluster '{self.config.cluster_name}'...")
 
-        # Build daemon command with config overrides
-        daemon_cmd = "cd decon && nohup cargo run --release -- daemon --config config/simple.yaml"
+        # Build server command with config overrides
+        server_cmd = "cd decon && nohup cargo run --release -- server --config config/simple.yaml"
 
         # Add all configuration overrides
-        daemon_cmd += f" --mode {self.config.mode}"
-        daemon_cmd += f" --content-key {self.config.content_key}"
-        daemon_cmd += f" --ngram-size {self.config.ngram_size}"
-        daemon_cmd += f" --question-threshold {self.config.question_threshold}"
-        daemon_cmd += f" --answer-threshold {self.config.answer_threshold}"
-        daemon_cmd += f" --tokenizer {self.config.tokenizer_str}"
-        daemon_cmd += f" --reference-input {self.config.reference_input}"
+        server_cmd += f" --mode {self.config.mode}"
+        server_cmd += f" --content-key {self.config.content_key}"
+        server_cmd += f" --ngram-size {self.config.ngram_size}"
+        server_cmd += f" --question-threshold {self.config.question_threshold}"
+        server_cmd += f" --answer-threshold {self.config.answer_threshold}"
+        server_cmd += f" --tokenizer {self.config.tokenizer_str}"
+        server_cmd += f" --reference-input {self.config.reference_input}"
 
         # Set output directories within the local work directory mount
-        daemon_cmd += f" --report-output-dir {self.config.local_work_dir}/results"
-        daemon_cmd += f" --cleaned-output-dir {self.config.local_work_dir}/cleaned"
+        server_cmd += f" --report-output-dir {self.config.local_work_dir}/results"
+        server_cmd += f" --cleaned-output-dir {self.config.local_work_dir}/cleaned"
 
-        if self.config.daemon_port != 8080:
-            daemon_cmd += f" --port {self.config.daemon_port}"
+        if self.config.server_port != 8080:
+            server_cmd += f" --port {self.config.server_port}"
 
         if self.config.debug:
-            daemon_cmd += " --debug true"
+            server_cmd += " --debug true"
 
         if self.config.purify:
-            daemon_cmd += " --purify true"
+            server_cmd += " --purify true"
 
-        daemon_cmd += " > daemon.log 2>&1 & disown"
+        server_cmd += " > server.log 2>&1 & disown"
 
         command = [
             "run",
             "--name", self.config.cluster_name,
-            "--command", daemon_cmd,
+            "--command", server_cmd,
             "--ssh-key-path", self.config.ssh_key_path,
             "--detach"
         ]
 
         try:
             self._run_pmr_command(command)
-            print("✅ Daemon started successfully")
-            time.sleep(5)  # Give daemon time to start
+            print("✅ Server started successfully")
+            time.sleep(5)  # Give server time to start
             return True
         except subprocess.CalledProcessError:
-            print("❌ Failed to start daemon")
+            print("❌ Failed to start server")
             return False
 
     def start_orchestrator(self) -> bool:
@@ -221,9 +221,9 @@ class DeploymentManager:
 
         orchestrator_cmd = f"cd decon && nohup python python/orchestration.py --config {config_file}"
 
-        # Add daemon URL override if using non-default port
-        if self.config.daemon_port != 8080:
-            orchestrator_cmd += f" --daemon-url http://localhost:{self.config.daemon_port}"
+        # Add server URL override if using non-default port
+        if self.config.server_port != 8080:
+            orchestrator_cmd += f" --server-url http://localhost:{self.config.server_port}"
 
         # Add S3 path overrides if provided
         if self.config.remote_file_input:
@@ -270,11 +270,11 @@ class DeploymentManager:
         try:
             result = self._run_pmr_command(list_command)
 
-            # Check daemon health on each instance
+            # Check server health on each instance
             health_command = [
                 "run",
                 "--name", self.config.cluster_name,
-                "--command", f"curl -s http://localhost:{self.config.daemon_port}/health || echo 'Daemon not responding'",
+                "--command", f"curl -s http://localhost:{self.config.server_port}/health || echo 'Server not responding'",
                 "--ssh-key-path", self.config.ssh_key_path
             ]
 
@@ -282,13 +282,13 @@ class DeploymentManager:
 
             return {
                 "instances": result.stdout,
-                "daemon_health": health_result.stdout,
+                "server_health": health_result.stdout,
                 "success": health_result.returncode == 0
             }
         except subprocess.CalledProcessError as e:
             return {
                 "instances": e.stdout or "Failed to list instances",
-                "daemon_health": "Unknown",
+                "server_health": "Unknown",
                 "success": False
             }
 
@@ -331,7 +331,7 @@ class DeploymentManager:
         stages = [
             (self.create_cluster, "Creating cluster"),
             (self.setup_decon, "Setting up Decon"),
-            (self.start_daemon, "Starting daemon"),
+            (self.start_server, "Starting server"),
             (self.start_orchestrator, "Starting orchestrator"),
         ]
 
@@ -497,7 +497,7 @@ def wizard():
 
     # Other options
     debug = False  # Debug mode hardcoded to false
-    daemon_port = 8080  # Daemon port hardcoded to default
+    server_port = 8080  # Server port hardcoded to default
 
     # Force local work directory to /mnt/decon-work
     local_work_dir = "/mnt/decon-work"
@@ -510,8 +510,8 @@ def wizard():
         instance_type=instance_type,
         ssh_key_path=ssh_key,
         github_token=github_token,
-        daemon_port=daemon_port,
-        # Daemon settings
+        server_port=server_port,
+        # Server settings
         mode=mode,
         content_key=content_key,
         ngram_size=ngram_size,
@@ -570,7 +570,7 @@ def wizard():
     print("\033[1m # 3. Launch decontamination server that builds reference index and receives work.\033[0m")
     print("\npoormanray run \\")
     print(f"  --name {cluster_name} \\")
-    print("  --command \"cd decon && nohup cargo run --release -- daemon \\")
+    print("  --command \"cd decon && nohup cargo run --release -- server \\")
     print("    --config config/simple-cl100k.yaml \\")
     print(f"    --mode {mode} --content-key {content_key} \\")
     print(f"    --question-threshold {question_threshold} \\")
@@ -582,11 +582,11 @@ def wizard():
         print(" \\")
         print("    --purify true", end="")
     print(" \\")
-    print("    > daemon.log 2>&1 & disown\" \\")
+    print("    > server.log 2>&1 & disown\" \\")
     print(f"  --ssh-key-path {ssh_key} \\")
     print("  --detach\n")
 
-    print("\033[1m # 4. Launch orchestrator which downloads files, submits to daemon, and uploads results.\033[0m")
+    print("\033[1m # 4. Launch orchestrator which downloads files, submits to server, and uploads results.\033[0m")
     print("\npoormanray run \\")
     print(f"  --name {cluster_name} \\")
     print("  --command \"cd decon && nohup python python/orchestration.py \\")
@@ -603,7 +603,7 @@ def wizard():
     print("\n" + "━" * 80)
     print("📝 USEFUL COMMANDS".center(80))
     print("━" * 80)
-    print(f"  View daemon logs:   make deploy-logs NAME={cluster_name} LOG=daemon")
+    print(f"  View server logs:   make deploy-logs NAME={cluster_name} LOG=server")
     print(f"  View orchestrator logs:  make deploy-logs NAME={cluster_name} LOG=orchestrator")
     print(f"  Auto-terminate:     make polling-auto-terminate NAME={cluster_name}")
     print("⚠️  Remember to terminate your cluster when done to avoid unnecessary charges\n")
@@ -616,8 +616,8 @@ def wizard():
 @click.option("--instance-type", default="i4i.2xlarge", help="EC2 instance type")
 @click.option("--ssh-key", default="~/.ssh/id_rsa", help="Path to SSH private key")
 @click.option("--github-token", required=True, help="GitHub token for private repo access")
-@click.option("--daemon-port", default=8080, type=int, help="Daemon port")
-# Daemon options
+@click.option("--server-port", default=8080, type=int, help="Server port")
+# Server options
 @click.option("--mode", default="simple", type=click.Choice(['simple', 'minhash', 'toxic']), help="Detection mode")
 @click.option("--content-key", default="text", help="JSON field containing text")
 @click.option("--ngram-size", default=4, type=int, help="N-gram size")
@@ -631,7 +631,7 @@ def wizard():
 @click.option("--remote-report-output-dir", help="S3 path for reports")
 @click.option("--remote-cleaned-output-dir", help="S3 path for cleaned files")
 @click.option("--local-work-dir", default="/mnt/decon-work", help="Local working directory for orchestrator")
-def deploy(name, owner, instances, instance_type, ssh_key, github_token, daemon_port,
+def deploy(name, owner, instances, instance_type, ssh_key, github_token, server_port,
           mode, content_key, ngram_size,
           question_threshold, answer_threshold, tokenizer,
           debug, purify, remote_file_input, remote_report_output_dir,
@@ -644,8 +644,8 @@ def deploy(name, owner, instances, instance_type, ssh_key, github_token, daemon_
         instance_type=instance_type,
         ssh_key_path=ssh_key,
         github_token=github_token,
-        daemon_port=daemon_port,
-        # Daemon settings
+        server_port=server_port,
+        # Server settings
         mode=mode,
         content_key=content_key,
         ngram_size=ngram_size,
@@ -686,8 +686,8 @@ def status(name, ssh_key):
 
         print("📊 Cluster Status:")
         print(status["instances"])
-        print("\n🏥 Daemon Health:")
-        print(status["daemon_health"])
+        print("\n🏥 Server Health:"
+        print(status["server_health"])
 
     except PoorManRayError as e:
         print(f"❌ {e}")
@@ -697,7 +697,7 @@ def status(name, ssh_key):
 @cli.command()
 @click.option("--name", required=True, help="Cluster name")
 @click.option("--ssh-key", default="~/.ssh/id_rsa", help="Path to SSH private key")
-@click.option("--log-type", type=click.Choice(["daemon", "orchestrator"]), default="daemon", help="Which log to view")
+@click.option("--log-type", type=click.Choice(["server", "orchestrator"]), default="server", help="Which log to view")
 @click.option("--follow", is_flag=True, help="Follow log output")
 def logs(name, ssh_key, log_type, follow):
     """View logs from a Decon deployment"""

@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex};
 use mj_io::read_pathbuf_to_mem;
 
 // Internal modules
-mod daemon;
+mod server;
 mod reference;
 mod review;
 mod simple;
@@ -164,7 +164,7 @@ enum Commands {
         skip_exact: bool,
     },
 
-    Daemon {
+    Server {
         #[arg(required = true, long)]
         config: PathBuf,
 
@@ -296,7 +296,7 @@ pub struct Config {
     #[serde(default = "default_debug")]
     pub debug: bool,
 
-    // Daemon options
+    // Server options
     #[serde(default = "default_worker_threads")]
     pub worker_threads: usize,
 
@@ -900,7 +900,7 @@ fn main() -> Result<(), Error> {
             *skip_exact,
         ),
 
-        Commands::Daemon {
+        Commands::Server {
             config,
             port,
             content_key,
@@ -970,7 +970,7 @@ fn main() -> Result<(), Error> {
 
 
             let runtime = tokio::runtime::Runtime::new().unwrap();
-            runtime.block_on(daemon::run_daemon(loaded_config, *port))
+            runtime.block_on(server::run_server(loaded_config, *port))
         }
 
         Commands::References { refine, stats, dry_run } => {

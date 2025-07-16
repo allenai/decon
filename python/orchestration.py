@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Orchestration script for distributed contamination detection.
-Manages downloading files from S3, submitting to daemon, and uploading results.
+Manages downloading files from S3, submitting to server, and uploading results.
 """
 
 import os
@@ -35,7 +35,7 @@ class OrchestrationConfig:
     # Required fields (no defaults)
     remote_file_input: str  # s3://bucket/training-data/
     remote_report_output_dir: str  # s3://bucket/output/
-    daemon_url: str  # http://localhost:8080
+    server_url: str  # http://localhost:8080
     local_work_dir: str  # /tmp/decon-work/
 
     # Optional fields with defaults
@@ -64,7 +64,7 @@ class OrchestrationConfig:
             remote_file_input=data['remote_file_input'],
             remote_report_output_dir=data['remote_report_output_dir'],
             remote_cleaned_output_dir=data.get('remote_cleaned_output_dir'),
-            daemon_url=data.get('daemon_url', 'http://localhost:8080'),
+            server_url=data.get('server_url', 'http://localhost:8080'),
             local_work_dir=data.get('local_work_dir', '/tmp/decon-work')
         )
 
@@ -129,10 +129,10 @@ class ContaminationOrchestrator:
         self.total_submitted = 0
         self.total_uploaded = 0
 
-        # Daemon configuration (loaded from health check)
-        self.daemon_report_dir = None
-        self.daemon_cleaned_dir = None
-        self.daemon_purify = False
+        # Server configuration (loaded from health check)
+        self.server_report_dir = None
+        self.server_cleaned_dir = None
+        self.server_purify = False
 
 
         # Host identification
@@ -271,25 +271,25 @@ class ContaminationOrchestrator:
 
         self.logger.warning("Starting contamination detection orchestration")
 
-        # Wait for daemon to be ready (up to 5 minutes)
-        daemon_ready = False
+        # Wait for server to be ready (up to 5 minutes)
+        server_ready = False
         max_wait_time = 300  # 5 minutes
         wait_interval = 10   # Check every 10 seconds
         start_wait = time.time()
         
-        self.logger.info("Waiting for daemon to be ready...")
+        self.logger.info("Waiting for server to be ready...")
         while time.time() - start_wait < max_wait_time:
-            if self._check_daemon_health():
-                daemon_ready = True
-                self.logger.info("Daemon is ready!")
+            if self._check_server_health():
+                server_ready = True
+                self.logger.info("Server is ready!")
                 break
             
             elapsed = int(time.time() - start_wait)
-            self.logger.info(f"Daemon not ready yet, waiting... ({elapsed}s / {max_wait_time}s)")
+            self.logger.info(f"Server not ready yet, waiting... ({elapsed}s / {max_wait_time}s)")
             time.sleep(wait_interval)
         
-        if not daemon_ready:
-            self.logger.error(f"Daemon did not become ready after {max_wait_time} seconds. Please ensure the daemon is running.")
+        if not server_ready:
+            self.logger.error(f"Server did not become ready after {max_wait_time} seconds. Please ensure the server is running.")
             sys.exit(1)
 
         # Setup working directories
@@ -324,30 +324,30 @@ class ContaminationOrchestrator:
         # Final exit message - very clear and unique for polling
         self.logger.warning("WORK COMPLETE EXITING")
 
-    def _check_daemon_health(self) -> bool:
-        """Check if the daemon is running and healthy."""
+    def _check_server_health(self) -> bool:
+        """Check if the server is running and healthy."""
         try:
-            response = self.session.get(f"{self.config.daemon_url}/health", timeout=5)
+            response = self.session.get(f"{self.config.server_url}/health", timeout=5)
             if response.status_code == 200:
                 data = response.json()
-                # Daemon is healthy
+                # Server is healthy
 
-                # Set max_concurrent_jobs based on daemon worker threads if not explicitly configured
+                # Set max_concurrent_jobs based on server worker threads if not explicitly configured
                 if self.config.max_concurrent_jobs is None:
                     worker_threads = data.get('worker_threads', 4)
                     self.config.max_concurrent_jobs = worker_threads * 4
                     # Set max_concurrent_jobs
 
-                # Extract daemon's output directories
-                self.daemon_report_dir = data.get('report_output_dir')
-                self.daemon_cleaned_dir = data.get('cleaned_output_dir')
-                self.daemon_purify = data.get('purify', False)
+                # Extract server's output directories
+                self.server_report_dir = data.get('report_output_dir')
+                self.server_cleaned_dir = data.get('cleaned_output_dir')
+                self.server_purify = data.get('purify', False)
 
-                # Daemon output directories configured
+                # Server output directories configured
 
                 return True
         except Exception as e:
-            self.logger.error(f"Failed to connect to daemon: {e}")
+            self.logger.error(f"Failed to connect to server: {e}")
         return False
 
     def _setup_directories(self):
@@ -608,11 +608,11 @@ class ContaminationOrchestrator:
             if command_file.exists():
                 command_file.unlink()
 
-    def _submit_to_daemon(self, file_path: str, s3_key: str) -> Optional[Job]:
-        """Submit a file to the daemon for processing."""
+    def _submit_to_server(self, file_path: str, s3_key: str) -> Optional[Job]:
+        """Submit a file to the server for processing."""
         try:
             response = self.session.post(
-                f"{self.config.daemon_url}/submit",
+                f"{self.config.server_url}/submit",
                 json={"file_path": file_path}
             )
 
@@ -638,7 +638,7 @@ class ContaminationOrchestrator:
     def _poll_job_status(self, job: Job) -> bool:
         """Poll job status and update job object. Returns True if complete."""
         try:
-            response = self.session.get(f"{self.config.daemon_url}/status/{job.job_id}")
+            response = self.session.get(f"{self.config.server_url}/status/{job.job_id}")
 
             if response.status_code == 200:
                 data = response.json()
@@ -947,7 +947,7 @@ class ContaminationOrchestrator:
             basename_no_ext = basename_no_ext[:-6]
 
         if job.status == 'completed':
-            # Use the output paths provided by the daemon
+            # Use the output paths provided by the server
             report_path = job.output_path
             cleaned_path = job.purified_path
 
@@ -955,16 +955,16 @@ class ContaminationOrchestrator:
 
             # Verify the files exist before trying to upload
             if report_path and not os.path.exists(report_path):
-                self.logger.error(f"Daemon reported output_path {report_path} but file does not exist!")
+                self.logger.error(f"Server reported output_path {report_path} but file does not exist!")
                 report_path = None
 
             if cleaned_path and not os.path.exists(cleaned_path):
-                self.logger.error(f"Daemon reported purified_path {cleaned_path} but file does not exist!")
+                self.logger.error(f"Server reported purified_path {cleaned_path} but file does not exist!")
                 cleaned_path = None
 
             # Add upload commands
             if report_path:
-                # Use the original filename from the daemon
+                # Use the original filename from the server
                 report_filename = os.path.basename(report_path)
                 upload_commands.append((report_path, self.config.remote_report_output_dir, report_filename))
                 self.stats_files_contaminated += 1
@@ -1021,13 +1021,13 @@ class ContaminationOrchestrator:
                not self.upload_queue.empty()):
 
 
-            # Submit files from download queue if daemon has capacity
+            # Submit files from download queue if server has capacity
             while len(self.active_jobs) < self.config.max_concurrent_jobs:
                 try:
                     local_path, s3_key = self.download_queue.get_nowait()
 
-                    # Submit to daemon
-                    job = self._submit_to_daemon(local_path, s3_key)
+                    # Submit to server
+                    job = self._submit_to_server(local_path, s3_key)
                     if job:
                         self.active_jobs[job.job_id] = job
                     else:
@@ -1105,8 +1105,8 @@ def main():
     parser.add_argument('--remote-report-output-dir', help='S3 path for contamination reports (overrides config)')
     parser.add_argument('--remote-cleaned-output-dir', help='S3 path for cleaned files (overrides config)')
     
-    # Daemon and local settings
-    parser.add_argument('--daemon-url', help='Daemon URL (overrides config)')
+    # Server and local settings
+    parser.add_argument('--server-url', help='Server URL (overrides config)')
     parser.add_argument('--local-work-dir', help='Local working directory (overrides config)')
     
     # Performance tuning
@@ -1134,7 +1134,7 @@ def main():
         'remote_file_input': args.remote_file_input,
         'remote_report_output_dir': args.remote_report_output_dir,
         'remote_cleaned_output_dir': args.remote_cleaned_output_dir,
-        'daemon_url': args.daemon_url,
+        'server_url': args.server_url,
         'local_work_dir': args.local_work_dir,
         'max_concurrent_jobs': args.max_concurrent_jobs,
         'poll_interval': args.poll_interval,

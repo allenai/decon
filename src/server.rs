@@ -60,9 +60,9 @@ struct AppState {
     config: Config,
 }
 
-pub async fn run_daemon(config: Config, port: u16) -> Result<()> {
+pub async fn run_server(config: Config, port: u16) -> Result<()> {
     // Configuration already loaded
-    println!("Running daemon with mode: {}", config.mode);
+    println!("Running server with mode: {}", config.mode);
 
     // Initialize index based on mode
     println!("Building index...");
@@ -74,7 +74,7 @@ pub async fn run_daemon(config: Config, port: u16) -> Result<()> {
         }
         _ => {
             return Err(anyhow::anyhow!(
-                "Unsupported mode for daemon: {}",
+                "Unsupported mode for server: {}",
                 config.mode
             ));
         }
@@ -123,7 +123,7 @@ pub async fn run_daemon(config: Config, port: u16) -> Result<()> {
         .with_state(state);
 
     let addr = format!("127.0.0.1:{}", port);
-    println!("Daemon listening on http://{}", addr);
+    println!("Server listening on http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(listener, app).await?;

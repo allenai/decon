@@ -12,13 +12,13 @@ Decon is a contamination detection tool for machine learning datasets that ident
 - `cargo build --release` - Build optimized binary
 - `cargo run --release detect --config <config.yaml>` - Run contamination detection
 - `cargo run --release review --config <config.yaml> --step` - Interactive review mode
-- `cargo run --release daemon --config <config.yaml> --port 8080` - Start daemon server
+- `cargo run --release server --config <config.yaml> --port 8080` - Start server
 
 ### Testing and Development
 - `cargo fmt` - Format Rust code
 - `cargo clippy` - Run Rust linter
 - `cargo test` - Run unit tests
-- `./test_daemon.sh` - Test daemon functionality
+- `./test_server.sh` - Test server functionality
 - `./test_multi_thread.sh` - Test multi-threading
 
 ### Make Targets
@@ -26,7 +26,7 @@ Decon is a contamination detection tool for machine learning datasets that ident
 - `make review` - Interactive contamination review
 - `make tp/tn/fp/fn` - Review true/false positives/negatives
 - `make orchestrate CONFIG=<path>` - Run distributed orchestration
-- `make daemon` - Start daemon server
+- `make server` - Start server
 - `make evals` - Download evaluation datasets
 - `make embeddings` - Prepare word embeddings
 
@@ -45,8 +45,8 @@ Decon is a contamination detection tool for machine learning datasets that ident
    - `toxic.rs`: TOXIC semantic similarity using word embeddings (WIP)
 
 2. **Entry Points**
-   - `main.rs`: CLI with detect/review/daemon commands
-   - `daemon.rs`: HTTP server for distributed processing at port 8080
+   - `main.rs`: CLI with detect/review/server commands
+   - `server.rs`: HTTP server for distributed processing at port 8080
 
 3. **Data Flow**
    - Evaluation data is indexed in memory
@@ -55,7 +55,7 @@ Decon is a contamination detection tool for machine learning datasets that ident
    - Cleaned data optionally written to `cleaned_output_dir`
 
 4. **Distributed Processing**
-   - Python orchestration layer (`python/orchestration.py`) coordinates multiple daemons
+   - Python orchestration layer (`python/orchestration.py`) coordinates multiple servers
    - Consistent hashing distributes work across nodes
    - S3 integration for cloud-scale processing
 
@@ -79,7 +79,7 @@ Algorithm-specific:
 
 1. **Memory Efficiency**: Only evaluation data is indexed; training data is streamed
 2. **Parallelism**: Uses Rayon for parallel processing within files
-3. **Scalability**: Daemon mode enables distributed processing across machines
+3. **Scalability**: Server mode enables distributed processing across machines
 4. **Flexibility**: Multiple detection algorithms for different contamination types
 5. **Performance**: Configurable sampling rates balance speed vs accuracy
 

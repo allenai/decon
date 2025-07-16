@@ -37,7 +37,7 @@ make poormanray-command-generator
 │                      EC2 Instance(s)                        │
 │                                                             │
 │  ┌──────────────┐         ┌────────────────────────────┐  │
-│  │ Orchestrator │ ────────▶│        Daemon              │  │
+│  │ Orchestrator │ ────────▶│        Server              │  │
 │  │              │  Submit  │                            │  │
 │  │ • Downloads  │  Jobs    │  • Loads reference data   │  │
 │  │ • Distributes│          │  • Processes files        │  │
@@ -58,7 +58,7 @@ make poormanray-command-generator
 Key Components:
 • S3 Input: Your training data files (supports .jsonl, .jsonl.gz, etc.)
 • Orchestrator: Python process that coordinates the workflow
-• Daemon: Rust HTTP server that performs the actual contamination detection
+• Server: Rust HTTP server that performs the actual contamination detection
 • S3 Reports: Contamination detection results
 • S3 Cleaned: Purified datasets with contaminated lines removed (if --purify enabled)
 

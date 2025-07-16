@@ -160,7 +160,7 @@ Total reduction: 11.1% (5000 lines removed)
 
 ### Out of Memory Errors
 - Split large evaluation datasets into smaller files
-- Use the daemon mode for distributed processing
+- Use the server mode for distributed processing
 - Increase system RAM or use a machine with more memory
 
 ### Missing Text Fields

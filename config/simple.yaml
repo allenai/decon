@@ -1,11 +1,11 @@
 mode: simple
 
 content_key: text
-local_input: fixtures/big_input
+local_input: /home/robert/Downloads/export-test
 reference_input: fixtures/reference-questions-and-answers
 report_output_dir: fixtures/output
-cleaned_output_dir: fixtures/cleaned
-purify: false
+cleaned_output_dir: fixtures/cleaned_test
+purify: true
 
 tokenizer_str: word
 ngram_size: 4
