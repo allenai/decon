@@ -554,8 +554,40 @@ EVAL_CONFIG = {
                 "answer_field": "reference_code"
             }
         },
-        # ['', 'gpqa_main', 'gpqa_diamond', 'gpqa_experts']
-        "gpqa": { # TODO: Update hugging face token to download this. We want. All splits all configs.
+        "gpqa_main": {
+            "hf_path": "Idavidrein/gpqa",
+            "hf_config": "gpqa_main",
+            "splits": [
+                "train",
+            ],
+            "transform": {
+                "text_field": "Question",
+                "answer_field": "Correct Answer"
+            }
+        },
+        "gpqa_diamond": {
+            "hf_path": "Idavidrein/gpqa",
+            "hf_config": "gpqa_diamond",
+            "splits": [
+                "train",
+            ],
+            "transform": {
+                "text_field": "Question",
+                "answer_field": "Correct Answer"
+            }
+        },
+        "gpqa_experts": {
+            "hf_path": "Idavidrein/gpqa",
+            "hf_config": "gpqa_experts",
+            "splits": [
+                "train",
+            ],
+            "transform": {
+                "text_field": "Question",
+                "answer_field": "Correct Answer"
+            }
+        },
+        "gpqa_extended": {
             "hf_path": "Idavidrein/gpqa",
             "hf_config": "gpqa_extended",
             "splits": [
@@ -592,8 +624,31 @@ EVAL_CONFIG = {
                 ]
             }
         },
-        "gsm_symbolic": { # Has 3 splits!! TODO
+        "gsm_symbolic": {
             "hf_path": "apple/GSM-Symbolic",
+            "hf_config": "main",
+            "splits": [
+                "test"
+            ],
+            "transform": {
+                "text_field": "question",
+                "answer_field": "answer"
+            }
+        },
+        "gsm_symbolic": {
+            "hf_path": "apple/GSM-Symbolic",
+            "hf_config": "p1",
+            "splits": [
+                "test"
+            ],
+            "transform": {
+                "text_field": "question",
+                "answer_field": "answer"
+            }
+        },
+        "gsm_symbolic": {
+            "hf_path": "apple/GSM-Symbolic",
+            "hf_config": "p2",
             "splits": [
                 "test"
             ],
@@ -841,7 +896,15 @@ EVAL_CONFIG = {
         },
         "if_ood": {  # note all if evals do not have answer
             "hf_path": "valpy/ifeval_ood3",
-            # TODO
+            "splits": [
+                "train"
+            ],
+            "transform": {
+                "text_field": "prompt"
+            },
+            "no_answer_splits": [
+                "train"
+            ]
         },
         "jeopardy": {
             "hf_path": "soldni/jeopardy",
