@@ -112,6 +112,9 @@ tn:
 evals:
 	python python/evals.py --download
 
+evals-list:
+	python python/evals.py --list
+
 evals-s3:
 	s5cmd sync s3://decon-evals/* fixtures/
 

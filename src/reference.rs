@@ -1288,7 +1288,7 @@ fn process_file_for_stats(
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("unknown");
-    
+
     let eval_name = filename
         .split('_')
         .next()
@@ -1347,24 +1347,19 @@ fn display_stats_table(eval_stats: &HashMap<String, EvalStats>) {
     sorted_evals.sort_by(|a, b| b.1.question_count.cmp(&a.1.question_count));
 
     // Calculate column widths - double the eval name width
-    let eval_width = sorted_evals
-        .iter()
-        .map(|(name, _)| name.len())
-        .max()
-        .unwrap_or(10)
-        .max(10) * 2; // Double the width for eval names
+    let eval_width = 20;
 
     // Print table header
-    println!("┌{:─<width$}┬{:─>10}┬{:─>10}┬{:─>10}┬{:─>10}┬{:─>10}┬{:─>10}┬{:─>10}┬{:─>10}┐",
+    println!("┌{:─<width$}┬{:─>11}┬{:─>11}┬{:─>9}┬{:─>9}┬{:─>8}┬{:─>8}┬{:─>8}┬{:─>8}┐",
         "─", "─", "─", "─", "─", "─", "─", "─", "─",
         width = eval_width + 2
     );
-    println!("│ {:<width$} │ {:>9} │ {:>9} │ {:>9} │ {:>9} │ {:>9} │ {:>9} │ {:>9} │ {:>9} │",
-        "Eval Name", "Questions", "Answers", "Min Q Len", "Avg Q Len", "Max Q Len", 
-        "Min A Len", "Avg A Len", "Max A Len",
+    println!("│ {:<width$} │ {:>9} │ {:>9} │ {:>7} │ {:>7} │ {:>7} │ {:>7} │ {:>7} │ {:>7} │",
+        "Eval Name", "Questions", "Answers", "Min Q", "Avg Q", "Max Q",
+        "Min A", "Avg A", "Max A",
         width = eval_width
     );
-    println!("├{:─<width$}┼{:─>10}┼{:─>10}┼{:─>10}┼{:─>10}┼{:─>10}┼{:─>10}┼{:─>10}┼{:─>10}┤",
+    println!("├{:─<width$}┼{:─>10}┼{:─>10}┼{:─>8}┼{:─>8}┼{:─>8}┼{:─>8}┼{:─>8}┼{:─>8}┤",
         "─", "─", "─", "─", "─", "─", "─", "─", "─",
         width = eval_width + 2
     );
@@ -1389,8 +1384,8 @@ fn display_stats_table(eval_stats: &HashMap<String, EvalStats>) {
             ("-".to_string(), "-".to_string(), "-".to_string())
         };
 
-        println!("│ {:<width$} │ {:>9} │ {:>9} │ {:>9} │ {:>9} │ {:>9} │ {:>9} │ {:>9} │ {:>9} │",
-            eval_name, 
+        println!("│ {:<width$} │ {:>9} │ {:>9} │ {:>7} │ {:>7} │ {:>7} │ {:>7} │ {:>7} │ {:>7} │",
+            eval_name,
             stats.question_count,
             stats.answer_count,
             min_q, avg_q, max_q,
@@ -1400,7 +1395,7 @@ fn display_stats_table(eval_stats: &HashMap<String, EvalStats>) {
     }
 
     // Print table footer
-    println!("└{:─<width$}┴{:─>10}┴{:─>10}┴{:─>10}┴{:─>10}┴{:─>10}┴{:─>10}┴{:─>10}┴{:─>10}┘",
+    println!("└{:─<width$}┴{:─>10}┴{:─>10}┴{:─>8}┴{:─>8}┴{:─>8}┴{:─>8}┴{:─>8}┴{:─>8}┘",
         "─", "─", "─", "─", "─", "─", "─", "─", "─",
         width = eval_width + 2
     );
