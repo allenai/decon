@@ -47,6 +47,7 @@ fn read_compressed_file(path: &PathBuf) -> Result<Vec<u8>, Error> {
 type NgramToIdMap = DashMap<u64, u64>; // Maps n-gram hash to unique ID
 type IdToQuestionDocsMap = DashMap<u64, HashSet<u32>>; // Maps n-gram ID to set of document IDs (for questions)
 type IdToShortAnswerMap = DashMap<u32, HashSet<usize>>; // Maps doc_id to set of token IDs (for answers)
+type EvalDocIdToAnswerTokenLengthMap = DashMap<u32, usize>; // Maps doc_id to actual answer token length (not unique count)
 type EvalDocuments = DashMap<u32, (String, usize, usize, usize, usize)>; // Maps doc_id to (eval_name, line_num, total_ngrams, unique_ngrams, token_count)
 type EvalTextSnippets = DashMap<(String, usize), String>; // Maps (eval_name, line_num) to text snippet (first 1000 words)
 type IdToNgramTokens = DashMap<u64, Vec<usize>>; // Maps unique ID to token IDs for display
@@ -99,6 +100,7 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
         ngram_to_id,
         id_to_question_docs,
         id_to_short_answer,
+        eval_doc_id_to_answer_token_length,
         eval_documents,
         id_to_ngram_tokens,
         tokenizer,
@@ -122,6 +124,7 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
         &ngram_to_id,
         &id_to_question_docs,
         &id_to_short_answer,
+        &eval_doc_id_to_answer_token_length,
         &eval_documents,
         &id_to_ngram_tokens,
         &tokenizer,
@@ -170,6 +173,7 @@ pub type SimpleIndex = (
     NgramToIdMap,
     IdToQuestionDocsMap,
     IdToShortAnswerMap,
+    EvalDocIdToAnswerTokenLengthMap,
     EvalDocuments,
     IdToNgramTokens,
     OmniTokenizer,
@@ -183,6 +187,7 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
     let ngram_to_id: NgramToIdMap = DashMap::new();
     let id_to_question_docs: IdToQuestionDocsMap = DashMap::new();
     let id_to_short_answer: IdToShortAnswerMap = DashMap::new();
+    let eval_doc_id_to_answer_token_length: EvalDocIdToAnswerTokenLengthMap = DashMap::new();
     let eval_documents: EvalDocuments = DashMap::new();
     let id_to_ngram_tokens: IdToNgramTokens = DashMap::new();
     let eval_text_snippets: EvalTextSnippets = DashMap::new();
@@ -212,6 +217,7 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
             &ngram_to_id,
             &id_to_question_docs,
             &id_to_short_answer,
+            &eval_doc_id_to_answer_token_length,
             &eval_documents,
             &next_ngram_id,
             &tokenizer,
@@ -232,6 +238,7 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
         ngram_to_id,
         id_to_question_docs,
         id_to_short_answer,
+        eval_doc_id_to_answer_token_length,
         eval_documents,
         id_to_ngram_tokens,
         tokenizer,
@@ -248,6 +255,7 @@ fn process_simple_reference_file(
     ngram_to_id: &NgramToIdMap,
     id_to_question_docs: &IdToQuestionDocsMap,
     id_to_short_answer: &IdToShortAnswerMap,
+    eval_doc_id_to_answer_token_length: &EvalDocIdToAnswerTokenLengthMap,
     eval_documents: &EvalDocuments,
     next_ngram_id: &std::sync::atomic::AtomicU64,
     tokenizer: &OmniTokenizer,
@@ -321,6 +329,7 @@ fn process_simple_reference_file(
                     config,
                     tokenizer,
                     id_to_short_answer,
+                    eval_doc_id_to_answer_token_length,
                     token_doc_freq,
                 )?;
             }
@@ -520,6 +529,7 @@ fn process_answer_field(
     config: &Config,
     tokenizer: &OmniTokenizer,
     id_to_short_answer: &IdToShortAnswerMap,
+    eval_doc_id_to_answer_token_length: &EvalDocIdToAnswerTokenLengthMap,
     token_doc_freq: &TokenDocFreqMap,
 ) -> Result<(), Error> {
     // Clean text for both tokenizer types
@@ -563,6 +573,10 @@ fn process_answer_field(
         all_tokens
     };
 
+    // Store the actual token length before converting to set
+    let token_length = word_tokens.len();
+    eval_doc_id_to_answer_token_length.insert(doc_id, token_length);
+
     // Store in short answer map
     let token_set: HashSet<usize> = word_tokens.into_iter().collect();
 
@@ -577,6 +591,7 @@ fn process_answer_field(
     // Debug logging for stored tokens
     if std::env::var("DEBUG_ANSWER").is_ok() && doc_id == 454571 {
         println!("Token IDs stored: {:?}", token_set);
+        println!("Actual token length: {}, Unique token count: {}", token_length, token_set.len());
         if let Some(inner) = tokenizer.inner.as_ref() {
             let token_vec: Vec<usize> = token_set.iter().copied().collect();
             if let Ok(decoded) = inner.decode(token_vec) {
@@ -595,6 +610,7 @@ fn detect_simple_contamination(
     ngram_to_id: &NgramToIdMap,
     id_to_question_docs: &IdToQuestionDocsMap,
     id_to_short_answer: &IdToShortAnswerMap,
+    eval_doc_id_to_answer_token_length: &EvalDocIdToAnswerTokenLengthMap,
     eval_documents: &EvalDocuments,
     id_to_ngram_tokens: &IdToNgramTokens,
     tokenizer: &OmniTokenizer,
@@ -640,6 +656,7 @@ fn detect_simple_contamination(
             ngram_to_id,
             id_to_question_docs,
             id_to_short_answer,
+            eval_doc_id_to_answer_token_length,
             eval_documents,
             &file_contamination_results,
             tokenizer,
@@ -913,6 +930,7 @@ impl SimpleContaminationEntry {
         &self,
         doc_id: u32,
         id_to_short_answer: &IdToShortAnswerMap,
+        eval_doc_id_to_answer_token_length: &EvalDocIdToAnswerTokenLengthMap,
         cluster: &SimpleContaminationCluster,
         training_tokens: &[usize],
         config: &Config,
@@ -930,6 +948,7 @@ impl SimpleContaminationEntry {
                 let (answer_found, answer_overlap_ratio, matched_token_strings, answer_idf_overlap) =
                     has_matching_answer(
                         answer_token_set.value(),
+                        eval_doc_id_to_answer_token_length,
                         cluster,
                         doc_id,
                         training_tokens,
@@ -958,6 +977,7 @@ impl SimpleContaminationEntry {
 /// Returns (is_contaminated, overlap_ratio, matched_tokens_text, answer_idf_overlap)
 fn has_matching_answer(
     answer_token_set: &HashSet<usize>,
+    eval_doc_id_to_answer_token_length: &EvalDocIdToAnswerTokenLengthMap,
     cluster: &SimpleContaminationCluster,
     doc_id: u32,
     training_tokens: &[usize],
@@ -969,6 +989,7 @@ fn has_matching_answer(
     // Get matching tokens separately for prefix and suffix
     let (prefix_matches, suffix_matches) = short_answer_tokens(
         answer_token_set,
+        eval_doc_id_to_answer_token_length,
         cluster,
         doc_id,
         training_tokens,
@@ -1023,6 +1044,7 @@ fn has_matching_answer(
 
 fn short_answer_tokens(
     answer_token_set: &HashSet<usize>,
+    eval_doc_id_to_answer_token_length: &EvalDocIdToAnswerTokenLengthMap,
     cluster: &SimpleContaminationCluster,
     doc_id: u32,
     training_tokens: &[usize],
@@ -1030,7 +1052,11 @@ fn short_answer_tokens(
     tokenizer: &OmniTokenizer,
 ) -> (HashSet<usize>, HashSet<usize>) {
     // Calculate window size as max(answer_length*2, min_short_answer_distance)
-    let answer_length = answer_token_set.len();
+    // Use the actual token length, not the unique token count
+    let answer_length = eval_doc_id_to_answer_token_length
+        .get(&doc_id)
+        .map(|len| *len)
+        .unwrap_or_else(|| answer_token_set.len()); // Fallback to unique count if not found
     let window_size = std::cmp::max(answer_length * 2, config.min_short_answer_distance);
 
     // Get document-specific boundaries
@@ -1233,6 +1259,7 @@ pub fn process_simple_training_file(
     ngram_to_id: &NgramToIdMap,
     id_to_question_docs: &IdToQuestionDocsMap,
     id_to_short_answer: &IdToShortAnswerMap,
+    eval_doc_id_to_answer_token_length: &EvalDocIdToAnswerTokenLengthMap,
     eval_documents: &EvalDocuments,
     contamination_results: &ContaminationResults,
     tokenizer: &OmniTokenizer,
@@ -1371,6 +1398,7 @@ pub fn process_simple_training_file(
                     ) = entry.is_contaminated(
                         *doc_id,
                         id_to_short_answer,
+                        eval_doc_id_to_answer_token_length,
                         &cluster,
                         &word_tokens,
                         config,
