@@ -677,7 +677,7 @@ def status(name, ssh_key):
 
         print("📊 Cluster Status:")
         print(status["instances"])
-        print("\n🏥 Server Health:"
+        print("\n🏥 Server Health:")
         print(status["server_health"])
 
     except PoorManRayError as e:
