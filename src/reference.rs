@@ -23,7 +23,6 @@ use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 
-use crate::minhash::_expand_band_seeds;
 use crate::{clean_text, get_nested_json_val, OmniTokenizer};
 use mj_io::{build_pbar, expand_dirs};
 use ndarray::Array1;
@@ -47,6 +46,25 @@ type LineOccurrences = Vec<(String, usize)>; // (filename, line_number)
 // MinHash constants
 const BIG_PRIME: u64 = 18446744073709551557;
 const MAX_HASH: u64 = BIG_PRIME;
+
+// Helper function for expanding band seeds
+fn _expand_band_seeds(seeds: &[u32], num_bands: usize) -> Vec<u64> {
+    use sha2::{Digest, Sha256};
+    let mut expanded_seeds = Vec::with_capacity(num_bands);
+    
+    for i in 0..num_bands {
+        let mut hasher = Sha256::new();
+        for seed in seeds {
+            hasher.update(seed.to_le_bytes());
+        }
+        hasher.update(i.to_le_bytes());
+        let result = hasher.finalize();
+        let seed_value = u64::from_le_bytes(result[0..8].try_into().unwrap());
+        expanded_seeds.push(seed_value);
+    }
+    
+    expanded_seeds
+}
 
 // MinHash type aliases
 type MinHashSignature = Array1<u64>;
@@ -891,10 +909,8 @@ fn detect_minhash_duplicates(
     let minhash_signatures: MinHashSignatures = DashMap::new();
 
     // Setup hashing parameters
-    let band_seeds: Vec<u32> = _expand_band_seeds(&vec![MINHASH_SEED as u32], MINHASH_NUM_BANDS)
-        .into_iter()
-        .map(|x| x as u32)
-        .collect();
+    let band_seeds_u64 = _expand_band_seeds(&vec![MINHASH_SEED as u32], MINHASH_NUM_BANDS);
+    let band_seeds: Vec<u32> = band_seeds_u64.iter().map(|&x| x as u32).collect();
     let perm_seeds = _expand_band_seeds(&band_seeds, MINHASH_BAND_SIZE);
 
     // Initialize tokenizer

@@ -91,8 +91,6 @@ stats:
 	fi; \
 	cargo run --release -- review --stats --dir $$DIR $$FILTER_ARGS
 
-
-
 evals:
 	python python/evals.py --download
 
@@ -126,12 +124,6 @@ reference-stats:
 
 daemon:
 	cargo run --release daemon --config config/simple.yaml --port 8080
-
-daemon-toxic:
-	cargo run --release daemon --config config/toxic.yaml --port 8080
-
-daemon-minhash:
-	cargo run --release daemon --config config/minhash.yaml --port 8080
 
 health:
 	@curl -s http://localhost:8080/health | jq . || echo "Daemon is not running"

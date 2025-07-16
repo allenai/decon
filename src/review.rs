@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::io::{self, BufRead};
 use std::path::PathBuf;
 
-use crate::{get_results_filename, read_config, Config};
+use crate::Config;
 use mj_io::{expand_dirs, read_pathbuf_to_mem};
 
 // Helper function to convert bracket highlights to ANSI bold formatting
@@ -139,11 +139,10 @@ impl ClassificationStats {
 }
 
 pub fn review_contamination(
-    config: Option<&PathBuf>,
-    results_file: Option<&PathBuf>,
+    _config: Option<&PathBuf>,
     dir: Option<&PathBuf>,
     step: bool,
-    metric: bool,
+    _metric: bool,
     stats: bool,
     all: bool,
     min_overlap_ratio: Option<f32>,
@@ -153,171 +152,32 @@ pub fn review_contamination(
 ) -> Result<(), Error> {
     println!("=== CONTAMINATION REVIEW ===");
 
-    // Handle directory-based operations
-    if dir.is_some() {
-        let dir_path = dir.unwrap();
-        if !dir_path.exists() {
-            println!("Directory not found: {:?}", dir_path);
-            return Err(anyhow::anyhow!("Directory not found"));
-        }
-
-        // Load all result files from directory
-        let mut all_results = load_contamination_results_from_directory(dir_path)?;
-
-        if all_results.is_empty() {
-            println!(
-                "No contamination results found in directory: {:?}",
-                dir_path
-            );
-            return Ok(());
-        }
-
-        // Sort by contamination_score in ascending order
-        all_results.sort_by(|a, b| {
-            let score_a = a.contamination_score.unwrap_or(0.0);
-            let score_b = b.contamination_score.unwrap_or(0.0);
-            score_a
-                .partial_cmp(&score_b)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-        let original_count = all_results.len();
-
-        // Apply filters if specified
-        all_results = filter_contamination_results_by_thresholds(
-            all_results,
-            min_overlap_ratio,
-            min_length,
-            eval_filter,
-            skip_exact,
-        );
-
-        if all_results.is_empty() {
-            println!("No contamination results matched the filter criteria.");
-            println!("Original count: {}", original_count);
-            if min_overlap_ratio.is_some() {
-                println!(
-                    "  - Minimum overlap ratio: {:.3}",
-                    min_overlap_ratio.unwrap()
-                );
-            }
-            if min_length.is_some() {
-                println!("  - Minimum n-gram matches: {}", min_length.unwrap());
-            }
-            if eval_filter.is_some() {
-                println!("  - Eval dataset filter: {}", eval_filter.unwrap());
-            }
-            if skip_exact {
-                println!("  - Skipping exact matches (contamination_score == 1.0)");
-            }
-            return Ok(());
-        }
-
-        println!(
-            "Found {} contamination instances from directory",
-            all_results.len()
-        );
-        if original_count != all_results.len() {
-            println!(
-                "({} filtered out by threshold criteria)",
-                original_count - all_results.len()
-            );
-        }
-        println!();
-
-        if stats {
-            // Display eval dataset statistics with bar chart
-            display_eval_dataset_stats(&all_results)?;
-            return Ok(());
-        }
-
-        // For step-by-step review with directory
-        if step {
-            println!("=== REVIEWING ALL CONTAMINATION CASES ===\n");
-
-            // Review each contamination case
-            for (idx, result) in all_results.iter().enumerate() {
-                if idx > 0 {
-                    // Wait for user input before showing next case
-                    println!("\nPress Enter to continue to next contamination case...");
-                    let mut input = String::new();
-                    io::stdin().read_line(&mut input).unwrap();
-
-                    // Clear the screen
-                    print!("\x1B[2J\x1B[1;1H");
-                }
-
-                println!("{}", "=".repeat(80));
-                println!("CONTAMINATION #{} of {}", idx + 1, all_results.len());
-                println!("{}", "=".repeat(80));
-
-                // We don't have ground truth or config when using directory mode
-                // Pass None for the config parameter
-                display_contamination_case_without_config(result)?;
-                println!();
-            }
-
-            println!("=== REVIEW COMPLETE ===");
-            return Ok(());
-        }
-
-        // Display all results at once if --all flag is set or if no specific flag is set
-        if all || (!stats && !step) {
-            println!("=== DISPLAYING ALL CONTAMINATION CASES ===\n");
-
-            // Review each contamination case without stepping
-            for (idx, result) in all_results.iter().enumerate() {
-                println!("{}", "=".repeat(80));
-                println!("CONTAMINATION #{} of {}", idx + 1, all_results.len());
-                println!("{}", "=".repeat(80));
-
-                display_contamination_case_without_config(result)?;
-                println!();
-            }
-
-            println!("=== END OF RESULTS ===");
-            return Ok(());
-        }
-
-        // If no flag is set, show summary
-        println!("Use --stats to see statistics, --step to review cases interactively, or --all to see all results.");
-        return Ok(());
-    }
-
-    // For non-stats operations, config is required
-    if config.is_none() {
+    // Directory is now required
+    if dir.is_none() {
         return Err(anyhow::anyhow!(
-            "--config is required unless using --stats with --dir"
+            "--dir is required for review command"
         ));
     }
-
-    let config_obj = read_config(config.unwrap())?;
-
-    // Determine results file path
-    let results_path = match results_file {
-        Some(path) => path.clone(),
-        None => config_obj
-            .report_output_dir
-            .join(get_results_filename(&config_obj.mode)),
-    };
-
-    if !results_path.exists() {
-        println!("No contamination results file found at: {:?}", results_path);
-        println!("Run contamination detection first, or specify --results-file");
-        return Ok(());
+    
+    let dir_path = dir.unwrap();
+    if !dir_path.exists() {
+        println!("Directory not found: {:?}", dir_path);
+        return Err(anyhow::anyhow!("Directory not found"));
     }
 
-    // Load contamination results
-    println!("Loading contamination results from: {:?}", results_path);
-    let mut contamination_results = load_contamination_results(&results_path)?;
+    // Load all result files from directory
+    let mut all_results = load_contamination_results_from_directory(dir_path)?;
 
-    if contamination_results.is_empty() {
-        println!("No contamination found in results file.");
+    if all_results.is_empty() {
+        println!(
+            "No contamination results found in directory: {:?}",
+            dir_path
+        );
         return Ok(());
     }
 
     // Sort by contamination_score in ascending order
-    contamination_results.sort_by(|a, b| {
+    all_results.sort_by(|a, b| {
         let score_a = a.contamination_score.unwrap_or(0.0);
         let score_b = b.contamination_score.unwrap_or(0.0);
         score_a
@@ -325,18 +185,18 @@ pub fn review_contamination(
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    let original_count = contamination_results.len();
+    let original_count = all_results.len();
 
     // Apply filters if specified
-    contamination_results = filter_contamination_results_by_thresholds(
-        contamination_results,
+    all_results = filter_contamination_results_by_thresholds(
+        all_results,
         min_overlap_ratio,
         min_length,
         eval_filter,
         skip_exact,
     );
 
-    if contamination_results.is_empty() {
+    if all_results.is_empty() {
         println!("No contamination results matched the filter criteria.");
         println!("Original count: {}", original_count);
         if min_overlap_ratio.is_some() {
@@ -358,87 +218,73 @@ pub fn review_contamination(
     }
 
     println!(
-        "Found {} contamination instances to review",
-        contamination_results.len()
+        "Found {} contamination instances from directory",
+        all_results.len()
     );
-    if original_count != contamination_results.len() {
+    if original_count != all_results.len() {
         println!(
             "({} filtered out by threshold criteria)",
-            original_count - contamination_results.len()
+            original_count - all_results.len()
         );
     }
     println!();
 
     if stats {
         // Display eval dataset statistics with bar chart
-        display_eval_dataset_stats(&contamination_results)?;
+        display_eval_dataset_stats(&all_results)?;
         return Ok(());
     }
 
-    // Load ground truth if available (only needed for metric and filtering)
-    let ground_truth = load_ground_truth(&config_obj.local_input)?;
-
-    if metric {
-        // Calculate and display statistics
-        calculate_and_display_stats(&contamination_results, &ground_truth)?;
-        return Ok(());
-    }
-
-    // No filtering flags anymore
-    let filter_requested = false;
-    let mut filtered_results = contamination_results.clone();
-
-    // Re-sort after filtering to maintain ascending contamination_score order
-    filtered_results.sort_by(|a, b| {
-        let score_a = a.contamination_score.unwrap_or(0.0);
-        let score_b = b.contamination_score.unwrap_or(0.0);
-        score_a
-            .partial_cmp(&score_b)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-
-    if filtered_results.is_empty() {
-        println!("No contamination found in results file.");
-        return Ok(());
-    }
-
-    println!(
-        "Found {} contamination instances to review{}\n",
-        filtered_results.len(),
-        ""
-    );
-
-    // Review each contamination case
+    // For step-by-step review with directory
     if step {
         println!("=== REVIEWING ALL CONTAMINATION CASES ===\n");
-    } else {
-        println!("=== DISPLAYING ALL CONTAMINATION CASES ===\n");
-    }
 
-    for (idx, result) in filtered_results.iter().enumerate() {
-        if step && idx > 0 {
-            // Wait for user input before showing next case
-            println!("\nPress Enter to continue to next contamination case...");
-            let mut input = String::new();
-            io::stdin().read_line(&mut input).unwrap();
+        // Review each contamination case
+        for (idx, result) in all_results.iter().enumerate() {
+            if idx > 0 {
+                // Wait for user input before showing next case
+                println!("\nPress Enter to continue to next contamination case...");
+                let mut input = String::new();
+                io::stdin().read_line(&mut input).unwrap();
 
-            // Clear the screen
-            print!("\x1B[2J\x1B[1;1H");
+                // Clear the screen
+                print!("\x1B[2J\x1B[1;1H");
+            }
+
+            println!("{}", "=".repeat(80));
+            println!("CONTAMINATION #{} of {}", idx + 1, all_results.len());
+            println!("{}", "=".repeat(80));
+
+            // We don't have ground truth or config when using directory mode
+            // Pass None for the config parameter
+            display_contamination_case_without_config(result)?;
+            println!();
         }
 
-        println!("{}", "=".repeat(80));
-        println!("CONTAMINATION #{} of {}", idx + 1, filtered_results.len());
-        println!("{}", "=".repeat(80));
-
-        display_contamination_case(result, &ground_truth, &config_obj)?;
-        println!();
-    }
-
-    if step {
         println!("=== REVIEW COMPLETE ===");
-    } else {
-        println!("=== END OF RESULTS ===");
+        return Ok(());
     }
+
+    // Display all results at once if --all flag is set or if no specific flag is set
+    if all || (!stats && !step) {
+        println!("=== DISPLAYING ALL CONTAMINATION CASES ===\n");
+
+        // Review each contamination case without stepping
+        for (idx, result) in all_results.iter().enumerate() {
+            println!("{}", "=".repeat(80));
+            println!("CONTAMINATION #{} of {}", idx + 1, all_results.len());
+            println!("{}", "=".repeat(80));
+
+            display_contamination_case_without_config(result)?;
+            println!();
+        }
+
+        println!("=== END OF RESULTS ===");
+        return Ok(());
+    }
+
+    // If no flag is set, show summary
+    println!("Use --stats to see statistics, --step to review cases interactively, or --all to see all results.");
     Ok(())
 }
 
@@ -632,6 +478,7 @@ fn calculate_and_display_stats(
     Ok(())
 }
 
+#[allow(dead_code)]
 fn filter_contamination_results(
     contamination_results: &[ContaminationResult],
     ground_truth: &[GroundTruthRecord],

@@ -21,11 +21,9 @@ use mj_io::read_pathbuf_to_mem;
 
 // Internal modules
 mod daemon;
-mod minhash;
 mod reference;
 mod review;
 mod simple;
-mod toxic;
 
 /*=================================================================
 =                                  ARGS                           =
@@ -36,7 +34,7 @@ mod toxic;
     author,
     version,
     about = "Decon - A contamination detection tool for machine learning datasets",
-    long_about = "Decon identifies when training data contains text from evaluation datasets.\n\nSupports three detection algorithms:\n- SIMPLE: N-gram matching with sampling and cluster expansion\n- MinHash: Near-duplicate detection using locality-sensitive hashing\n- TOXIC: Semantic similarity using word embeddings\n\nConfiguration options can be specified in a YAML file and overridden via command-line flags."
+    long_about = "Decon identifies when training data contains text from evaluation datasets.\n\nUses the SIMPLE detection algorithm:\n- N-gram matching with sampling and cluster expansion\n- Configurable thresholds for questions and answers\n- Support for multiple tokenizers\n\nConfiguration options can be specified in a YAML file and overridden via command-line flags."
 )]
 struct ArgParser {
     #[clap(subcommand)]
@@ -53,8 +51,6 @@ enum Commands {
         config: PathBuf,
 
         // Common config overrides
-        #[arg(long, help = "Detection mode: simple, minhash, or toxic")]
-        mode: Option<String>,
 
         #[arg(long, help = "JSON field containing text content")]
         content_key: Option<String>,
@@ -108,45 +104,12 @@ enum Commands {
         )]
         answer_threshold: Option<f32>,
 
-        // MinHash mode specific
-        #[arg(long, help = "Number of bands for MinHash LSH")]
-        num_bands: Option<usize>,
 
-        #[arg(long, help = "Size of each band for MinHash LSH")]
-        band_size: Option<usize>,
-
-        #[arg(long, help = "Jaccard similarity threshold for MinHash")]
-        jaccard_similarity_threshold: Option<f32>,
-
-        // TOXIC mode specific
-        #[arg(long, help = "Path to word embeddings file for TOXIC mode")]
-        toxic_embedding_path: Option<PathBuf>,
-
-        #[arg(long, help = "Number of hyperplanes for TOXIC LSH")]
-        toxic_hyperplanes: Option<usize>,
-
-        #[arg(long, help = "Overlap ratio threshold for TOXIC mode")]
-        toxic_overlap_threshold: Option<f32>,
-
-        #[arg(long, help = "Toxic score threshold for TOXIC mode")]
-        toxic_score_threshold: Option<f32>,
-
-        #[arg(long, help = "Scale factor for poison tokens in TOXIC mode")]
-        toxic_poison_scale: Option<f32>,
-
-        #[arg(
-            long,
-            help = "Skip buckets with more than this many entries (-1 to disable)"
-        )]
-        skip_hot_bucket_threshold: Option<i32>,
     },
 
     Review {
         #[arg(long)]
         config: Option<PathBuf>,
-
-        #[arg(long)]
-        results_file: Option<PathBuf>,
 
         #[arg(long, help = "Directory containing result files to analyze for stats")]
         dir: Option<PathBuf>,
@@ -209,8 +172,6 @@ enum Commands {
         port: u16,
 
         // Common config overrides
-        #[arg(long, help = "Detection mode: simple, minhash, or toxic")]
-        mode: Option<String>,
 
         #[arg(long, help = "JSON field containing text content")]
         content_key: Option<String>,
@@ -264,37 +225,7 @@ enum Commands {
         )]
         answer_threshold: Option<f32>,
 
-        // MinHash mode specific
-        #[arg(long, help = "Number of bands for MinHash LSH")]
-        num_bands: Option<usize>,
 
-        #[arg(long, help = "Size of each band for MinHash LSH")]
-        band_size: Option<usize>,
-
-        #[arg(long, help = "Jaccard similarity threshold for MinHash")]
-        jaccard_similarity_threshold: Option<f32>,
-
-        // TOXIC mode specific
-        #[arg(long, help = "Path to word embeddings file for TOXIC mode")]
-        toxic_embedding_path: Option<PathBuf>,
-
-        #[arg(long, help = "Number of hyperplanes for TOXIC LSH")]
-        toxic_hyperplanes: Option<usize>,
-
-        #[arg(long, help = "Overlap ratio threshold for TOXIC mode")]
-        toxic_overlap_threshold: Option<f32>,
-
-        #[arg(long, help = "Toxic score threshold for TOXIC mode")]
-        toxic_score_threshold: Option<f32>,
-
-        #[arg(long, help = "Scale factor for poison tokens in TOXIC mode")]
-        toxic_poison_scale: Option<f32>,
-
-        #[arg(
-            long,
-            help = "Skip buckets with more than this many entries (-1 to disable)"
-        )]
-        skip_hot_bucket_threshold: Option<i32>,
     },
 
     References {
@@ -328,11 +259,6 @@ pub struct Config {
     #[serde(default = "default_mode")]
     pub mode: String,
 
-    // Minhash parameters
-    #[serde(default = "default_num_bands")]
-    pub num_bands: usize,
-    #[serde(default = "default_band_size")]
-    pub band_size: usize,
     #[serde(default = "default_ngram_size")]
     pub ngram_size: usize,
     #[serde(default = "default_tokenizer_str")]
@@ -353,24 +279,8 @@ pub struct Config {
     // Processing options
     #[serde(default)]
     pub exact_override: bool,
-    #[serde(default = "default_jaccard_threshold")]
-    pub jaccard_similarity_threshold: f32,
 
-    // TOXIC-specific parameters
-    #[serde(default = "default_toxic_embedding_path")]
-    pub toxic_embedding_path: PathBuf,
-    #[serde(default = "default_toxic_hyperplanes")]
-    pub toxic_hyperplanes: usize,
-    #[serde(default = "default_toxic_overlap_threshold")]
-    pub toxic_overlap_threshold: f32,
-    #[serde(default = "default_toxic_score_threshold")]
-    pub toxic_score_threshold: f32,
-    #[serde(default = "default_toxic_poison_scale")]
-    pub toxic_poison_scale: f32,
-    #[serde(default = "default_skip_hot_bucket_threshold")]
-    pub skip_hot_bucket_threshold: i32,
-
-    // TOXIC sampling optimization parameters
+    // Sampling optimization parameters
     #[serde(default = "default_sample_every_m_tokens")]
     pub sample_every_m_tokens: usize,
     #[serde(default = "default_max_consecutive_misses")]
@@ -424,43 +334,11 @@ pub struct Config {
 }
 
 fn default_mode() -> String {
-    "minhash".to_string()
-}
-
-fn default_jaccard_threshold() -> f32 {
-    0.5
-}
-
-fn default_toxic_embedding_path() -> PathBuf {
-    PathBuf::from("/home/robert/Downloads/wiki-news-300d-1M.vec")
-}
-
-fn default_toxic_hyperplanes() -> usize {
-    64 // 64-bit bucket IDs
-}
-
-fn default_toxic_overlap_threshold() -> f32 {
-    0.3 // 30% n-gram overlap threshold
-}
-
-fn default_toxic_score_threshold() -> f32 {
-    0.0 // Default toxic score threshold (disabled)
-}
-
-fn default_toxic_poison_scale() -> f32 {
-    3.0 // Amplify poison token destructive impact
+    "simple".to_string()
 }
 
 fn default_debug() -> bool {
     false // Debug logging disabled by default
-}
-
-fn default_num_bands() -> usize {
-    7 // Default MinHash bands
-}
-
-fn default_band_size() -> usize {
-    8 // Default MinHash band size
 }
 
 fn default_ngram_size() -> usize {
@@ -469,10 +347,6 @@ fn default_ngram_size() -> usize {
 
 fn default_tokenizer_str() -> String {
     "uniseg".to_string() // Default tokenizer
-}
-
-fn default_skip_hot_bucket_threshold() -> i32 {
-    -1 // Disabled by default
 }
 
 fn default_sample_every_m_tokens() -> usize {
@@ -488,7 +362,7 @@ fn default_ngram_bucket_lru_cache() -> usize {
 }
 
 fn default_punctuation_chars() -> String {
-    "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~".to_string() // Default punctuation for minhash
+    "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~".to_string() // Default punctuation
 }
 
 fn default_worker_threads() -> usize {
@@ -529,8 +403,6 @@ pub fn read_config(config_path: &PathBuf) -> Result<Config, Error> {
 
 pub fn get_results_filename(mode: &str) -> String {
     match mode {
-        "minhash" => "contamination_results.jsonl".to_string(),
-        "toxic" => "toxic_contamination_results.jsonl".to_string(),
         "simple" => "simple_contamination_results.jsonl".to_string(),
         _ => "contamination_results.jsonl".to_string(), // fallback
     }
@@ -545,9 +417,7 @@ pub fn get_unique_results_filename(input_file: &PathBuf, config: &Config) -> Str
 
     // Get the appropriate threshold value based on mode
     let threshold = match config.mode.as_str() {
-        "minhash" => config.jaccard_similarity_threshold,
-        "toxic" => config.toxic_overlap_threshold,
-        "simple" => config.toxic_overlap_threshold,
+        "simple" => config.question_threshold,
         _ => 0.0,
     };
 
@@ -857,7 +727,7 @@ pub fn preprocess_text(
 }
 
 pub fn clean_text(text: &str, punctuation_chars: &str) -> String {
-    // SlimPajama text cleaning process (used by MinHash)
+    // Text cleaning process
 
     // Convert the document to lowercase
     let mut text = text.to_lowercase();
@@ -872,33 +742,6 @@ pub fn clean_text(text: &str, punctuation_chars: &str) -> String {
 
     // Trim leading and trailing whitespace
     text.trim().to_string()
-}
-
-pub fn clean_text_allowlist(text: &str, _punctuation_chars: &str) -> String {
-    // Whitelist approach: keep only letters, numbers, hyphens, and spaces (used by TOXIC)
-    // This ensures consistent matching regardless of Unicode variants, fancy quotes, etc.
-    // Hyphens are preserved because they affect tokenization (e.g., "one-to-one" vs "one to one")
-
-    text.chars()
-        .filter_map(|c| match c {
-            // Keep letters (convert to lowercase)
-            'a'..='z' => Some(c),
-            'A'..='Z' => Some(c.to_ascii_lowercase()),
-            // Keep numbers
-            '0'..='9' => Some(c),
-            // Keep hyphens (important for compound words and tokenization)
-            '-' | '_' | ']' | '[' | '{' | '}' | '=' | '(' | ')' | '>' | '<' | '+' | '*' | '/' => {
-                Some(c)
-            }
-            // Normalize all whitespace to single space
-            ' ' | '\t' | '\n' | '\r' => Some(' '),
-            // Drop everything else (punctuation, Unicode variants, etc.)
-            _ => None,
-        })
-        .collect::<String>()
-        .split_whitespace() // Normalize multiple spaces to single spaces
-        .collect::<Vec<&str>>()
-        .join(" ")
 }
 
 // Debug logging macro - only prints when config.debug is true
@@ -917,14 +760,6 @@ macro_rules! debug_println {
 
 fn contamination_detect_with_config(config_obj: &Config) -> Result<(), Error> {
     match config_obj.mode.as_str() {
-        "minhash" => {
-            println!("Using MinHash contamination detection...");
-            minhash::contamination_detect(&config_obj)
-        }
-        "toxic" => {
-            println!("Using TOXIC contamination detection...");
-            toxic::contamination_detect(&config_obj)
-        }
         "simple" => {
             println!("Using Simple contamination detection...");
             println!("  N-gram size: {}", config_obj.ngram_size);
@@ -943,7 +778,7 @@ fn contamination_detect_with_config(config_obj: &Config) -> Result<(), Error> {
         }
         unknown_mode => {
             println!("Unknown mode: '{}'", unknown_mode);
-            println!("Available modes: minhash, toxic, simple");
+            println!("Mode must be: simple");
             Err(anyhow::anyhow!(
                 "Unsupported detection mode: {}",
                 unknown_mode
@@ -972,7 +807,6 @@ fn main() -> Result<(), Error> {
     let result = match &args.command {
         Commands::Detect {
             config,
-            mode,
             content_key,
             local_input,
             reference_input,
@@ -986,23 +820,11 @@ fn main() -> Result<(), Error> {
             max_consecutive_misses,
             question_threshold,
             answer_threshold,
-            num_bands,
-            band_size,
-            jaccard_similarity_threshold,
-            toxic_embedding_path,
-            toxic_hyperplanes,
-            toxic_overlap_threshold,
-            toxic_score_threshold,
-            toxic_poison_scale,
-            skip_hot_bucket_threshold,
         } => {
             // Load config from file
             let mut loaded_config = read_config(config)?;
 
             // Apply command-line overrides
-            if let Some(m) = mode {
-                loaded_config.mode = m.clone();
-            }
             if let Some(ck) = content_key {
                 loaded_config.content_key = ck.clone();
             }
@@ -1049,43 +871,13 @@ fn main() -> Result<(), Error> {
                 loaded_config.answer_threshold = *at;
             }
 
-            // MinHash mode overrides
-            if let Some(nb) = num_bands {
-                loaded_config.num_bands = *nb;
-            }
-            if let Some(bs) = band_size {
-                loaded_config.band_size = *bs;
-            }
-            if let Some(jst) = jaccard_similarity_threshold {
-                loaded_config.jaccard_similarity_threshold = *jst;
-            }
 
-            // TOXIC mode overrides
-            if let Some(tep) = toxic_embedding_path {
-                loaded_config.toxic_embedding_path = tep.clone();
-            }
-            if let Some(th) = toxic_hyperplanes {
-                loaded_config.toxic_hyperplanes = *th;
-            }
-            if let Some(tot) = toxic_overlap_threshold {
-                loaded_config.toxic_overlap_threshold = *tot;
-            }
-            if let Some(tst) = toxic_score_threshold {
-                loaded_config.toxic_score_threshold = *tst;
-            }
-            if let Some(tps) = toxic_poison_scale {
-                loaded_config.toxic_poison_scale = *tps;
-            }
-            if let Some(shbt) = skip_hot_bucket_threshold {
-                loaded_config.skip_hot_bucket_threshold = *shbt;
-            }
 
             contamination_detect_with_config(&loaded_config)
         }
 
         Commands::Review {
             config,
-            results_file,
             dir,
             step,
             metric,
@@ -1097,7 +889,6 @@ fn main() -> Result<(), Error> {
             skip_exact,
         } => review::review_contamination(
             config.as_ref(),
-            results_file.as_ref(),
             dir.as_ref(),
             *step,
             *metric,
@@ -1112,7 +903,6 @@ fn main() -> Result<(), Error> {
         Commands::Daemon {
             config,
             port,
-            mode,
             content_key,
             local_input,
             reference_input,
@@ -1126,23 +916,11 @@ fn main() -> Result<(), Error> {
             max_consecutive_misses,
             question_threshold,
             answer_threshold,
-            num_bands,
-            band_size,
-            jaccard_similarity_threshold,
-            toxic_embedding_path,
-            toxic_hyperplanes,
-            toxic_overlap_threshold,
-            toxic_score_threshold,
-            toxic_poison_scale,
-            skip_hot_bucket_threshold,
         } => {
             // Load config from file
             let mut loaded_config = read_config(config)?;
 
             // Apply command-line overrides
-            if let Some(m) = mode {
-                loaded_config.mode = m.clone();
-            }
             if let Some(ck) = content_key {
                 loaded_config.content_key = ck.clone();
             }
@@ -1189,36 +967,7 @@ fn main() -> Result<(), Error> {
                 loaded_config.answer_threshold = *at;
             }
 
-            // MinHash mode overrides
-            if let Some(nb) = num_bands {
-                loaded_config.num_bands = *nb;
-            }
-            if let Some(bs) = band_size {
-                loaded_config.band_size = *bs;
-            }
-            if let Some(jst) = jaccard_similarity_threshold {
-                loaded_config.jaccard_similarity_threshold = *jst;
-            }
 
-            // TOXIC mode overrides
-            if let Some(tep) = toxic_embedding_path {
-                loaded_config.toxic_embedding_path = tep.clone();
-            }
-            if let Some(th) = toxic_hyperplanes {
-                loaded_config.toxic_hyperplanes = *th;
-            }
-            if let Some(tot) = toxic_overlap_threshold {
-                loaded_config.toxic_overlap_threshold = *tot;
-            }
-            if let Some(tst) = toxic_score_threshold {
-                loaded_config.toxic_score_threshold = *tst;
-            }
-            if let Some(tps) = toxic_poison_scale {
-                loaded_config.toxic_poison_scale = *tps;
-            }
-            if let Some(shbt) = skip_hot_bucket_threshold {
-                loaded_config.skip_hot_bucket_threshold = *shbt;
-            }
 
             let runtime = tokio::runtime::Runtime::new().unwrap();
             runtime.block_on(daemon::run_daemon(loaded_config, *port))
@@ -1242,31 +991,4 @@ fn main() -> Result<(), Error> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_clean_text_allowlist() {
-        // Test basic text cleaning
-        let input = "Janet's ducks lay 16 eggs per day.";
-        let result = clean_text_allowlist(input, "");
-        assert_eq!(result, "janets ducks lay 16 eggs per day");
-
-        // Test Unicode apostrophe normalization
-        let input_unicode = "Janet's ducks lay 16 eggs per day."; // Unicode right single quotation mark
-        let result_unicode = clean_text_allowlist(input_unicode, "");
-        assert_eq!(result_unicode, "janets ducks lay 16 eggs per day");
-
-        // Test hyphen preservation
-        let input_hyphen = "one-to-one function";
-        let result_hyphen = clean_text_allowlist(input_hyphen, "");
-        assert_eq!(result_hyphen, "one-to-one function");
-
-        // Test multiple whitespace normalization
-        let input_spaces = "hello    world\t\ttest\n\nfoo";
-        let result_spaces = clean_text_allowlist(input_spaces, "");
-        assert_eq!(result_spaces, "hello world test foo");
-
-        // Test punctuation removal
-        let input_punct = "Hello, world! How are you? Fine.";
-        let result_punct = clean_text_allowlist(input_punct, "");
-        assert_eq!(result_punct, "hello world how are you fine");
-    }
 }
