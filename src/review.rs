@@ -84,10 +84,9 @@ pub fn review_contamination(
     _config: Option<&PathBuf>,
     dir: Option<&PathBuf>,
     step: bool,
-    _metric: bool,
     stats: bool,
     all: bool,
-    min_overlap_ratio: Option<f32>,
+    min_score: Option<f32>,
     min_length: Option<usize>,
     eval_filter: Option<&str>,
     skip_exact: bool,
@@ -132,7 +131,7 @@ pub fn review_contamination(
     // Apply filters if specified
     all_results = filter_contamination_results_by_thresholds(
         all_results,
-        min_overlap_ratio,
+        min_score,
         min_length,
         eval_filter,
         skip_exact,
@@ -141,10 +140,10 @@ pub fn review_contamination(
     if all_results.is_empty() {
         println!("No contamination results matched the filter criteria.");
         println!("Original count: {}", original_count);
-        if min_overlap_ratio.is_some() {
+        if min_score.is_some() {
             println!(
-                "  - Minimum overlap ratio: {:.3}",
-                min_overlap_ratio.unwrap()
+                "  - Minimum contamination score: {:.3}",
+                min_score.unwrap()
             );
         }
         if min_length.is_some() {
@@ -177,8 +176,26 @@ pub fn review_contamination(
         return Ok(());
     }
 
-    // For step-by-step review with directory
-    if step {
+    // Display all results at once if --all flag is set
+    if all {
+        println!("=== DISPLAYING ALL CONTAMINATION CASES ===\n");
+
+        // Review each contamination case without stepping
+        for (idx, result) in all_results.iter().enumerate() {
+            println!("{}", "=".repeat(80));
+            println!("CONTAMINATION #{} of {}", idx + 1, all_results.len());
+            println!("{}", "=".repeat(80));
+
+            display_contamination_case_without_config(result)?;
+            println!();
+        }
+
+        println!("=== END OF RESULTS ===");
+        return Ok(());
+    }
+
+    // Default to step-by-step review if no specific flag is set (or if --step is explicitly set)
+    if step || (!stats && !all) {
         println!("=== REVIEWING ALL CONTAMINATION CASES ===\n");
 
         // Review each contamination case
@@ -207,26 +224,7 @@ pub fn review_contamination(
         return Ok(());
     }
 
-    // Display all results at once if --all flag is set or if no specific flag is set
-    if all || (!stats && !step) {
-        println!("=== DISPLAYING ALL CONTAMINATION CASES ===\n");
-
-        // Review each contamination case without stepping
-        for (idx, result) in all_results.iter().enumerate() {
-            println!("{}", "=".repeat(80));
-            println!("CONTAMINATION #{} of {}", idx + 1, all_results.len());
-            println!("{}", "=".repeat(80));
-
-            display_contamination_case_without_config(result)?;
-            println!();
-        }
-
-        println!("=== END OF RESULTS ===");
-        return Ok(());
-    }
-
-    // If no flag is set, show summary
-    println!("Use --stats to see statistics, --step to review cases interactively, or --all to see all results.");
+    // This should not be reached anymore since we default to step mode
     Ok(())
 }
 
@@ -335,7 +333,7 @@ fn load_contamination_results(results_path: &PathBuf) -> Result<Vec<Contaminatio
 
 fn filter_contamination_results_by_thresholds(
     results: Vec<ContaminationResult>,
-    min_overlap_ratio: Option<f32>,
+    min_score: Option<f32>,
     min_length: Option<usize>,
     eval_filter: Option<&str>,
     skip_exact: bool,
@@ -359,9 +357,14 @@ fn filter_contamination_results_by_thresholds(
                 }
             }
 
-            // Check overlap ratio (jaccard_similarity)
-            if let Some(min_ratio) = min_overlap_ratio {
-                if result.jaccard_similarity < min_ratio {
+            // Check contamination score
+            if let Some(min_score_threshold) = min_score {
+                if let Some(score) = result.contamination_score {
+                    if score < min_score_threshold {
+                        return false;
+                    }
+                } else {
+                    // If contamination_score is not present, filter out
                     return false;
                 }
             }

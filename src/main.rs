@@ -114,18 +114,6 @@ enum Commands {
         #[arg(long, help = "Directory containing result files to analyze for stats")]
         dir: Option<PathBuf>,
 
-        #[arg(
-            long,
-            help = "Step through examples one by one, waiting for Enter between each"
-        )]
-        step: bool,
-
-        #[arg(
-            long,
-            help = "Calculate and display TP/FP/Accuracy statistics based on ground truth annotations"
-        )]
-        metric: bool,
-
 
         #[arg(
             long,
@@ -141,9 +129,9 @@ enum Commands {
 
         #[arg(
             long,
-            help = "Minimum overlap ratio to include in results (filters by jaccard_similarity/overlap_ratio)"
+            help = "Minimum contamination score to include in results"
         )]
-        min_overlap_ratio: Option<f32>,
+        min_score: Option<f32>,
 
         #[arg(
             long,
@@ -157,11 +145,6 @@ enum Commands {
         )]
         eval: Option<String>,
 
-        #[arg(
-            long,
-            help = "Skip records with contamination score == 1.0 (exact matches)"
-        )]
-        skip_exact: bool,
     },
 
     Server {
@@ -879,25 +862,21 @@ fn main() -> Result<(), Error> {
         Commands::Review {
             config,
             dir,
-            step,
-            metric,
             stats,
             all,
-            min_overlap_ratio,
+            min_score,
             min_length,
             eval,
-            skip_exact,
         } => review::review_contamination(
             config.as_ref(),
             dir.as_ref(),
-            *step,
-            *metric,
+            !*stats && !*all,  // step is true when neither stats nor all is set
             *stats,
             *all,
-            *min_overlap_ratio,
+            *min_score,
             *min_length,
             eval.as_deref(),
-            *skip_exact,
+            false,  // skip_exact is now always false
         ),
 
         Commands::Server {
