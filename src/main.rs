@@ -51,89 +51,109 @@ enum Commands {
         long_about = "Detect and report on contamination between a reference dataset and a training dataset.\nCan optionally produce a clean dataset with contaminated documents removed."
     )]
     Detect {
-        #[arg(
-            required = false,
-            long,
-            help = "Path to YAML configuration file",
-            display_order = 14
-        )]
-        config: PathBuf,
-
-        // Common config overrides
-        #[arg(
-            long,
-            help = "JSON field containing text content in training documents",
-            display_order = 2
-        )]
-        content_key: Option<String>,
-
+        // Input and Output
         #[arg(
             long,
             help = "Directory containing training data in jsonl format",
-            display_order = 1
+            display_order = 1,
+            help_heading = "Input and Output"
         )]
         local_input: Option<PathBuf>,
 
         #[arg(
             long,
+            help = "JSON field containing text content in training documents",
+            display_order = 2,
+            help_heading = "Input and Output"
+        )]
+        content_key: Option<String>,
+
+        #[arg(
+            long,
             help = "Directory containing reference data (evals) in decon expected format",
-            display_order = 4
+            display_order = 3,
+            help_heading = "Input and Output"
         )]
         reference_input: Option<PathBuf>,
 
         #[arg(
             long,
             help = "Output directory for contamination reports",
-            display_order = 5
+            display_order = 4,
+            help_heading = "Input and Output"
         )]
         report_output_dir: Option<PathBuf>,
 
-        #[arg(long, help = "Output directory for cleaned files", display_order = 6)]
+        #[arg(
+            long,
+            help = "Output directory for cleaned files",
+            display_order = 5,
+            help_heading = "Input and Output"
+        )]
         cleaned_output_dir: Option<PathBuf>,
 
         #[arg(
             long,
             help = "Produce cleaned files with contaminated lines removed",
-            display_order = 7
+            display_order = 6,
+            help_heading = "Input and Output"
         )]
-        purify: Option<bool>,
+        purify: bool,
 
         #[arg(
+            required = false,
             long,
-            help = "Tokenizer type: word, p50k, or cl100k",
-            display_order = 8
+            help = "Path to YAML configuration file",
+            display_order = 7
+        )]
+        config: PathBuf,
+
+        // Matching and Scoring
+        #[arg(
+            long,
+            help = "Tokenizer type: word, p50k, or cl100k [default: cl100k]",
+            display_order = 8,
+            help_heading = "Matching and Scoring"
         )]
         tokenizer: Option<String>,
 
-        // SIMPLE mode specific
-        #[arg(long, help = "N-gram size for SIMPLE mode", display_order = 9)]
+        #[arg(
+            long,
+            help = "N-gram size for SIMPLE mode [default: 5]",
+            display_order = 9,
+            help_heading = "Matching and Scoring"
+        )]
         ngram_size: Option<usize>,
 
         #[arg(
             long,
-            help = "Sample every M tokens for SIMPLE mode (defaults to ngram_size + 1)",
-            display_order = 10
+            help = "Sample every M tokens for SIMPLE mode [default: ngram_size + 1]",
+            display_order = 10,
+            help_heading = "Matching and Scoring"
         )]
         sample_every_m_tokens: Option<usize>,
 
         #[arg(
             long,
-            help = "Max consecutive misses before stopping cluster expansion (defaults to ngram_size * 2)",
-            display_order = 11
+            help = "Max consecutive misses before stopping cluster expansion [default: 2]",
+            display_order = 11,
+            help_heading = "Matching and Scoring"
         )]
         max_consecutive_misses: Option<usize>,
 
         #[arg(
             long,
-            help = "Contamination score threshold for questions in SIMPLE mode",
-            display_order = 12
+            help = "Contamination score threshold for questions in SIMPLE mode [default: 0.8]",
+            display_order = 12,
+            help_heading = "Matching and Scoring"
         )]
         question_threshold: Option<f32>,
 
         #[arg(
             long,
-            help = "Contamination score threshold for answers in SIMPLE mode",
-            display_order = 13
+            help = "Contamination score threshold for answers in SIMPLE mode [default: 0.8]",
+            display_order = 13,
+            help_heading = "Matching and Scoring"
         )]
         answer_threshold: Option<f32>,
     },
@@ -174,59 +194,120 @@ enum Commands {
     },
 
     Server {
-        #[arg(required = true, long)]
+        // Configuration
+        #[arg(
+            required = true,
+            long,
+            help = "Path to YAML configuration file",
+            display_order = 1
+        )]
         config: PathBuf,
 
-        #[arg(long, default_value_t = 8080)]
+        // Server Configuration
+        #[arg(
+            long,
+            default_value_t = 8080,
+            help = "Port to listen on",
+            display_order = 2,
+            help_heading = "Server Configuration"
+        )]
         port: u16,
 
-        // Common config overrides
-        #[arg(long, help = "JSON field containing text content")]
-        content_key: Option<String>,
-
-        #[arg(long, help = "Directory containing training data in jsonl format")]
+        // Input and Output
+        #[arg(
+            long,
+            help = "Directory containing training data in jsonl format",
+            display_order = 3,
+            help_heading = "Input and Output"
+        )]
         local_input: Option<PathBuf>,
 
-        #[arg(long, help = "Directory containing evaluation/reference data")]
+        #[arg(
+            long,
+            help = "JSON field containing text content",
+            display_order = 4,
+            help_heading = "Input and Output"
+        )]
+        content_key: Option<String>,
+
+        #[arg(
+            long,
+            help = "Directory containing evaluation/reference data",
+            display_order = 5,
+            help_heading = "Input and Output"
+        )]
         reference_input: Option<PathBuf>,
 
-        #[arg(long, help = "Output directory for contamination reports")]
+        #[arg(
+            long,
+            help = "Output directory for contamination reports",
+            display_order = 6,
+            help_heading = "Input and Output"
+        )]
         report_output_dir: Option<PathBuf>,
 
-        #[arg(long, help = "Output directory for cleaned files")]
+        #[arg(
+            long,
+            help = "Output directory for cleaned files",
+            display_order = 7,
+            help_heading = "Input and Output"
+        )]
         cleaned_output_dir: Option<PathBuf>,
 
-        #[arg(long, help = "Enable creation of cleaned files")]
-        purify: Option<bool>,
+        #[arg(
+            long,
+            help = "Enable creation of cleaned files [default: false]",
+            display_order = 8,
+            help_heading = "Input and Output"
+        )]
+        purify: bool,
 
-        #[arg(long, help = "Tokenizer type: word, p50k, or cl100k")]
+        // Matching and Scoring
+        #[arg(
+            long,
+            help = "Tokenizer type: word, p50k, or cl100k [default: cl100k]",
+            display_order = 9,
+            help_heading = "Matching and Scoring"
+        )]
         tokenizer: Option<String>,
 
-        // SIMPLE mode specific
-        #[arg(long, help = "N-gram size for SIMPLE mode")]
+        #[arg(
+            long,
+            help = "N-gram size for SIMPLE mode [default: 5]",
+            display_order = 10,
+            help_heading = "Matching and Scoring"
+        )]
         ngram_size: Option<usize>,
 
         #[arg(
             long,
-            help = "Sample every M tokens for SIMPLE mode (defaults to ngram_size + 1)"
+            help = "Sample every M tokens for SIMPLE mode [default: ngram_size + 1]",
+            display_order = 11,
+            help_heading = "Matching and Scoring"
         )]
         sample_every_m_tokens: Option<usize>,
 
         #[arg(
             long,
-            help = "Max consecutive misses before stopping cluster expansion (defaults to ngram_size * 2)"
+            help = "Max consecutive misses before stopping cluster expansion [default: 2]",
+            display_order = 12,
+            help_heading = "Matching and Scoring"
         )]
         max_consecutive_misses: Option<usize>,
 
         #[arg(
             long,
-            help = "Contamination score threshold for questions in SIMPLE mode"
+            help = "Contamination score threshold for questions in SIMPLE mode [default: 0.8]",
+            display_order = 13,
+            help_heading = "Matching and Scoring"
         )]
         question_threshold: Option<f32>,
 
         #[arg(
             long,
-            help = "Contamination score threshold for answers in SIMPLE mode"
+            help = "Contamination score threshold for answers in SIMPLE mode [default: 0.8]",
+            display_order = 14,
+            help_heading = "Matching and Scoring"
         )]
         answer_threshold: Option<f32>,
     },
@@ -338,7 +419,7 @@ fn default_ngram_size() -> usize {
 }
 
 fn default_tokenizer_str() -> String {
-    "uniseg".to_string() // Default tokenizer
+    "cl100k".to_string() // Default tokenizer
 }
 
 fn default_sample_every_m_tokens() -> usize {
@@ -376,7 +457,7 @@ fn default_answer_threshold() -> f32 {
 }
 
 fn default_question_threshold() -> f32 {
-    0.79 // Default contamination score threshold for SIMPLE mode
+    0.8 // Default contamination score threshold for SIMPLE mode
 }
 
 fn default_replace_non_utf8_chars() -> bool {
@@ -821,9 +902,7 @@ fn main() -> Result<(), Error> {
             if let Some(cod) = cleaned_output_dir {
                 loaded_config.cleaned_output_dir = Some(cod.clone());
             }
-            if let Some(p) = purify {
-                loaded_config.purify = *p;
-            }
+            loaded_config.purify = *purify;
             if let Some(t) = tokenizer {
                 loaded_config.tokenizer_str = t.clone();
             }
@@ -907,9 +986,7 @@ fn main() -> Result<(), Error> {
             if let Some(cod) = cleaned_output_dir {
                 loaded_config.cleaned_output_dir = Some(cod.clone());
             }
-            if let Some(p) = purify {
-                loaded_config.purify = *p;
-            }
+            loaded_config.purify = *purify;
             if let Some(t) = tokenizer {
                 loaded_config.tokenizer_str = t.clone();
             }
