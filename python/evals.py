@@ -191,6 +191,28 @@ EVAL_CONFIG = {
                 "answer_field": "answer"
             }
         },
+        "alpaca": { # TODO
+            "hf_path": "tatsu-lab/alpaca",
+            "splits": [
+                "eval"
+            ],
+            "transform": {
+                "text_field": "instruction",
+                "answer_field": "output"
+            }
+
+        },
+        "alpaca-multiturn": { # TODO
+            "hf_path": "VGraf/TurnWise",
+            "splits": [
+                "eval"
+            ],
+            "transform": {
+                "text_field": "instruction",
+                "answer_field": "output"
+            }
+
+        },
         "aimo_validation": {
             "hf_path": "AI-MO/aimo-validation-aime",
             "splits": [
@@ -404,7 +426,7 @@ EVAL_CONFIG = {
                 "test"
             ]
         },
-        "commonsense_qa": {
+        "commonsense_qa": {  # csqa
             "hf_path": "commonsense_qa",
             "splits": [
                 "train",
@@ -419,22 +441,22 @@ EVAL_CONFIG = {
                 "test"
             ]
         },
-        "copycolors_mcqa": {
-            "hf_path": "sarahwie/copycolors_mcqa",
-            "hf_config": "4_answer_choices",
-            "splits": [
-                "validation",
-                "test"
-            ],
-            "transform": {
-                "text_field": "question",
-                "answer_field": "choices.text",
-                "answer_key_field": "answerKey"
-            },
-            "no_answer_splits": [
-                "test"
-            ]
-        },
+        # "copycolors_mcqa": {
+        #     "hf_path": "sarahwie/copycolors_mcqa",
+        #     "hf_config": "4_answer_choices",
+        #     "splits": [
+        #         "validation",
+        #         "test"
+        #     ],
+        #     "transform": {
+        #         "text_field": "question",
+        #         "answer_field": "choices.text",
+        #         "answer_key_field": "answerKey"
+        #     },
+        #     "no_answer_splits": [
+        #         "test"
+        #     ]
+        # },
         "coqa": {
             "hf_path": "EleutherAI/coqa",
             "splits": [
@@ -459,24 +481,24 @@ EVAL_CONFIG = {
                 "answer_field": "choices_original"
             }
         },
-        "cosmos_qa": {
-            "hf_path": "allenai/cosmos_qa",
-            "splits": [
-                "train",
-                "test",
-                "validation"
-            ],
-            "transform": {
-                "text_field": "question",
-                "context_field": "context",
-                "answer_field": "answer", # This is now ignored when answer_prefix is set
-                "answer_key_field": "label",
-                "answer_prefix": "answer"
-            },
-            "no_answer_splits": [
-                "test"
-            ]
-        },
+        # "cosmos_qa": {
+        #     "hf_path": "allenai/cosmos_qa",
+        #     "splits": [
+        #         "train",
+        #         "test",
+        #         "validation"
+        #     ],
+        #     "transform": {
+        #         "text_field": "question",
+        #         "context_field": "context",
+        #         "answer_field": "answer", # This is now ignored when answer_prefix is set
+        #         "answer_key_field": "label",
+        #         "answer_prefix": "answer"
+        #     },
+        #     "no_answer_splits": [
+        #         "test"
+        #     ]
+        # },
         "cruxeval": {
             "hf_path": "cruxeval-org/cruxeval",
             "splits": [
@@ -487,7 +509,7 @@ EVAL_CONFIG = {
                 "answer_field": "output"
             }
         },
-        "deepseek_leetcode": {
+        "deepseek_leetcode": {  # David kind of anticipates some contamination here!
             "hf_path": "davidheineman/deepseek-leetcode",
             "splits": [
                 "test"
@@ -499,7 +521,7 @@ EVAL_CONFIG = {
                 "test"
             ]
         },
-        "drop": {
+        "drop": {  # TODO: REVIEW for a good candidate for adding passage support at a more tolerant overlap ratio.
             "hf_path": "EleutherAI/drop",
             "splits": [
                 "train",
@@ -511,7 +533,7 @@ EVAL_CONFIG = {
                 "answer_field": "answer.spans.0"
             }
         },
-        "drop_mc": {
+        "drop_mc": {  # TODO: REVIEW for a good candidate for adding passage support at a more tolerant overlap ratio.
             "hf_path": "allenai/drop_mc",
             "splits": [
                 "validation"
@@ -531,6 +553,18 @@ EVAL_CONFIG = {
                 "text_field": "prompt",
                 "answer_field": "reference_code"
             }
+        },
+        "gpqa": { # TODO: Update hugging face token to download this. We want. All splits all configs.
+            "hf_path": "Idavidrein/gpqa",
+            # "hf_config": "main",
+            # "splits": [
+            #     "train",
+            #     "test"
+            # ],
+            # "transform": {
+            #     "text_field": "question",
+            #     "answer_field": "answer"
+            # }
         },
         "gsm8k": {
             "hf_path": "openai/gsm8k",
@@ -558,7 +592,7 @@ EVAL_CONFIG = {
                 ]
             }
         },
-        "gsm_symbolic": {
+        "gsm_symbolic": { # Has 3 splits!! TODO
             "hf_path": "apple/GSM-Symbolic",
             "splits": [
                 "test"
@@ -769,7 +803,7 @@ EVAL_CONFIG = {
                 "answer_field": "new_solution"
             }
         },
-        "ifbench_multiturn_constraints": {
+        "ifbench_multiturn_constraints": {  # TODO: This a good example for multi-turn complexity.
             "hf_path": "allenai/IFBench_multi-turn",
             "hf_config": "ifbench_constraints",
             "splits": [
@@ -777,7 +811,7 @@ EVAL_CONFIG = {
             ],
             "transform": {
                 "text_field": "prompt",
-                "answer_field": "messages.1.content"
+                # "answer_field": "messages.1.content"  # Davidh suggests that we exclude "generated responses as answert"
             }
         },
         "ifbench_multiturn_ifeval": {
@@ -793,7 +827,7 @@ EVAL_CONFIG = {
                 "test"
             ]
         },
-        "ifeval": {
+        "ifeval": {  # note all if evals do not have answer
             "hf_path": "HuggingFaceH4/ifeval",
             "splits": [
                 "train"
@@ -804,6 +838,10 @@ EVAL_CONFIG = {
             "no_answer_splits": [
                 "train"
             ]
+        },
+        "if_ood": {  # note all if evals do not have answer
+            "hf_path": "valpy/ifeval_ood3",
+            # TODO
         },
         "jeopardy": {
             "hf_path": "soldni/jeopardy",
@@ -872,18 +910,18 @@ EVAL_CONFIG = {
                 "answer_field": "completion"
             }
         },
-        "lexam_mcq": {
-            "hf_path": "LEXam-Benchmark/LEXam",
-            "hf_config": "mcq_4_choices",
-            "splits": [
-                "test"
-            ],
-            "transform": {
-                "text_field": "question",
-                "answer_field": "choices"
-            }
-        },
-        "livecodebench": {
+        # "lexam_mcq": {
+        #     "hf_path": "LEXam-Benchmark/LEXam",
+        #     "hf_config": "mcq_4_choices",
+        #     "splits": [
+        #         "test"
+        #     ],
+        #     "transform": {
+        #         "text_field": "question",
+        #         "answer_field": "choices"
+        #     }
+        # },
+        "livecodebench": {  # TODO: There are 6 ish files, make sure we're getting them all with our process. Does it load first, or all six, additive releases.
             "hf_path": "livecodebench/code_generation_lite",
             "splits": [
                 "test"
@@ -977,7 +1015,7 @@ EVAL_CONFIG = {
                 "answer_field": "answer"
             }
         },
-        "mmlu": {
+        "mmlu": {  # 57 subsets, that each have a train/test/validation split, prefer that. OMIT ALL. maybe double check one day. TODO
             "hf_path": "cais/mmlu",
             "hf_config": "all",
             "splits": [
@@ -1022,8 +1060,58 @@ EVAL_CONFIG = {
                 "test"
             ]
         },
-        # Please pick one among the available configs: ['cpp', 'c', 'javascript', 'java', 'python', 'php', 'csharp', 'typescript', 'bash', 'swift', 'go', 'rust', 'ruby', 'r', 'matlab', 'scala', 'haskell']
-        # TODO iterate over these ^
+        "multilingual_mbpp_cpp": {
+            "hf_path": "allenai/multilingual_mbpp",
+            "hf_config": "cpp",
+            "splits": [
+                "test",
+                "train",
+                "validation"
+            ],
+            "transform": {
+                "text_field": "text",
+                "answer_field": "code"
+            }
+        },
+        "multilingual_mbpp_c": {
+            "hf_path": "allenai/multilingual_mbpp",
+            "hf_config": "c",
+            "splits": [
+                "test",
+                "train",
+                "validation"
+            ],
+            "transform": {
+                "text_field": "text",
+                "answer_field": "code"
+            }
+        },
+        "multilingual_mbpp_javascript": {
+            "hf_path": "allenai/multilingual_mbpp",
+            "hf_config": "javascript",
+            "splits": [
+                "test",
+                "train",
+                "validation"
+            ],
+            "transform": {
+                "text_field": "text",
+                "answer_field": "code"
+            }
+        },
+        "multilingual_mbpp_java": {
+            "hf_path": "allenai/multilingual_mbpp",
+            "hf_config": "java",
+            "splits": [
+                "test",
+                "train",
+                "validation"
+            ],
+            "transform": {
+                "text_field": "text",
+                "answer_field": "code"
+            }
+        },
         "multilingual_mbpp_python": {
             "hf_path": "allenai/multilingual_mbpp",
             "hf_config": "python",
@@ -1037,6 +1125,163 @@ EVAL_CONFIG = {
                 "answer_field": "code"
             }
         },
+        "multilingual_mbpp_php": {
+            "hf_path": "allenai/multilingual_mbpp",
+            "hf_config": "php",
+            "splits": [
+                "test",
+                "train",
+                "validation"
+            ],
+            "transform": {
+                "text_field": "text",
+                "answer_field": "code"
+            }
+        },
+        "multilingual_mbpp_csharp": {
+            "hf_path": "allenai/multilingual_mbpp",
+            "hf_config": "csharp",
+            "splits": [
+                "test",
+                "train",
+                "validation"
+            ],
+            "transform": {
+                "text_field": "text",
+                "answer_field": "code"
+            }
+        },
+        "multilingual_mbpp_typescript": {
+            "hf_path": "allenai/multilingual_mbpp",
+            "hf_config": "typescript",
+            "splits": [
+                "test",
+                "train",
+                "validation"
+            ],
+            "transform": {
+                "text_field": "text",
+                "answer_field": "code"
+            }
+        },
+        "multilingual_mbpp_bash": {
+            "hf_path": "allenai/multilingual_mbpp",
+            "hf_config": "bash",
+            "splits": [
+                "test",
+                "train",
+                "validation"
+            ],
+            "transform": {
+                "text_field": "text",
+                "answer_field": "code"
+            }
+        },
+        "multilingual_mbpp_swift": {
+            "hf_path": "allenai/multilingual_mbpp",
+            "hf_config": "swift",
+            "splits": [
+                "test",
+                "train",
+                "validation"
+            ],
+            "transform": {
+                "text_field": "text",
+                "answer_field": "code"
+            }
+        },
+        "multilingual_mbpp_go": {
+            "hf_path": "allenai/multilingual_mbpp",
+            "hf_config": "go",
+            "splits": [
+                "test",
+                "train",
+                "validation"
+            ],
+            "transform": {
+                "text_field": "text",
+                "answer_field": "code"
+            }
+        },
+        "multilingual_mbpp_rust": {
+            "hf_path": "allenai/multilingual_mbpp",
+            "hf_config": "rust",
+            "splits": [
+                "test",
+                "train",
+                "validation"
+            ],
+            "transform": {
+                "text_field": "text",
+                "answer_field": "code"
+            }
+        },
+        "multilingual_mbpp_ruby": {
+            "hf_path": "allenai/multilingual_mbpp",
+            "hf_config": "ruby",
+            "splits": [
+                "test",
+                "train",
+                "validation"
+            ],
+            "transform": {
+                "text_field": "text",
+                "answer_field": "code"
+            }
+        },
+        "multilingual_mbpp_r": {
+            "hf_path": "allenai/multilingual_mbpp",
+            "hf_config": "r",
+            "splits": [
+                "test",
+                "train",
+                "validation"
+            ],
+            "transform": {
+                "text_field": "text",
+                "answer_field": "code"
+            }
+        },
+        "multilingual_mbpp_matlab": {
+            "hf_path": "allenai/multilingual_mbpp",
+            "hf_config": "matlab",
+            "splits": [
+                "test",
+                "train",
+                "validation"
+            ],
+            "transform": {
+                "text_field": "text",
+                "answer_field": "code"
+            }
+        },
+        "multilingual_mbpp_scala": {
+            "hf_path": "allenai/multilingual_mbpp",
+            "hf_config": "scala",
+            "splits": [
+                "test",
+                "train",
+                "validation"
+            ],
+            "transform": {
+                "text_field": "text",
+                "answer_field": "code"
+            }
+        },
+        "multilingual_mbpp_haskell": {
+            "hf_path": "allenai/multilingual_mbpp",
+            "hf_config": "haskell",
+            "splits": [
+                "test",
+                "train",
+                "validation"
+            ],
+            "transform": {
+                "text_field": "text",
+                "answer_field": "code"
+            }
+        },
+
         "multipl_e_humaneval_cpp": {
             "hf_path": "nuprl/MultiPL-E",
             "hf_config": "humaneval-cpp",
@@ -1106,6 +1351,9 @@ EVAL_CONFIG = {
         #         'text_field': 'prompt'
         #     }
         # },
+
+
+        # TODO: multipl_e_mbpp_python has a ton of configs .... add them.
         "multipl_e_mbpp_python": {
             "hf_path": "nuprl/MultiPL-E",
             "hf_config": "mbpp-python",
@@ -1137,7 +1385,7 @@ EVAL_CONFIG = {
                 "answer_field": "answer_original"
             }
         },
-         # These need configs selected
+        # These need configs selected TODO: Try and get this in if possible. Lots of configs.
         # 'omega_compositional': {
         #     'hf_path': 'allenai/omega-compositional',
         #     'splits': ['train', 'test'],
@@ -1189,7 +1437,7 @@ EVAL_CONFIG = {
                 "answer_field": "possible_answers"
             }
         },
-        "qasper_yesno": {
+        "qasper_yesno": {  # TODO let's concatenate the last piece of the "passage" with the question as the question.
             "hf_path": "allenai/qasper-yesno",
             "splits": [
                 "train",
@@ -1198,7 +1446,7 @@ EVAL_CONFIG = {
             ],
             "transform": {
                 "text_field": "question",
-                "context_field": "context",
+                "context_field": "context", # AND THIS WRONG .... we want last index of full_text.paragraphs
                 "answer_field": "answer"
             }
         },
@@ -1391,7 +1639,7 @@ EVAL_CONFIG = {
                 ]
             }
         },
-        # Massive with bad chars and unusual language.
+        # Massive with bad chars and unusual language. TODO Take a look at decontaminating these if easy plug it in, but not used explicitly
         # 'tydiqa_primary': {
         #     'hf_path': 'google-research-datasets/tydiqa',
         #     'hf_config': 'primary_task',
@@ -1427,20 +1675,6 @@ EVAL_CONFIG = {
             "transform": {
                 "text_field": "question",
                 "answer_field": "best_answer"
-            }
-        },
-        "truthfulqa": {
-            "hf_path": "domenicrosati/TruthfulQA",
-            "splits": [
-                "train"
-            ],
-            "transform": {
-                "text_field": "Question",
-                "answer_field": "Best Answer",
-                "extra_fields": [
-                    "Type",
-                    "Category"
-                ]
             }
         },
         "tulu3_do_anything_now": {
@@ -1575,7 +1809,7 @@ EVAL_CONFIG = {
                 "answer_field": "answer"
             }
         },
-        "zero_scrolls_qasper": {
+        "zero_scrolls_qasper": {  # Optional to remove maybe
             "hf_path": "tau/zero_scrolls",
             "hf_config": "qasper",
             "splits": [
@@ -1592,168 +1826,6 @@ EVAL_CONFIG = {
         }
     }
 }
-# Configuration for downloading and transforming eval datasets
-# EVAL_CONFIG = {
-#     'output_dir': 'fixtures/reference-download-questions-and-answers',
-#     'output_dir_question_only': 'fixtures/reference-download-questions',
-#     'output_dir_best_available': 'fixtures/reference-download-best-available',
-#     'jsonl_format': {
-#         'eval_field': 'eval_name',
-#         'index_field': 'index',
-#         'split_field': 'split'
-#     },
-#     'evals': {
-#         'gsm8k': {
-#             'hf_path': 'openai/gsm8k',
-#             'hf_config': 'main',
-#             'splits': ['train', 'test'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'answer_field': 'answer'
-#             }
-#         },
-#         'mmlu': {
-#             'hf_path': 'cais/mmlu',
-#             'hf_config': 'all',
-#             'splits': ['test', 'validation', 'dev'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'answer_field': 'choices',
-#                 'extra_fields': ['subject']
-#             }
-#         },
-
-#         'aimo_validation': {
-#             'hf_path': 'AI-MO/aimo-validation-aime',
-#             'splits': ['train'],
-#             'transform': {
-#                 'text_field': 'problem',
-#                 'answer_field': 'answer'
-#             }
-#         },
-
-#         'ai2_arc_challenge': {
-#             'hf_path': 'allenai/ai2_arc',
-#             'hf_config': 'ARC-Challenge',
-#             'splits': ['train', 'test', 'validation'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'answer_field': 'choices.text',
-#                 'answer_key_field': 'answerKey',
-#                 'choices_field': 'choices',
-#                 'answer_lookup_field': 'choices.label'
-#             }
-#         },
-
-#         'ai2_arc_easy': {
-#             'hf_path': 'allenai/ai2_arc',
-#             'hf_config': 'ARC-Easy',
-#             'splits': ['train', 'test', 'validation'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'answer_field': 'choices.text',
-#                 'answer_key_field': 'answerKey',
-#                 'choices_field': 'choices',
-#                 'answer_lookup_field': 'choices.label'
-#             }
-#         },
-
-#         'popqa': {
-#             'hf_path': 'akariasai/PopQA',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'answer_field': 'possible_answers'
-#             }
-#         },
-
-#         'basic_skills_arithmetic': {
-#             'hf_path': 'allenai/basic-skills',
-#             'hf_config': 'arithmetic',
-#             'splits': ['validation'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'answer_field': 'answer'
-#             }
-#         },
-
-#         'basic_skills_coding': {
-#             'hf_path': 'allenai/basic-skills',
-#             'hf_config': 'coding',
-#             'splits': ['validation'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'answer_field': 'answer'
-#             }
-#         },
-
-#         'basic_skills_common_knowledge': {
-#             'hf_path': 'allenai/basic-skills',
-#             'hf_config': 'common_knowledge',
-#             'splits': ['validation'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'answer_field': 'answer'
-#             }
-#         },
-
-#         'basic_skills_logical_reasoning': {
-#             'hf_path': 'allenai/basic-skills',
-#             'hf_config': 'logical_reasoning',
-#             'splits': ['validation'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'answer_field': 'answer'
-#             }
-#         },
-
-#         'basic_skills_pattern': {
-#             'hf_path': 'allenai/basic-skills',
-#             'hf_config': 'pattern',
-#             'splits': ['validation'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'answer_field': 'answer'
-#             }
-#         },
-
-#         'basic_skills_string_operations': {
-#             'hf_path': 'allenai/basic-skills',
-#             'hf_config': 'string_operations',
-#             'splits': ['validation'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'answer_field': 'answer'
-#             }
-#         },
-
-#         'coqa_mc': {
-#             'hf_path': 'allenai/coqa_mc',
-#             'splits': ['validation'],
-#             'transform': {
-#                 'text_field': 'query_original',
-#                 'answer_field': 'choices_original'
-#             }
-#         },
-
-#         'drop_mc': {
-#             'hf_path': 'allenai/drop_mc',
-#             'splits': ['validation'],
-#             'transform': {
-#                 'text_field': 'question_original',
-#                 'context_field': 'passage_original',
-#                 'answer_field': 'answer_original.spans.0'
-#             }
-#         },
-
-#         'jeopardy_mc': {
-#             'hf_path': 'allenai/jeopardy_mc',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'context_original',
-#                 'answer_field': 'continuation_original'
-#             }
-#         },
 
 #         # Please pick one among the available configs: ['cpp', 'c', 'javascript', 'java', 'python', 'php', 'csharp', 'typescript', 'bash', 'swift', 'go', 'rust', 'ruby', 'r', 'matlab', 'scala', 'haskell']
 #         # TODO iterate over these ^
