@@ -671,50 +671,6 @@ class ContaminationOrchestrator:
             f.write(f"{filename}\n")
 
 
-    def _gzip_file(self, input_path: str) -> str:
-        """Compress a file with gzip and return the path to the compressed file."""
-        output_path = f"{input_path}.gz"
-        
-        try:
-            # Get file size for logging
-            file_size = os.path.getsize(input_path)
-            file_size_mb = file_size / (1024 * 1024)
-            
-            self.logger.info(f"Starting gzip compression of {input_path} ({file_size_mb:.2f} MB)")
-            start_time = time.time()
-            
-            # Use system gzip command - this compresses in-place and adds .gz extension
-            cmd = ['gzip', '-6', '-k', input_path]  # -6 for compression level, -k to keep original
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            
-            if result.returncode != 0:
-                # If -k flag not supported (older gzip), try without it
-                cmd = ['gzip', '-6', input_path]
-                result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-                # Note: without -k, the original file is replaced with .gz version
-            
-            elapsed = time.time() - start_time
-            
-            # Check if compressed file exists
-            if os.path.exists(output_path):
-                compressed_size = os.path.getsize(output_path)
-                compressed_size_mb = compressed_size / (1024 * 1024)
-                compression_ratio = (1 - compressed_size / file_size) * 100 if file_size > 0 else 0
-                
-                self.logger.info(f"Completed gzip compression of {input_path} in {elapsed:.2f}s "
-                               f"({file_size_mb:.2f} MB -> {compressed_size_mb:.2f} MB, "
-                               f"{compression_ratio:.1f}% reduction)")
-            else:
-                self.logger.error(f"Gzip succeeded but output file {output_path} not found")
-                raise FileNotFoundError(f"Expected output file {output_path} not found after gzip")
-            
-            return output_path
-        except subprocess.CalledProcessError as e:
-            self.logger.error(f"Gzip command failed for {input_path}: {e.stderr}")
-            raise
-        except Exception as e:
-            self.logger.error(f"Failed to gzip {input_path}: {e}")
-            raise
 
     def _upload_file(self, local_path: str, s3_base: str, key_suffix: str):
         """Upload a single file to S3 using s5cmd."""
@@ -806,10 +762,6 @@ class ContaminationOrchestrator:
 
         if job.purified_path and os.path.exists(job.purified_path):
             files_to_remove.append(job.purified_path)
-            # Also check for compressed version we might have created
-            compressed_path = f"{job.purified_path}.gz"
-            if os.path.exists(compressed_path):
-                files_to_remove.append(compressed_path)
 
         for file_path in files_to_remove:
             try:
@@ -1025,25 +977,14 @@ class ContaminationOrchestrator:
 
             # Always check for cleaned file and upload if it exists
             if cleaned_path:
-                # Compress the cleaned file before uploading
-                try:
-                    # Check if the file is already compressed
-                    if not cleaned_path.endswith('.gz'):
-                        compressed_path = self._gzip_file(cleaned_path)
-                        cleaned_filename = os.path.basename(compressed_path)
-                        upload_path = compressed_path
-                    else:
-                        # Already compressed
-                        cleaned_filename = os.path.basename(cleaned_path)
-                        upload_path = cleaned_path
-                    
-                    cleaned_output_dir = self.config.remote_cleaned_output_dir or self.config.remote_report_output_dir
-                    upload_commands.append((upload_path, cleaned_output_dir, cleaned_filename))
-                    self.stats_cleaned_files_uploaded += 1
-                    # Will upload cleaned file
-                except Exception as e:
-                    self.logger.error(f"Failed to prepare cleaned file for upload: {e}")
-                    # Continue without uploading the cleaned file
+                # Use the file as-is without compression
+                cleaned_filename = os.path.basename(cleaned_path)
+                upload_path = cleaned_path
+                
+                cleaned_output_dir = self.config.remote_cleaned_output_dir or self.config.remote_report_output_dir
+                upload_commands.append((upload_path, cleaned_output_dir, cleaned_filename))
+                self.stats_cleaned_files_uploaded += 1
+                # Will upload cleaned file
 
         elif job.status == 'failed':
             self.logger.error(f"Job failed for {basename}: {job.error}")
