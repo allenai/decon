@@ -166,6 +166,14 @@ enum Commands {
             help_heading = "Matching and Scoring"
         )]
         require_answer_when_eval_has_answer: Option<bool>,
+
+        #[arg(
+            long,
+            help = "Number of worker threads [default: number of CPU cores]",
+            display_order = 15,
+            help_heading = "Performance"
+        )]
+        worker_threads: Option<usize>,
     },
 
     #[command(about = "Review and analyze detect results")]
@@ -344,6 +352,14 @@ enum Commands {
             help_heading = "Matching and Scoring"
         )]
         require_answer_when_eval_has_answer: Option<bool>,
+
+        #[arg(
+            long,
+            help = "Number of worker threads [default: number of CPU cores]",
+            display_order = 16,
+            help_heading = "Performance"
+        )]
+        worker_threads: Option<usize>,
     },
 
     #[command(about = "Manage and analyze reference datasets")]
@@ -875,6 +891,14 @@ pub fn clean_text(text: &str, punctuation_chars: &str) -> String {
 =================================================================*/
 
 fn contamination_detect_with_config(config_obj: &Config) -> Result<(), Error> {
+    // Configure Rayon thread pool based on worker_threads setting
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(config_obj.worker_threads)
+        .build_global()
+        .unwrap_or_else(|e| {
+            eprintln!("Warning: Failed to set Rayon thread pool size: {}", e);
+        });
+    
     match config_obj.mode.as_str() {
         "simple" => {
             println!("Using Simple contamination detection...");
@@ -894,6 +918,7 @@ fn contamination_detect_with_config(config_obj: &Config) -> Result<(), Error> {
                 config_obj.require_answer_when_eval_has_answer
             );
             println!("  Tokenizer: {}", config_obj.tokenizer_str);
+            println!("  Worker threads: {}", config_obj.worker_threads);
 
             println!("\nInput and Output:");
             println!("  Local input: {}", config_obj.local_input.display());
@@ -958,6 +983,7 @@ fn main() -> Result<(), Error> {
             question_threshold,
             answer_threshold,
             require_answer_when_eval_has_answer,
+            worker_threads,
         } => {
             // Load config from file
             let mut loaded_config = read_config(config)?;
@@ -1005,6 +1031,9 @@ fn main() -> Result<(), Error> {
             }
             if let Some(require_answer) = require_answer_when_eval_has_answer {
                 loaded_config.require_answer_when_eval_has_answer = *require_answer;
+            }
+            if let Some(wt) = worker_threads {
+                loaded_config.worker_threads = *wt;
             }
 
             contamination_detect_with_config(&loaded_config)
@@ -1050,6 +1079,7 @@ fn main() -> Result<(), Error> {
             question_threshold,
             answer_threshold,
             require_answer_when_eval_has_answer,
+            worker_threads,
         } => {
             // Load config from file
             let mut loaded_config = read_config(config)?;
@@ -1097,6 +1127,9 @@ fn main() -> Result<(), Error> {
             }
             if let Some(require_answer) = require_answer_when_eval_has_answer {
                 loaded_config.require_answer_when_eval_has_answer = *require_answer;
+            }
+            if let Some(wt) = worker_threads {
+                loaded_config.worker_threads = *wt;
             }
 
             let runtime = tokio::runtime::Runtime::new().unwrap();

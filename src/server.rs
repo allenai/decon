@@ -61,8 +61,17 @@ struct AppState {
 }
 
 pub async fn run_server(config: Config, port: u16) -> Result<()> {
+    // Configure Rayon thread pool based on worker_threads setting
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(config.worker_threads)
+        .build_global()
+        .unwrap_or_else(|e| {
+            eprintln!("Warning: Failed to set Rayon thread pool size: {}", e);
+        });
+    
     // Configuration already loaded
     println!("Running server with mode: {}", config.mode);
+    println!("Using {} worker threads", config.worker_threads);
 
     // Initialize index based on mode
     println!("Building index...");
