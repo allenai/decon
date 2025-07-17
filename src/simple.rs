@@ -946,6 +946,11 @@ impl SimpleContaminationEntry {
             >= config.question_threshold;
 
         if question_contam {
+            // If require_answer_when_eval_has_answer is false, return question contamination only
+            if !config.require_answer_when_eval_has_answer {
+                return (true, None, None, None);
+            }
+            
             // Check if this document has a short answer
             if let Some(answer_token_set) = id_to_short_answer.get(&doc_id) {
                 // Use the new answer matching method

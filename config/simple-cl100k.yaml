@@ -2,13 +2,13 @@ mode: simple
 
 content_key: text # json key for content in the training files
 local_input: /home/robert/hack/stackedu
-reference_input: fixtures/reference-questions-and-answers
+reference_input: fixtures/reference-best-available
 report_output_dir: fixtures/output  # The location contamination report files will be written
 cleaned_output_dir: fixtures/cleaned  # Optional: separate directory for purified files
 purify: false  # Enable creation of cleaned files in cleaned_output_dir
 
 tokenizer_str: cl100k
-ngram_size: 10  # Size of indexed n-grams scanned for question matches, I recommend an odd number :) TODO :)
+ngram_size: 5  # Size of indexed n-grams scanned for question matches, I recommend an odd number :) TODO :)
 max_consecutive_misses: 10  # ngram_size * 2 recommended.
 question_threshold: 0.8 # Higher for more precision, lower for more recall
 answer_threshold: 0.8

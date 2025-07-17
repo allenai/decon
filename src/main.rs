@@ -157,6 +157,14 @@ enum Commands {
             help_heading = "Matching and Scoring"
         )]
         answer_threshold: Option<f32>,
+
+        #[arg(
+            long,
+            help = "Require answer match when eval has an answer [default: true]",
+            display_order = 14,
+            help_heading = "Matching and Scoring"
+        )]
+        require_answer_when_eval_has_answer: Option<bool>,
     },
 
     #[command(about = "Review and analyze detect results")]
@@ -314,6 +322,14 @@ enum Commands {
             help_heading = "Matching and Scoring"
         )]
         answer_threshold: Option<f32>,
+
+        #[arg(
+            long,
+            help = "Require answer match when eval has an answer [default: true]",
+            display_order = 15,
+            help_heading = "Matching and Scoring"
+        )]
+        require_answer_when_eval_has_answer: Option<bool>,
     },
 
     #[command(about = "Manage and analyze reference datasets")]
@@ -412,6 +428,10 @@ pub struct Config {
     #[serde(default)]
     pub purify: bool,
 
+    // Whether to require answer match when eval has an answer
+    #[serde(default = "default_require_answer_when_eval_has_answer")]
+    pub require_answer_when_eval_has_answer: bool,
+
     // Minimum word count for eval file indexing in SIMPLE mode
     #[serde(default = "default_eval_min_token_count")]
     pub eval_min_token_count: usize,
@@ -481,6 +501,10 @@ fn default_replace_non_utf8_chars() -> bool {
 
 fn default_exclude_question_from_answer_sweep() -> bool {
     true // Default to excluding question tokens when searching for answers
+}
+
+fn default_require_answer_when_eval_has_answer() -> bool {
+    true // Default to requiring answer match when eval has an answer
 }
 
 pub fn read_config(config_path: &PathBuf) -> Result<Config, Error> {
@@ -851,6 +875,7 @@ fn contamination_detect_with_config(config_obj: &Config) -> Result<(), Error> {
             );
             println!("  Question threshold: {}", config_obj.question_threshold);
             println!("  Answer threshold: {}", config_obj.answer_threshold);
+            println!("  Require answer when eval has answer: {}", config_obj.require_answer_when_eval_has_answer);
             println!("  Tokenizer: {}", config_obj.tokenizer_str);
             
             println!("\nInput and Output:");
@@ -909,6 +934,7 @@ fn main() -> Result<(), Error> {
             max_consecutive_misses,
             question_threshold,
             answer_threshold,
+            require_answer_when_eval_has_answer,
         } => {
             // Load config from file
             let mut loaded_config = read_config(config)?;
@@ -953,6 +979,9 @@ fn main() -> Result<(), Error> {
             }
             if let Some(at) = answer_threshold {
                 loaded_config.answer_threshold = *at;
+            }
+            if let Some(require_answer) = require_answer_when_eval_has_answer {
+                loaded_config.require_answer_when_eval_has_answer = *require_answer;
             }
 
             contamination_detect_with_config(&loaded_config)
@@ -993,6 +1022,7 @@ fn main() -> Result<(), Error> {
             max_consecutive_misses,
             question_threshold,
             answer_threshold,
+            require_answer_when_eval_has_answer,
         } => {
             // Load config from file
             let mut loaded_config = read_config(config)?;
@@ -1037,6 +1067,9 @@ fn main() -> Result<(), Error> {
             }
             if let Some(at) = answer_threshold {
                 loaded_config.answer_threshold = *at;
+            }
+            if let Some(require_answer) = require_answer_when_eval_has_answer {
+                loaded_config.require_answer_when_eval_has_answer = *require_answer;
             }
 
             let runtime = tokio::runtime::Runtime::new().unwrap();
