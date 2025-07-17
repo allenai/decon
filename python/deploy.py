@@ -617,7 +617,7 @@ def wizard():
 @click.option("--mode", default="simple", type=click.Choice(['simple', 'minhash', 'toxic']), help="Detection mode")
 @click.option("--content-key", default="text", help="JSON field containing text")
 @click.option("--ngram-size", default=5, type=int, help="N-gram size")
-@click.option("--question-threshold", default=0.8, type=float, help="Question contamination threshold [0-1]")
+@click.option("--question-threshold", default=0.815, type=float, help="Question contamination threshold [0-1]")
 @click.option("--answer-threshold", default=0.8, type=float, help="Answer contamination threshold [0-1]")
 @click.option("--tokenizer", default="cl100k", type=click.Choice(['word', 'uniseg', 'p50k', 'cl100k']), help="Tokenizer")
 @click.option("--purify/--no-purify", default=False, help="Enable data purification")

@@ -29,7 +29,7 @@ use ndarray::Array1;
 use sha2::{Digest, Sha256};
 
 // Constants for filtering
-const MIN_LENGTH: usize = 25; // Minimum character count for text entries
+const MIN_LENGTH: usize = 40; // Minimum character count for text entries
 const MIN_UNIQUE_WORDS: usize = 4; // Minimum unique word count for text entries
 
 // Constants for MinHash deduplication
