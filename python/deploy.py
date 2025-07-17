@@ -593,7 +593,7 @@ def wizard():
 @click.option("--name", required=True, help="Cluster name")
 @click.option("--owner", required=True, help="Owner username")
 @click.option("--instances", default=2, type=int, help="Number of instances")
-@click.option("--instance-type", default="i4i.2xlarge", help="EC2 instance type")
+@click.option("--instance-type", default="i4i.4xlarge", help="EC2 instance type")
 @click.option("--ssh-key", default="~/.ssh/id_rsa", help="Path to SSH private key")
 @click.option("--github-token", required=True, help="GitHub token for private repo access")
 @click.option("--server-port", default=8080, type=int, help="Server port")
