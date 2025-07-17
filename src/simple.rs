@@ -16,8 +16,8 @@ use zstd::stream::read::Decoder as ZstdDecoder;
 use mj_io::{build_pbar, expand_dirs, read_pathbuf_to_mem, write_mem_to_pathbuf};
 
 use crate::{
-    clean_text, get_nested_json_val, get_results_filename, write_purified_file,
-    Config, OmniTokenizer,
+    clean_text, get_nested_json_val, get_results_filename, write_purified_file, Config,
+    OmniTokenizer,
 };
 
 // Helper function to read compressed files (supporting .gz and .zst)
@@ -429,12 +429,10 @@ fn process_question_field(
             .collect()
     } else {
         // For BPE tokenizers, clean text first (matching training data processing)
-        // then add padding since questions are text fragments that likely appear 
+        // then add padding since questions are text fragments that likely appear
         // mid-document rather than at the beginning
         let padded_question = format!(" {}", cleaned);
-        let Ok(tokens) =
-            catch_unwind(|| tokenizer.encode(&padded_question))
-        else {
+        let Ok(tokens) = catch_unwind(|| tokenizer.encode(&padded_question)) else {
             println!(
                 "Tokenization failed on question for doc_id {} | line {}",
                 doc_id, line_num
@@ -563,7 +561,7 @@ fn process_answer_field(
         // mid-document rather than at the beginning
         let padded_answer = format!(" {}", cleaned);
 
-        // Since unpadded would only matter if the match is at the very beginning 
+        // Since unpadded would only matter if the match is at the very beginning
         // of the document, which is unlikely, we go with padded only
         let Ok(padded_tokens) = catch_unwind(|| tokenizer.encode(&padded_answer)) else {
             return Ok(());
