@@ -12,7 +12,7 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use uuid::Uuid;
 
-use crate::{write_purified_file, Config};
+use crate::{write_purified_file_with_job_id, Config};
 use std::collections::HashSet;
 
 // Job submission request
@@ -146,7 +146,9 @@ async fn health_check(State(state): State<AppState>) -> Json<serde_json::Value> 
         "worker_threads": state.worker_threads,
         "report_output_dir": state.config.report_output_dir.to_string_lossy(),
         "cleaned_output_dir": state.config.cleaned_output_dir.as_ref().map(|p| p.to_string_lossy().to_string()),
-        "purify": state.config.purify
+        "purify": state.config.purify,
+        "mode": state.config.mode,
+        "question_threshold": state.config.question_threshold
     }))
 }
 
@@ -263,8 +265,9 @@ async fn worker_loop(
                 let file_path = job.file_path.clone();
                 let config_clone = config.clone();
                 let index_clone = index.clone();
+                let job_id_for_processing = job_id.clone();
                 let result = tokio::task::spawn_blocking(move || {
-                    process_single_file(&config_clone, &file_path, &index_clone)
+                    process_single_file(&config_clone, &file_path, &index_clone, &job_id_for_processing)
                 })
                 .await;
 
@@ -303,6 +306,7 @@ fn process_single_file(
     config: &Config,
     file_path: &PathBuf,
     index: &IndexType,
+    job_id: &str,
 ) -> Result<(Option<PathBuf>, Option<PathBuf>)> {
     match index {
         IndexType::Simple(simple_index) => {
@@ -346,7 +350,8 @@ fn process_single_file(
 
             // Only save results if contamination was found
             let output_path = if !contamination_results.is_empty() {
-                let unique_filename = crate::get_unique_results_filename(file_path, config);
+                // Use job_id for filename
+                let unique_filename = format!("{}.report.jsonl", job_id);
                 Some(crate::simple::save_contamination_results_toxic_format_with_filename_and_eval_text(
                     config,
                     &contamination_results,
@@ -380,11 +385,12 @@ fn process_single_file(
                     "Creating purified file (removing {} contaminated lines)",
                     contaminated_lines.len()
                 );
-                Some(write_purified_file(
+                Some(write_purified_file_with_job_id(
                     file_path,
                     cleaned_dir,
                     &contaminated_lines,
                     config,
+                    job_id,
                 )?)
             } else {
                 None

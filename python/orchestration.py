@@ -134,6 +134,8 @@ class ContaminationOrchestrator:
         self.server_report_dir = None
         self.server_cleaned_dir = None
         self.server_purify = False
+        self.server_mode = None
+        self.server_threshold = None
 
 
         # Host identification
@@ -352,6 +354,8 @@ class ContaminationOrchestrator:
                 self.server_report_dir = data.get('report_output_dir')
                 self.server_cleaned_dir = data.get('cleaned_output_dir')
                 self.server_purify = data.get('purify', False)
+                self.server_mode = data.get('mode', 'simple')
+                self.server_threshold = data.get('question_threshold', 0.50)
 
                 # Server output directories configured
 
@@ -988,8 +992,16 @@ class ContaminationOrchestrator:
 
             # Add upload commands
             if report_path:
-                # Use the original filename from the server but preserve directory structure
-                report_filename = os.path.basename(report_path)
+                # Server now uses job_id.report.jsonl, we need to reconstruct the original filename
+                # Expected format: {basename}-{mode}-{threshold}.jsonl
+                
+                # Get config values from server
+                mode = self.server_mode or "simple"
+                threshold = self.server_threshold or 0.50
+                
+                # Reconstruct the report filename
+                report_filename = f"{basename_no_ext}-{mode}-{threshold:.2f}.jsonl"
+                
                 if relative_dir:
                     report_key = f"{relative_dir}/{report_filename}"
                 else:
@@ -1011,8 +1023,22 @@ class ContaminationOrchestrator:
 
             # Always check for cleaned file and upload if it exists
             if cleaned_path:
-                # Use the file as-is but preserve directory structure
-                cleaned_filename = os.path.basename(cleaned_path)
+                # Server now uses job_id.jsonl.gz, we need to use the original filename
+                # Just use the original basename with the appropriate extension
+                original_filename = os.path.basename(job.relative_path)
+                
+                # Ensure it has .gz extension (server always outputs .gz)
+                if not original_filename.endswith('.gz'):
+                    # If original wasn't gzipped, the cleaned version will be
+                    if original_filename.endswith(('.jsonl', '.jsonl.zst', '.jsonl.bz2', '.jsonl.xz')):
+                        # Replace the extension with .jsonl.gz
+                        base = original_filename.rsplit('.', 1)[0]
+                        cleaned_filename = f"{base}.gz"
+                    else:
+                        cleaned_filename = f"{original_filename}.gz"
+                else:
+                    cleaned_filename = original_filename
+                
                 if relative_dir:
                     cleaned_key = f"{relative_dir}/{cleaned_filename}"
                 else:

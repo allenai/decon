@@ -606,6 +606,25 @@ pub fn write_purified_file(
     }
 }
 
+pub fn write_purified_file_with_job_id(
+    input_path: &PathBuf,
+    cleaned_output_dir: &PathBuf,
+    contaminated_lines: &std::collections::HashSet<usize>,
+    config: &Config,
+    job_id: &str,
+) -> Result<PathBuf, anyhow::Error> {
+    if config.replace_non_utf8_chars {
+        write_purified_file_with_utf8_lossy_conversion_job_id(
+            input_path,
+            cleaned_output_dir,
+            contaminated_lines,
+            job_id,
+        )
+    } else {
+        write_purified_file_bytes_job_id(input_path, cleaned_output_dir, contaminated_lines, job_id)
+    }
+}
+
 // Common function to write a purified file with contaminated lines removed
 pub fn write_purified_file_bytes(
     input_path: &PathBuf,
@@ -622,6 +641,62 @@ pub fn write_purified_file_bytes(
     create_dir_all(cleaned_output_dir)?;
 
     let purified_filename = get_purified_filename(input_path);
+    let purified_path = cleaned_output_dir.join(&purified_filename);
+
+    // Open input file with streaming reader
+    let file = File::open(input_path)?;
+    let mut reader: Box<dyn BufRead> = match input_path.extension().and_then(|s| s.to_str()) {
+        Some("gz") => Box::new(BufReader::new(GzDecoder::new(file))),
+        Some("zst") => Box::new(BufReader::new(ZstdDecoder::new(file)?)),
+        _ => Box::new(BufReader::new(file)),
+    };
+
+    // Create output file with gzip compression
+    let output_file = File::create(&purified_path)?;
+    let gz_encoder = GzEncoder::new(output_file, Compression::default());
+    let mut writer = BufWriter::new(gz_encoder);
+
+    // Work with raw bytes to preserve data exactly as-is
+    let mut line_num = 0;
+    let mut line_buffer = Vec::new();
+
+    loop {
+        line_buffer.clear();
+        let bytes_read = reader.read_until(b'\n', &mut line_buffer)?;
+        if bytes_read == 0 {
+            break;
+        }
+
+        if !contaminated_lines.contains(&line_num) {
+            // Write bytes exactly as they are, no UTF-8 validation
+            writer.write_all(&line_buffer)?;
+        }
+        line_num += 1;
+    }
+
+    writer.flush()?;
+
+    Ok(purified_path)
+}
+
+// Write purified file using job_id for filename
+pub fn write_purified_file_bytes_job_id(
+    input_path: &PathBuf,
+    cleaned_output_dir: &PathBuf,
+    contaminated_lines: &std::collections::HashSet<usize>,
+    job_id: &str,
+) -> Result<PathBuf, anyhow::Error> {
+    use flate2::read::GzDecoder;
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use std::fs::{create_dir_all, File};
+    use std::io::{BufRead, BufReader, BufWriter, Write};
+
+    // Ensure output directory exists
+    create_dir_all(cleaned_output_dir)?;
+
+    // Use job_id for filename
+    let purified_filename = format!("{}.jsonl.gz", job_id);
     let purified_path = cleaned_output_dir.join(&purified_filename);
 
     // Open input file with streaming reader
@@ -712,6 +787,79 @@ pub fn write_purified_file_with_utf8_lossy_conversion(
                 }
                 Err(_) => {
                     // Invalid UTF-8 - convert lossily and write
+                    // This replaces invalid UTF-8 sequences with �
+                    let lossy = String::from_utf8_lossy(&line_buffer);
+                    writer.write_all(lossy.as_bytes())?;
+                    encoding_errors += 1;
+                }
+            }
+        }
+        line_num += 1;
+    }
+
+    writer.flush()?;
+
+    if encoding_errors > 0 {
+        eprintln!("Warning: {} lines had encoding issues and were converted lossily (invalid UTF-8 replaced with �)", encoding_errors);
+    }
+
+    Ok(purified_path)
+}
+
+pub fn write_purified_file_with_utf8_lossy_conversion_job_id(
+    input_path: &PathBuf,
+    cleaned_output_dir: &PathBuf,
+    contaminated_lines: &std::collections::HashSet<usize>,
+    job_id: &str,
+) -> Result<PathBuf, anyhow::Error> {
+    use flate2::read::GzDecoder;
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use std::fs::{create_dir_all, File};
+    use std::io::{BufRead, BufReader, BufWriter, Write};
+
+    // Ensure output directory exists
+    create_dir_all(cleaned_output_dir)?;
+
+    // Use job_id for filename
+    let purified_filename = format!("{}.jsonl.gz", job_id);
+    let purified_path = cleaned_output_dir.join(&purified_filename);
+
+    // Open input file with streaming reader
+    let file = File::open(input_path)?;
+    let mut reader: Box<dyn BufRead> = match input_path.extension().and_then(|s| s.to_str()) {
+        Some("gz") => Box::new(BufReader::new(GzDecoder::new(file))),
+        Some("zst") => Box::new(BufReader::new(ZstdDecoder::new(file)?)),
+        _ => Box::new(BufReader::new(file)),
+    };
+
+    // Create output file with gzip compression
+    let output_file = File::create(&purified_path)?;
+    let gz_encoder = GzEncoder::new(output_file, Compression::default());
+    let mut writer = BufWriter::new(gz_encoder);
+
+    let mut encoding_errors = 0;
+
+    // Work with raw bytes to handle encoding issues
+    let mut line_num = 0;
+    let mut line_buffer = Vec::new();
+
+    loop {
+        line_buffer.clear();
+        let bytes_read = reader.read_until(b'\n', &mut line_buffer)?;
+        if bytes_read == 0 {
+            break;
+        }
+
+        if !contaminated_lines.contains(&line_num) {
+            // Try to validate as UTF-8
+            match std::str::from_utf8(&line_buffer) {
+                Ok(valid_utf8) => {
+                    // Write valid UTF-8 directly
+                    writer.write_all(valid_utf8.as_bytes())?;
+                }
+                Err(_) => {
+                    // Convert with lossy conversion
                     // This replaces invalid UTF-8 sequences with �
                     let lossy = String::from_utf8_lossy(&line_buffer);
                     writer.write_all(lossy.as_bytes())?;
