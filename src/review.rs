@@ -695,33 +695,39 @@ fn display_top_eval_examples(
 ) -> Result<(), Error> {
     // Count occurrences of each (eval_dataset, eval_line) pair
     let mut eval_counts: HashMap<(String, usize), usize> = HashMap::new();
-    
+
     for result in contamination_results {
         let key = (result.eval_dataset.clone(), result.eval_line);
         *eval_counts.entry(key).or_insert(0) += 1;
     }
-    
+
     // Sort by count (descending)
     let mut sorted_counts: Vec<((String, usize), usize)> = eval_counts.into_iter().collect();
     sorted_counts.sort_by(|a, b| b.1.cmp(&a.1));
-    
+
     println!("=== TOP {} MOST COMMONLY MATCHED EVAL EXAMPLES ===", top_n);
     println!();
     println!(
         "Total contamination incidents: {}",
         contamination_results.len()
     );
-    println!("Showing top {} most frequent eval matches:", top_n.min(sorted_counts.len()));
+    println!(
+        "Showing top {} most frequent eval matches:",
+        top_n.min(sorted_counts.len())
+    );
     println!();
-    
+
     // Find the maximum count for scaling the bar chart
     let max_count = sorted_counts.first().map(|(_, count)| *count).unwrap_or(0);
     let bar_width = 40; // Width of the bar chart in characters
-    
+
     // Display summary table
-    println!("{:<5} {:<8} {:<40} {:<8} Bar Chart", "Rank", "Count", "Eval Dataset", "Line");
+    println!(
+        "{:<5} {:<8} {:<40} {:<8} Bar Chart",
+        "Rank", "Count", "Eval Dataset", "Line"
+    );
     println!("{}", "-".repeat(80));
-    
+
     for (rank, ((eval_dataset, eval_line), count)) in sorted_counts.iter().take(top_n).enumerate() {
         // Calculate bar length proportional to count
         let bar_length = if max_count > 0 {
@@ -729,10 +735,10 @@ fn display_top_eval_examples(
         } else {
             0
         };
-        
+
         // Create the bar using Unicode block characters
         let bar = "█".repeat(bar_length);
-        
+
         // Format the output with aligned columns
         println!(
             "{:<5} {:<8} {:<40} {:<8} {}",
@@ -743,17 +749,21 @@ fn display_top_eval_examples(
             bar
         );
     }
-    
+
     println!();
     println!("Detailed view of top matches:");
     println!();
-    
+
     // Display detailed information for each top match
     for (rank, ((eval_dataset, eval_line), count)) in sorted_counts.iter().take(top_n).enumerate() {
         println!("{}", "=".repeat(80));
-        println!("Top matched eval example #{} ({} occurrences):", rank + 1, count);
+        println!(
+            "Top matched eval example #{} ({} occurrences):",
+            rank + 1,
+            count
+        );
         println!("  Dataset: {}, Line: {}", eval_dataset, eval_line);
-        
+
         // Find the first matching result to get the eval text
         let eval_text = contamination_results
             .iter()
@@ -761,9 +771,9 @@ fn display_top_eval_examples(
             .and_then(|r| r.eval_overlap_text.as_ref())
             .map(|s| s.as_str())
             .unwrap_or("[No eval text available]");
-            
+
         println!("  Text: \"{}\"", eval_text);
-        
+
         // Show a few example training files that matched this eval
         let matching_files: Vec<&str> = contamination_results
             .iter()
@@ -771,7 +781,7 @@ fn display_top_eval_examples(
             .map(|r| r.training_file.as_str())
             .take(3)
             .collect();
-            
+
         if !matching_files.is_empty() {
             println!("  Example training files that matched:");
             for file in matching_files {
@@ -782,9 +792,9 @@ fn display_top_eval_examples(
             }
         }
     }
-    
+
     println!();
     println!("=== END OF TOP EVAL EXAMPLES ===");
-    
+
     Ok(())
 }
