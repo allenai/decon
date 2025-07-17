@@ -83,6 +83,7 @@ class Job:
     job_id: str
     file_path: str
     s3_key: str
+    relative_path: str  # Path relative to input prefix (e.g., "dir1/file.jsonl")
     status: str = 'submitted'
     output_path: Optional[str] = None
     purified_path: Optional[str] = None
@@ -109,12 +110,12 @@ class ContaminationOrchestrator:
         self.stats_cleaned_files_uploaded: int = 0
 
         # Thread-safe queues
-        self.download_queue = Queue(maxsize=config.download_queue_max)  # (local_path, s3_key) tuples
+        self.download_queue = Queue(maxsize=config.download_queue_max)  # (local_path, s3_key, relative_path) tuples
         self.upload_queue = Queue(maxsize=config.upload_queue_max)  # Completed Job objects
 
         # Tracking
         self.files_remaining: int = 0  # Total files left to process
-        self.files_to_download: List[str] = []  # S3 keys still to download
+        self.files_to_download: List[Tuple[str, str]] = []  # List of (s3_key, relative_path) tuples
         self.download_index = 0  # Current position in files_to_download
 
         # Thread control
@@ -378,9 +379,9 @@ class ContaminationOrchestrator:
         # Parsed S3 URI
         return bucket, prefix
 
-    def _list_s3_files(self, s3_uri: str, suffixes: List[str] = None) -> List[Tuple[str, int]]:
+    def _list_s3_files(self, s3_uri: str, suffixes: List[str] = None) -> List[Tuple[str, int, str]]:
         """List all files in S3 location with given suffixes.
-        Returns list of (key, size) tuples."""
+        Returns list of (key, size, relative_path) tuples."""
         if suffixes is None:
             suffixes = ['.jsonl', '.jsonl.gz', '.jsonl.zst', '.jsonl.bz2', '.jsonl.xz']
 
@@ -406,9 +407,15 @@ class ContaminationOrchestrator:
             for obj in page['Contents']:
                 key = obj['Key']
                 size = obj.get('Size', 0)
+                
+                # Calculate relative path from prefix
+                relative_path = key
+                if prefix and key.startswith(prefix):
+                    relative_path = key[len(prefix):].lstrip('/')
+                
                 for suffix in suffixes:
                     if key.endswith(suffix):
-                        files.append((key, size))
+                        files.append((key, size, relative_path))
                         page_files += 1
                         suffix_counts[suffix] += 1
                         total_size += size
@@ -444,12 +451,12 @@ class ContaminationOrchestrator:
 
         # Found clean markers
 
-        # Process clean markers (now just filenames)
-        for basename in clean_markers:
+        # Process clean markers (now with relative paths)
+        for clean_marker_path in clean_markers:
             # Add all possible variants of this file
-            processed.add(f"{basename}.jsonl")
+            processed.add(f"{clean_marker_path}.jsonl")
             for ext in ['.gz', '.zst', '.bz2', '.xz']:
-                processed.add(f"{basename}.jsonl{ext}")
+                processed.add(f"{clean_marker_path}.jsonl{ext}")
 
 
         # Process cleaned files
@@ -497,11 +504,11 @@ class ContaminationOrchestrator:
 
         # Filtering files
 
-        for i, (s3_key, size) in enumerate(all_file_tuples):
+        for i, (s3_key, size, relative_path) in enumerate(all_file_tuples):
             filename = os.path.basename(s3_key)
 
-            # Skip if already processed
-            if filename in processed:
+            # Skip if already processed (check by relative path)
+            if relative_path in processed:
                 skipped_processed += 1
                 continue
 
@@ -510,7 +517,7 @@ class ContaminationOrchestrator:
                 skipped_other_host += 1
                 continue
 
-            files_to_process.append((s3_key, size))
+            files_to_process.append((s3_key, size, relative_path))
             total_size_to_process += size
 
             # Check debug limit
@@ -523,7 +530,7 @@ class ContaminationOrchestrator:
 
         # Log file size distribution
         if files_to_process:
-            sizes = [size for _, size in files_to_process]
+            sizes = [size for _, size, _ in files_to_process]
             largest = max(sizes) / (1024**3)
             smallest = min(sizes) / (1024**3)
             total = total_size_to_process / (1024**3)
@@ -533,25 +540,28 @@ class ContaminationOrchestrator:
         else:
             self.logger.warning(f"Files to process: 0 (skipped: {skipped_processed} already processed, {skipped_other_host} for other hosts)")
 
-        # Return just the keys (without sizes) for compatibility
-        return [s3_key for s3_key, size in files_to_process]
+        # Return tuples with (s3_key, relative_path) for processing
+        return [(s3_key, relative_path) for s3_key, size, relative_path in files_to_process]
 
-    def _create_s5cmd_file(self, s3_keys: List[str], command_file: Path) -> Path:
+    def _create_s5cmd_file(self, s3_keys_with_paths: List[Tuple[str, str]], command_file: Path) -> Path:
         """Create s5cmd command file for downloading files."""
         bucket, _ = self._parse_s3_uri(self.config.remote_file_input)
         download_dir = Path(self.config.local_work_dir) / 'download'
 
         with open(command_file, 'w') as f:
-            for s3_key in s3_keys:
-                local_path = download_dir / os.path.basename(s3_key)
+            for s3_key, relative_path in s3_keys_with_paths:
+                # Create subdirectory structure in download directory
+                local_path = download_dir / relative_path
+                local_path.parent.mkdir(parents=True, exist_ok=True)
                 f.write(f"cp s3://{bucket}/{s3_key} {local_path}\n")
 
         return command_file
 
-    def _download_batch(self, s3_keys: List[str]) -> List[str]:
-        """Download a batch of files using s5cmd."""
+    def _download_batch(self, s3_keys_with_paths: List[Tuple[str, str]]) -> List[Tuple[str, str, str]]:
+        """Download a batch of files using s5cmd.
+        Returns list of (local_path, s3_key, relative_path) tuples."""
         command_file = Path(self.config.local_work_dir) / f"download_batch_{time.time()}.txt"
-        self._create_s5cmd_file(s3_keys, command_file)
+        self._create_s5cmd_file(s3_keys_with_paths, command_file)
 
         # Run s5cmd
         cmd = ['s5cmd', '--numworkers', str(self.config.s5cmd_workers), 'run', str(command_file)]
@@ -574,12 +584,12 @@ class ContaminationOrchestrator:
             downloaded = []
             missing = []
 
-            for s3_key in s3_keys:
-                local_file = download_dir / os.path.basename(s3_key)
+            for s3_key, relative_path in s3_keys_with_paths:
+                local_file = download_dir / relative_path
                 if local_file.exists():
                     file_size = os.path.getsize(local_file)
                     if file_size > 0:
-                        downloaded.append((str(local_file), s3_key))
+                        downloaded.append((str(local_file), s3_key, relative_path))
                         self.logger.info(f"Downloaded: {s3_key} ({file_size:,} bytes)")
                     else:
                         self.logger.error(f"Downloaded empty file: {s3_key}")
@@ -595,7 +605,7 @@ class ContaminationOrchestrator:
                 if len(missing) > 5:
                     self.logger.error(f"  ... and {len(missing) - 5} more")
 
-            self.logger.info(f"Successfully downloaded {len(downloaded)}/{len(s3_keys)} files in {elapsed:.2f}s")
+            self.logger.info(f"Successfully downloaded {len(downloaded)}/{len(s3_keys_with_paths)} files in {elapsed:.2f}s")
             return downloaded
 
         except subprocess.CalledProcessError as e:
@@ -607,7 +617,7 @@ class ContaminationOrchestrator:
                 self.logger.error(f"s5cmd stderr:\n{e.stderr}")
 
             # Mark all files in batch as failed
-            for s3_key in s3_keys:
+            for s3_key, relative_path in s3_keys_with_paths:
                 self.failed_files.add(s3_key)
 
             raise
@@ -617,7 +627,7 @@ class ContaminationOrchestrator:
             if command_file.exists():
                 command_file.unlink()
 
-    def _submit_to_server(self, file_path: str, s3_key: str) -> Optional[Job]:
+    def _submit_to_server(self, file_path: str, s3_key: str, relative_path: str) -> Optional[Job]:
         """Submit a file to the server for processing."""
         try:
             response = self.session.post(
@@ -631,6 +641,7 @@ class ContaminationOrchestrator:
                     job_id=data['job_id'],
                     file_path=file_path,
                     s3_key=s3_key,
+                    relative_path=relative_path,
                     status='submitted'
                 )
                 # Job submitted
@@ -802,10 +813,10 @@ class ContaminationOrchestrator:
                 downloaded = self._download_batch(batch)
 
                 # Add successfully downloaded files to queue
-                for local_path, s3_key in downloaded:
+                for local_path, s3_key, relative_path in downloaded:
                     # Verify file before adding to queue
                     if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
-                        self.download_queue.put((local_path, s3_key))
+                        self.download_queue.put((local_path, s3_key, relative_path))
                         self.total_downloaded += 1
                         self.files_remaining -= 1
                     else:
@@ -940,6 +951,10 @@ class ContaminationOrchestrator:
         upload_commands = []
         clean_markers = []
 
+        # Use relative path to preserve directory structure
+        relative_path = job.relative_path
+        relative_dir = os.path.dirname(relative_path) if os.path.dirname(relative_path) else ""
+        
         basename = os.path.basename(job.s3_key)
         basename_no_ext = basename
 
@@ -973,25 +988,39 @@ class ContaminationOrchestrator:
 
             # Add upload commands
             if report_path:
-                # Use the original filename from the server
+                # Use the original filename from the server but preserve directory structure
                 report_filename = os.path.basename(report_path)
-                upload_commands.append((report_path, self.config.remote_report_output_dir, report_filename))
+                if relative_dir:
+                    report_key = f"{relative_dir}/{report_filename}"
+                else:
+                    report_key = report_filename
+                upload_commands.append((report_path, self.config.remote_report_output_dir, report_key))
                 self.stats_files_contaminated += 1
                 self.stats_report_files_uploaded += 1
                 # Will upload report
             else:
-                # No contamination found - mark for clean marker creation
-                clean_markers.append(basename_no_ext)
+                # No contamination found - mark for clean marker creation with relative path
+                clean_marker_path = relative_path[:-len('.jsonl')] if relative_path.endswith('.jsonl') else relative_path
+                # Remove compression extensions from clean marker path
+                for ext in ['.gz', '.zst', '.bz2', '.xz']:
+                    if clean_marker_path.endswith(ext):
+                        clean_marker_path = clean_marker_path[:-len(ext)]
+                        break
+                clean_markers.append(clean_marker_path)
                 # No report file, marking as clean
 
             # Always check for cleaned file and upload if it exists
             if cleaned_path:
-                # Use the file as-is without compression
+                # Use the file as-is but preserve directory structure
                 cleaned_filename = os.path.basename(cleaned_path)
+                if relative_dir:
+                    cleaned_key = f"{relative_dir}/{cleaned_filename}"
+                else:
+                    cleaned_key = cleaned_filename
                 upload_path = cleaned_path
 
                 cleaned_output_dir = self.config.remote_cleaned_output_dir or self.config.remote_report_output_dir
-                upload_commands.append((upload_path, cleaned_output_dir, cleaned_filename))
+                upload_commands.append((upload_path, cleaned_output_dir, cleaned_key))
                 self.stats_cleaned_files_uploaded += 1
                 # Will upload cleaned file
 
@@ -1033,10 +1062,10 @@ class ContaminationOrchestrator:
             # Submit files from download queue if server has capacity
             while len(self.active_jobs) < self.config.max_concurrent_jobs:
                 try:
-                    local_path, s3_key = self.download_queue.get_nowait()
+                    local_path, s3_key, relative_path = self.download_queue.get_nowait()
 
                     # Submit to server
-                    job = self._submit_to_server(local_path, s3_key)
+                    job = self._submit_to_server(local_path, s3_key, relative_path)
                     if job:
                         self.active_jobs[job.job_id] = job
                     else:
