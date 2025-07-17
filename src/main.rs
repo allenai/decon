@@ -201,6 +201,13 @@ enum Commands {
             help = "Filter by evaluation dataset name (strips suffix after last underscore)"
         )]
         eval: Option<String>,
+
+        #[arg(
+            long,
+            help = "Show top N most commonly matched eval examples",
+            value_name = "N"
+        )]
+        top_eval_examples: Option<usize>,
     },
 
     #[command(about = "Run decon as an HTTP server for orchestrated pipelines")]
@@ -995,16 +1002,18 @@ fn main() -> Result<(), Error> {
             min_score,
             min_length,
             eval,
+            top_eval_examples,
         } => review::review_contamination(
             config.as_ref(),
             dir.as_ref(),
-            !*stats && !*all, // step is true when neither stats nor all is set
+            !*stats && !*all && top_eval_examples.is_none(), // step is true when none of the display modes are set
             *stats,
             *all,
             *min_score,
             *min_length,
             eval.as_deref(),
             false, // skip_exact is now always false
+            *top_eval_examples,
         ),
 
         Commands::Server {
