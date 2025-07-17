@@ -152,11 +152,11 @@ class ContaminationOrchestrator:
         # Initialize lock file
         self.lock_file = Path(self.config.local_work_dir) / 'orchestrator.lock'
         self._acquire_lock()
-        
+
         # Setup signal handlers for cleanup
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
-        
+
         # Orchestrator initialized
 
     def _setup_logging(self) -> logging.Logger:
@@ -177,14 +177,14 @@ class ContaminationOrchestrator:
         session.mount('http://', adapter)
         session.mount('https://', adapter)
         return session
-    
+
     def _acquire_lock(self):
         """Acquire lock file to prevent multiple instances."""
         if self.lock_file.exists():
             try:
                 with open(self.lock_file, 'r') as f:
                     existing_pid = int(f.read().strip())
-                
+
                 # Check if the process is still running
                 if self._is_process_running(existing_pid):
                     self.logger.error(f"Another orchestrator is already running (PID: {existing_pid})")
@@ -198,7 +198,7 @@ class ContaminationOrchestrator:
                 self.logger.warning("Invalid lock file found, removing it")
                 if self.lock_file.exists():
                     self.lock_file.unlink()
-        
+
         # Create new lock file with current PID
         try:
             self.lock_file.parent.mkdir(parents=True, exist_ok=True)
@@ -208,7 +208,7 @@ class ContaminationOrchestrator:
         except Exception as e:
             self.logger.error(f"Failed to create lock file: {e}")
             sys.exit(1)
-    
+
     def _is_process_running(self, pid: int) -> bool:
         """Check if a process with given PID is running."""
         try:
@@ -217,7 +217,7 @@ class ContaminationOrchestrator:
             return True
         except OSError:
             return False
-    
+
     def _release_lock(self):
         """Release the lock file."""
         try:
@@ -226,7 +226,7 @@ class ContaminationOrchestrator:
                 self.logger.warning("Released lock")
         except Exception as e:
             self.logger.warning(f"Failed to remove lock file: {e}")
-    
+
     def _signal_handler(self, signum, frame):
         """Handle signals by cleaning up lock file and exiting."""
         try:
@@ -276,18 +276,18 @@ class ContaminationOrchestrator:
         max_wait_time = 300  # 5 minutes
         wait_interval = 10   # Check every 10 seconds
         start_wait = time.time()
-        
+
         self.logger.info("Waiting for server to be ready...")
         while time.time() - start_wait < max_wait_time:
             if self._check_server_health():
                 server_ready = True
                 self.logger.info("Server is ready!")
                 break
-            
+
             elapsed = int(time.time() - start_wait)
             self.logger.info(f"Server not ready yet, waiting... ({elapsed}s / {max_wait_time}s)")
             time.sleep(wait_interval)
-        
+
         if not server_ready:
             self.logger.error(f"Server did not become ready after {max_wait_time} seconds. Please ensure the server is running.")
             sys.exit(1)
@@ -317,7 +317,7 @@ class ContaminationOrchestrator:
 
         # Print summary statistics
         self.logger.warning(f"\nSUMMARY: Processed={self.stats_files_processed} Clean={self.stats_files_clean} Contaminated={self.stats_files_contaminated} Failed={len(self.failed_files)} Time={elapsed:.2f}s")
-        
+
         # Clean up clean markers file
         clean_markers_file = Path(self.config.local_work_dir) / 'clean_markers.txt'
         if clean_markers_file.exists():
@@ -326,10 +326,10 @@ class ContaminationOrchestrator:
                 self.logger.info("Deleted clean_markers.txt")
             except Exception as e:
                 self.logger.warning(f"Failed to delete clean_markers.txt: {e}")
-        
+
         # Release lock file
         self._release_lock()
-        
+
         # Final exit message - very clear and unique for polling
         self.logger.warning("WORK COMPLETE EXITING")
 
@@ -434,13 +434,13 @@ class ContaminationOrchestrator:
             with open(clean_markers_file, 'r') as f:
                 clean_markers = [line.strip() for line in f if line.strip()]
 
-        # Also check for cleaned files if cleaned directory is configured
+        # Also WE DO NOT check for cleaned files if cleaned directory is configured. We overwrite.
         cleaned_files = []
-        if self.config.remote_cleaned_output_dir:
-            cleaned_file_tuples = self._list_s3_files(self.config.remote_cleaned_output_dir, ['.jsonl', '.jsonl.gz', '.jsonl.zst', '.jsonl.bz2', '.jsonl.xz'])
-            # Extract just the keys, ignore sizes for processed file checking
-            cleaned_files = [key for key, size in cleaned_file_tuples]
-            # Found cleaned files
+        # if self.config.remote_cleaned_output_dir:
+        #     cleaned_file_tuples = self._list_s3_files(self.config.remote_cleaned_output_dir, ['.jsonl', '.jsonl.gz', '.jsonl.zst', '.jsonl.bz2', '.jsonl.xz'])
+        #     # Extract just the keys, ignore sizes for processed file checking
+        #     cleaned_files = [key for key, size in cleaned_file_tuples]
+        #     # Found cleaned files
 
         # Found clean markers
 
@@ -520,7 +520,7 @@ class ContaminationOrchestrator:
 
         # Sort by size descending (largest first)
         files_to_process.sort(key=lambda x: x[1], reverse=True)
-        
+
         # Log file size distribution
         if files_to_process:
             sizes = [size for _, size in files_to_process]
@@ -605,11 +605,11 @@ class ContaminationOrchestrator:
                 self.logger.error(f"s5cmd stdout:\n{e.stdout}")
             if e.stderr:
                 self.logger.error(f"s5cmd stderr:\n{e.stderr}")
-            
+
             # Mark all files in batch as failed
             for s3_key in s3_keys:
                 self.failed_files.add(s3_key)
-            
+
             raise
 
         finally:
@@ -728,7 +728,7 @@ class ContaminationOrchestrator:
 
             # Executing batch upload
             self.logger.info(f"Running batch upload with command: {' '.join(cmd)}")
-            
+
             result = subprocess.run(cmd, check=True, capture_output=True, text=True)
 
             # Log s5cmd output
@@ -989,7 +989,7 @@ class ContaminationOrchestrator:
                 # Use the file as-is without compression
                 cleaned_filename = os.path.basename(cleaned_path)
                 upload_path = cleaned_path
-                
+
                 cleaned_output_dir = self.config.remote_cleaned_output_dir or self.config.remote_report_output_dir
                 upload_commands.append((upload_path, cleaned_output_dir, cleaned_filename))
                 self.stats_cleaned_files_uploaded += 1
@@ -1108,36 +1108,36 @@ def main():
 
     parser = argparse.ArgumentParser(description='Contamination detection orchestrator')
     parser.add_argument('--config', required=True, help='Path to configuration YAML file')
-    
+
     # S3 path overrides
     parser.add_argument('--remote-file-input', help='S3 path for training data input (overrides config)')
     parser.add_argument('--remote-report-output-dir', help='S3 path for contamination reports (overrides config)')
     parser.add_argument('--remote-cleaned-output-dir', help='S3 path for cleaned files (overrides config)')
-    
+
     # Server and local settings
     parser.add_argument('--server-url', help='Server URL (overrides config)')
     parser.add_argument('--local-work-dir', help='Local working directory (overrides config)')
-    
+
     # Performance tuning
     parser.add_argument('--max-concurrent-jobs', type=int, help='Maximum concurrent jobs (overrides config)')
     parser.add_argument('--poll-interval', type=int, help='Poll interval in seconds (overrides config)')
     parser.add_argument('--s5cmd-workers', type=int, help='Number of s5cmd workers (overrides config)')
-    
+
     # Batch processing settings
     parser.add_argument('--download-batch-size', type=int, help='Files per download batch (overrides config)')
     parser.add_argument('--download-queue-max', type=int, help='Max files in download queue (overrides config)')
     parser.add_argument('--upload-queue-max', type=int, help='Max files in upload queue (overrides config)')
     parser.add_argument('--upload-batch-size', type=int, help='Jobs per upload batch (overrides config)')
     parser.add_argument('--upload-batch-timeout', type=int, help='Upload batch timeout in seconds (overrides config)')
-    
+
     # Other settings
     parser.add_argument('--cleanup-delay', type=int, help='Cleanup delay in seconds (overrides config)')
-    
+
     args = parser.parse_args()
 
     # Prepare CLI overrides
     cli_overrides = {}
-    
+
     # Map command-line arguments to config fields
     arg_mapping = {
         'remote_file_input': args.remote_file_input,
@@ -1155,7 +1155,7 @@ def main():
         'upload_batch_timeout': args.upload_batch_timeout,
         'cleanup_delay': args.cleanup_delay,
     }
-    
+
     # Only add non-None values to overrides
     for key, value in arg_mapping.items():
         if value is not None:
