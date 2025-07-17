@@ -894,7 +894,7 @@ EVAL_CONFIG = {
                 "train"
             ]
         },
-        "if_ood": {  # note all if evals do not have answer
+        "if_ood": {
             "hf_path": "valpy/ifeval_ood3",
             "splits": [
                 "train"
@@ -1561,17 +1561,788 @@ EVAL_CONFIG = {
             }
         },
 
-        # 'omega_explorative': {
-        #     'hf_path': 'allenai/omega-explorative',
-        #     'splits': ['train', 'test_in', 'test_out'],
-        #     'transform': 'auto'
-        # },
+        "omega_explorative_algebra_func_area": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "algebra_func_area",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_algebra_func_derivative_sign": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "algebra_func_derivative_sign",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_algebra_func_extrema": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "algebra_func_extrema",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_algebra_func_extrema_coords": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "algebra_func_extrema_coords",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_algebra_func_intersection": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "algebra_func_intersection",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_algebra_func_intersection_coords": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "algebra_func_intersection_coords",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_algebra_func_zeros": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "algebra_func_zeros",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_algebra_linear_equation": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "algebra_linear_equation",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_algebra_polynomial_roots": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "algebra_polynomial_roots",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_arithmetic_gcd": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "arithmetic_gcd",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_arithmetic_list_prime_factors": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "arithmetic_list_prime_factors",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_arithmetic_mixed": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "arithmetic_mixed",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_arithmetic_matrix_determinant": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "arithmetic_matrix_determinant",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_arithmetic_matrix_eigenvalues": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "arithmetic_matrix_eigenvalues",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_arithmetic_matrix_inverse": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "arithmetic_matrix_inverse",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_arithmetic_matrix_multiplication": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "arithmetic_matrix_multiplication",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_arithmetic_matrix_power": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "arithmetic_matrix_power",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_arithmetic_matrix_rank": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "arithmetic_matrix_rank",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_arithmetic_matrix_svd": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "arithmetic_matrix_svd",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_combinatory_distribution": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "combinatory_distribution",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_combinatory_pattern_matching": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "combinatory_pattern_matching",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_combinatory_probability_at_least_n_specific_fixed": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "combinatory_probability_at_least_n_specific_fixed",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_combinatory_probability_exactly_n_specific_fixed": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "combinatory_probability_exactly_n_specific_fixed",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_combinatory_probability_no_fixed_points": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "combinatory_probability_no_fixed_points",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_combinatory_probability_no_specific_letter_fixed": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "combinatory_probability_no_specific_letter_fixed",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_geometry_basic": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "geometry_basic",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_geometry_circle": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "geometry_circle",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_geometry_perpendicular_intersection": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "geometry_perpendicular_intersection",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_geometry_polygon": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "geometry_polygon",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_geometry_polygon_rotation": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "geometry_polygon_rotation",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_geometry_triangle": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "geometry_triangle",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_geometry_polygon_chords": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "geometry_polygon_chords",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_geometry_polygon_color": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "geometry_polygon_color",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_logic_gridworld_blocked": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "logic_gridworld_blocked",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_logic_gridworld_knight_move": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "logic_gridworld_knight_move",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_logic_gridworld_rookmove": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "logic_gridworld_rookmove",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_logic_zebralogic": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "logic_zebralogic",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_logic_puzzles_grid_chip": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "logic_puzzles_grid_chip",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_numbertheory_lte_qr": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "numbertheory_lte_qr",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_numbertheory_ordered_lte": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "numbertheory_ordered_lte",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_explorative_numbertheory_qr_sum": {
+            "hf_path": "allenai/omega-explorative",
+            "hf_config": "numbertheory_qr_sum",
+            "splits": [
+                "train",
+                "test_in",
+                "test_out"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
 
-        # 'omega_transformative': {
-        #     'hf_path': 'allenai/omega-transformative',
-        #     'splits': ['train', 'test'],
-        #     'transform': 'auto'
-        # },
+        "omega_transformative_matrix_rank": {
+            "hf_path": "allenai/omega-transformative",
+            "hf_config": "trans_matrix_rank",
+            "splits": [
+                "train",
+                "test"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth"
+            }
+        },
+        "omega_transformative_func_intersection": {
+            "hf_path": "allenai/omega-transformative",
+            "hf_config": "trans_func_intersection",
+            "splits": [
+                "train",
+                "test"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth"
+            }
+        },
+        "omega_transformative_de_moivre": {
+            "hf_path": "allenai/omega-transformative",
+            "hf_config": "trans_de_moivre",
+            "splits": [
+                "train",
+                "test"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth"
+            }
+        },
+        "omega_transformative_prob_letter": {
+            "hf_path": "allenai/omega-transformative",
+            "hf_config": "trans_prob_letter",
+            "splits": [
+                "train",
+                "test"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth"
+            }
+        },
+        "omega_transformative_integrations": {
+            "hf_path": "allenai/omega-transformative",
+            "hf_config": "trans_integrations",
+            "splits": [
+                "train",
+                "test"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth"
+            }
+        },
+        "omega_transformative_gridworld": {
+            "hf_path": "allenai/omega-transformative",
+            "hf_config": "trans_gridworld",
+            "splits": [
+                "train",
+                "test"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth"
+            }
+        },
+        "omega_transformative_circles": {
+            "hf_path": "allenai/omega-transformative",
+            "hf_config": "trans_circles",
+            "splits": [
+                "train",
+                "test"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth"
+            }
+        },
         "openbookqa": {
             "hf_path": "allenai/openbookqa",
             "splits": [
