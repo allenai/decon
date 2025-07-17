@@ -16,6 +16,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import List, Optional, Dict, Any
@@ -380,7 +381,8 @@ def wizard():
     # Data purification question immediately after
     print("\n\nDecon always produces contamination report files including per-file contamination matches and scores.")
     # Report output configuration
-    default_report_path = f"s3://ai2-decon-reports/{dataset_name}"
+    today_date = datetime.now().strftime("%-m-%-d")  # Format: 7-16 (month-day without leading zeros)
+    default_report_path = f"s3://ai2-decon-reports/{today_date}/{dataset_name}"
     remote_report_output_dir = click.prompt(
         "S3 path for contamination reports",
         default=default_report_path,
@@ -408,7 +410,7 @@ def wizard():
         # Ask for cleaned dataset destination immediately after purification question
         while True:
             remote_cleaned_output_dir = click.prompt(
-                "S3 bucket for cleaned dataset copy",
+                "S3 prefix for cleaned dataset copy",
                 default=default_cleaned_path,
                 type=str
             )
@@ -462,7 +464,7 @@ def wizard():
     ngram_size = 5
 
     while True:
-        question_threshold = click.prompt("Question contamination threshold [0-1] (higher = more precision, lower = more recall)", type=float, default=0.8)
+        question_threshold = click.prompt("Question contamination threshold [0-1] (higher = more precision, lower = more recall)", type=float, default=0.815)
         answer_threshold = click.prompt("Answer contamination threshold [0-1] (higher = more precision, lower = more recall)", type=float, default=0.8)
         if 0.0 <= question_threshold <= 1.0 and 0.0 <= answer_threshold <= 1.0:
             break
@@ -471,24 +473,9 @@ def wizard():
 
     tokenizer_str = 'cl100k'
 
-    # Reference dataset selection
-    print("\n=== Reference Dataset Selection ===")
-    print("\nChoose which evaluation dataset to use for contamination detection:")
-    print("  questions              - All question prompts from covered evals (likely many reference/context 'fp')")
-    print("  questions-and-answers  - All eval entries that have both a question and answer")
-    print("  best-available         - All entries from covered evals with answer evaluated if present, otherwise question matches\n")
-
-    reference_choice = click.prompt("Reference dataset",
-                                   default="best-available",
-                                   type=click.Choice(['questions', 'questions-and-answers', 'best-available']))
-
-    # Map choice to actual directory path
-    reference_input_map = {
-        'questions': 'fixtures/reference-questions',
-        'questions-and-answers': 'fixtures/reference-questions-and-answers',
-        'best-available': 'fixtures/reference-best-available'
-    }
-    reference_input = reference_input_map[reference_choice]
+    # Reference dataset selection - forced to best-available
+    reference_choice = "best-available"
+    reference_input = 'fixtures/reference-best-available'
 
     # Other options
     server_port = 8080  # Server port hardcoded to default
@@ -526,7 +513,7 @@ def wizard():
     print(f"  Cluster: {deploy_config.cluster_name} ({deploy_config.instance_count} x {deploy_config.instance_type})")
     print(f"  Mode: {deploy_config.mode}")
     print(f"  Tokenizer: {deploy_config.tokenizer_str}")
-    print(f"  Reference dataset: {reference_choice}")
+    print(f"  Reference dataset: best-available")
     print(f"  N-gram size: {deploy_config.ngram_size}")
     print(f"  Question threshold: {deploy_config.question_threshold}")
     print(f"  Answer threshold: {deploy_config.answer_threshold}")
