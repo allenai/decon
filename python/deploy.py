@@ -593,13 +593,16 @@ def wizard():
     print(f"  --ssh-key-path {ssh_key} \\")
     print("  --detach\n")
 
+    print("\033[1m # 5. Automatically terminate cluster when complete.\033[0m")
+    print(f"\nmake polling-auto-terminate NAME={cluster_name}")
+
     print("\n" + "━" * 80)
-    print("📝 USEFUL COMMANDS".center(80))
+    print("USEFUL COMMANDS".center(80))
     print("━" * 80)
     print(f"  View server logs:   make deploy-logs NAME={cluster_name} LOG=server")
     print(f"  View orchestrator logs:  make deploy-logs NAME={cluster_name} LOG=orchestrator")
-    print(f"  Auto-terminate:     make polling-auto-terminate NAME={cluster_name}")
     print("⚠️  Remember to terminate your cluster when done to avoid unnecessary charges\n")
+
 
 
 @cli.command()

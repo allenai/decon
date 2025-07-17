@@ -86,25 +86,15 @@ Filtering options are available.
 
 ```
 # Stats with all three filters combined
-cargo run --release -- review --stats --dir /my-results-directory --min-overlap-ratio 0.3 --min-idf-score 1.5 --min-length 8
+decon review /my-results-directory
 
-# Stats with aggressive filtering (high thresholds)
-cargo run --release -- review --step --dir /my-results-directory --min-overlap-ratio 0.9
+# Interactive review with aggressive filtering (high thresholds)
+decon review /my-results-directory --stats
 
 # Restrict to a specific eval
-cargo run --release -- review --eval mmlu --min-overlap-ratio 0.99  --step --dir /my-results-directory
+decon review /my-results-directory --eval mmlu --min-overlap-ratio 0.9
 
 ```
-
-## Detection Methods
-
-### 🔍 [SIMPLE Detection](doc/simple.md) (`mode: simple`)
-Efficient n-gram matching with ngram sampling and cluster expansion.
-- **Best for**: Large-scale exact contamination, performance-critical scenarios
-- **Speed**: Fast with configurable sampling, efficient parallel processing
-- **Memory**: Indexes only evaluation data, streams training data
-- **Accuracy**: High precision for substantial overlaps, tunable via sampling rate
-
 
 ## Evaluation Datasets
 

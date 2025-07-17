@@ -48,7 +48,8 @@ struct ArgParser {
 enum Commands {
     #[command(
         about = "Detect contamination in training data",
-        long_about = "Detect and report on contamination between a reference dataset and a training dataset.\nCan optionally produce a clean dataset with contaminated documents removed."
+        long_about = "Detect and report on contamination between a reference dataset and a training dataset.\nCan optionally produce a clean dataset with contaminated documents removed.",
+        after_help = "Example:\n    decon detect --local-input /tmp/my-directory-of-jsonl-files --report-output-dir /tmp/decon-report"
     )]
     Detect {
         // Input and Output
