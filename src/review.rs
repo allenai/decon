@@ -90,6 +90,7 @@ pub fn review_contamination(
     eval_filter: Option<&str>,
     skip_exact: bool,
     top_eval_examples: Option<usize>,
+    sort_match_length_descending: bool,
 ) -> Result<(), Error> {
     println!("=== CONTAMINATION REVIEW ===");
 
@@ -115,14 +116,24 @@ pub fn review_contamination(
         return Ok(());
     }
 
-    // Sort by contamination_score in ascending order
-    all_results.sort_by(|a, b| {
-        let score_a = a.contamination_score.unwrap_or(0.0);
-        let score_b = b.contamination_score.unwrap_or(0.0);
-        score_a
-            .partial_cmp(&score_b)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    // Sort results based on flag
+    if sort_match_length_descending {
+        // Sort by ngram_match_cnt in descending order (highest first)
+        all_results.sort_by(|a, b| {
+            let count_a = a.ngram_match_cnt.unwrap_or(0);
+            let count_b = b.ngram_match_cnt.unwrap_or(0);
+            count_b.cmp(&count_a) // Note: b compared to a for descending order
+        });
+    } else {
+        // Default: Sort by contamination_score in ascending order
+        all_results.sort_by(|a, b| {
+            let score_a = a.contamination_score.unwrap_or(0.0);
+            let score_b = b.contamination_score.unwrap_or(0.0);
+            score_a
+                .partial_cmp(&score_b)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+    }
 
     let original_count = all_results.len();
 
@@ -681,6 +692,97 @@ fn display_eval_dataset_stats(contamination_results: &[ContaminationResult]) -> 
 
         // Format the output with aligned columns
         println!("  {:<45} {:>8} │{}{}│", suite, count, bar, empty);
+    }
+
+    println!();
+    println!();
+
+    // N-gram match count histogram
+    println!("=== N-GRAM MATCH COUNT DISTRIBUTION ===");
+    println!();
+
+    // Collect n-gram match counts
+    let mut ngram_counts: Vec<usize> = Vec::new();
+    let mut missing_count = 0;
+
+    for result in contamination_results {
+        if let Some(count) = result.ngram_match_cnt {
+            ngram_counts.push(count);
+        } else {
+            missing_count += 1;
+        }
+    }
+
+    if ngram_counts.is_empty() {
+        println!("No n-gram match count data available.");
+        return Ok(());
+    }
+
+    // Calculate statistics
+    ngram_counts.sort();
+    let min_count = *ngram_counts.first().unwrap();
+    let max_count = *ngram_counts.last().unwrap();
+    let median_count = if ngram_counts.len() % 2 == 0 {
+        (ngram_counts[ngram_counts.len() / 2 - 1] + ngram_counts[ngram_counts.len() / 2]) / 2
+    } else {
+        ngram_counts[ngram_counts.len() / 2]
+    };
+    let avg_count = ngram_counts.iter().sum::<usize>() as f64 / ngram_counts.len() as f64;
+
+    println!("Total results with n-gram match data: {}", ngram_counts.len());
+    if missing_count > 0 {
+        println!("Results without n-gram match data: {}", missing_count);
+    }
+    println!();
+    println!("Statistics:");
+    println!("  Min:    {}", min_count);
+    println!("  Max:    {}", max_count);
+    println!("  Median: {}", median_count);
+    println!("  Average: {:.1}", avg_count);
+    println!();
+
+    // Create buckets for histogram
+    let buckets: Vec<(usize, usize, &str)> = vec![
+        (1, 5, "1-5"),
+        (6, 10, "6-10"),
+        (11, 20, "11-20"),
+        (21, 50, "21-50"),
+        (51, 100, "51-100"),
+        (101, 200, "101-200"),
+        (201, 500, "201-500"),
+        (501, usize::MAX, "500+"),
+    ];
+
+    // Count matches in each bucket
+    let mut bucket_counts: Vec<(String, usize)> = Vec::new();
+    for (min, max, label) in &buckets {
+        let count = ngram_counts.iter().filter(|&&c| c >= *min && c <= *max).count();
+        if count > 0 {
+            bucket_counts.push((label.to_string(), count));
+        }
+    }
+
+    // Find the maximum bucket count for scaling
+    let max_bucket_count = bucket_counts.iter().map(|(_, count)| *count).max().unwrap_or(0);
+
+    println!("N-gram match count distribution:");
+    println!();
+
+    // Display histogram
+    for (label, count) in &bucket_counts {
+        // Calculate bar length proportional to count
+        let bar_length = if max_bucket_count > 0 {
+            ((*count as f64 / max_bucket_count as f64) * bar_width as f64) as usize
+        } else {
+            0
+        };
+
+        // Create the bar using Unicode block characters
+        let bar = "█".repeat(bar_length);
+        let empty = " ".repeat(bar_width - bar_length);
+
+        // Format the output with aligned columns
+        println!("  {:<15} {:>8} │{}{}│", label, count, bar, empty);
     }
 
     println!();

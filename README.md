@@ -34,6 +34,8 @@ For those that prefer explicitness, directness, and less abstraction, you can ru
 # Clone and build
 git clone https://github.com/allenai/decon
 cd decon
+cargo build --release
+# optional, add target/release/ to your path to invoke decon directly.
 
 # Download evaluation datasets. The cli will look for these in the configured reference directory.
 # Three pre-packaged options are available.
@@ -49,12 +51,12 @@ s5cmd sync s3://decon-evals-best-available/* fixtures/reference-best-available
 s5cmd sync s3://your-data-set-prefix fixtures/local_input
 
 # Run contamination detection.
-cargo run --release detect --config config/simple.yaml
+target/release/decon detect --config config/simple.yaml
 
 # For full set of options, help is available.
 # Note that the options mix all the different modes (I'll clean this up eventually)
 # Also note that each has a sensible default. Performance and outcomes may vary wildly depending on options.
-cargo run --release detect --help
+target/release/decon detect --help
 ```
 
 If you want to manually run the orchestrator to manage downloading, uploading, and running against a persistent server with the index, please study the configuration flag outputs from `make poormanray-command-generator`. Author anticipates CLI focused users would prefer to manage non-contamination details on their own.
@@ -68,10 +70,11 @@ s5cmd sync s3://ai2-decon-reports/big-reasoning-traces/* /my-results-directory
 
 # To review individual matches.
 cd decon
-make review /my-results-directory
+cargo build --release
+target/release/decon review  /my-results-directory
 
 # To see statistics by eval
-make stats /my-results-directory
+target/release/decon review --stats --eval mmlu /my-results-directory
 
 ```
 

@@ -208,6 +208,12 @@ enum Commands {
             value_name = "N"
         )]
         top_eval_examples: Option<usize>,
+
+        #[arg(
+            long,
+            help = "Sort results by n-gram match count in descending order (highest matches first)"
+        )]
+        sort_match_length_descending: bool,
     },
 
     #[command(about = "Run decon as an HTTP server for orchestrated pipelines")]
@@ -1012,6 +1018,7 @@ fn main() -> Result<(), Error> {
             min_length,
             eval,
             top_eval_examples,
+            sort_match_length_descending,
         } => review::review_contamination(
             config.as_ref(),
             Some(dir),
@@ -1023,6 +1030,7 @@ fn main() -> Result<(), Error> {
             eval.as_deref(),
             false, // skip_exact is now always false
             *top_eval_examples,
+            *sort_match_length_descending,
         ),
 
         Commands::Server {
