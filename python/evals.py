@@ -2966,53 +2966,6 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
             "records_without_answers": 0
         }
 
-        # Prepare header lines
-        header_lines = []
-        header_lines.append(f"# Dataset: {eval_name}\n")
-        header_lines.append(f"# Split: {split}\n")
-        header_lines.append(f"# HuggingFace Path: {eval_config.get('hf_path', eval_config.get('local_path', 'N/A'))}\n")
-        if 'hf_config' in eval_config:
-            header_lines.append(f"# Config: {eval_config['hf_config']}\n")
-        header_lines.append(f"# Total Examples: {len(dataset[split])}\n")
-        header_lines.append(f"#\n")
-
-        # Get first example to show fields and sample
-        if len(dataset[split]) > 0:
-            first_example = dataset[split][0]
-            fields = list(first_example.keys())
-            header_lines.append(f"# Original Fields: {', '.join(fields)}\n")
-            header_lines.append(f"#\n")
-            header_lines.append(f"# Sample Record (first example from dataset):\n")
-            header_lines.append(f"# {'-' * 70}\n")
-
-            # Show truncated version of first example
-            for field, value in first_example.items():
-                value_str = str(value)
-                if len(value_str) > 200:
-                    value_str = value_str[:200] + "..."
-                # Escape newlines in the value for comment display
-                value_str = value_str.replace('\n', '\\n')
-                header_lines.append(f"# {field}: {value_str}\n")
-
-            header_lines.append(f"# {'-' * 70}\n")
-            header_lines.append(f"#\n")
-            header_lines.append(f"# Transformed Output Format:\n")
-            header_lines.append(f"# - eval_name: {eval_name}\n")
-            header_lines.append(f"# - index: original index in dataset\n")
-            header_lines.append(f"# - split: {split}\n")
-            header_lines.append(f"# - question: extracted question text\n")
-            header_lines.append(f"# - context: extracted context (if available)\n")
-            header_lines.append(f"# - answer: extracted answer (if available)\n")
-            header_lines.append(f"# - doc_id: unique document identifier\n")
-
-            # Show any extra fields that will be included
-            if 'extra_fields' in eval_config.get('transform', {}):
-                header_lines.append(f"# - Additional fields: {', '.join(eval_config['transform']['extra_fields'])}\n")
-
-            header_lines.append(f"#\n")
-            header_lines.append(f"# {'=' * 70}\n")
-            header_lines.append(f"#\n")
-
         # Lazy file handles - only opened when needed
         f_with_answers = None
         f_question_only = None
@@ -3060,9 +3013,6 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                     # Open questions-only file if not already open
                     if f_question_only is None:
                         f_question_only = open(output_file_question_only, 'w')
-                        # Write headers when opening file
-                        for line in header_lines:
-                            f_question_only.write(line)
 
                     # Always write to questions-only file (every record)
                     # Strip answer and context keys for questions-only file
@@ -3074,9 +3024,6 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                     # Always write to best-available file (includes answer if available)
                     if f_best_available is None:
                         f_best_available = open(output_file_best_available, 'w')
-                        # Write headers when opening file
-                        for line in header_lines:
-                            f_best_available.write(line)
 
                     # For best-available, we keep answers if they exist, remove if empty
                     best_available_record = record.copy()
@@ -3089,9 +3036,6 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                         # Open with-answers file if not already open
                         if f_with_answers is None:
                             f_with_answers = open(output_file, 'w')
-                            # Write headers when opening file
-                            for line in header_lines:
-                                f_with_answers.write(line)
 
                         f_with_answers.write(json.dumps(record) + '\n')
                         dataset_stats["records_with_answers"] += 1
@@ -3165,8 +3109,6 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                                 # Write to files
                                 if f_question_only is None:
                                     f_question_only = open(output_file_question_only, 'w')
-                                    for line in header_lines:
-                                        f_question_only.write(line)
 
                                 question_only_record = record.copy()
                                 question_only_record.pop('answer', None)
@@ -3176,8 +3118,6 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                                 # Always write to best-available file
                                 if f_best_available is None:
                                     f_best_available = open(output_file_best_available, 'w')
-                                    for line in header_lines:
-                                        f_best_available.write(line)
 
                                 best_available_record = record.copy()
                                 if is_answer_empty(answer):
@@ -3187,8 +3127,6 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                                 if not is_answer_empty(answer):
                                     if f_with_answers is None:
                                         f_with_answers = open(output_file, 'w')
-                                        for line in header_lines:
-                                            f_with_answers.write(line)
 
                                     f_with_answers.write(json.dumps(record) + '\n')
                                     dataset_stats["records_with_answers"] += 1
@@ -3409,9 +3347,6 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                     # Open questions-only file if not already open
                     if f_question_only is None:
                         f_question_only = open(output_file_question_only, 'w')
-                        # Write headers when opening file
-                        for line in header_lines:
-                            f_question_only.write(line)
 
                     # Always write to questions-only file (every record)
                     # Strip answer and context keys for questions-only file
@@ -3423,9 +3358,6 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                     # Always write to best-available file (includes answer if available)
                     if f_best_available is None:
                         f_best_available = open(output_file_best_available, 'w')
-                        # Write headers when opening file
-                        for line in header_lines:
-                            f_best_available.write(line)
 
                     # For best-available, we keep answers if they exist, remove if empty
                     best_available_record = record.copy()
@@ -3438,9 +3370,6 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                         # Open with-answers file if not already open
                         if f_with_answers is None:
                             f_with_answers = open(output_file, 'w')
-                            # Write headers when opening file
-                            for line in header_lines:
-                                f_with_answers.write(line)
 
                         f_with_answers.write(json.dumps(record) + '\n')
                         dataset_stats["records_with_answers"] += 1
@@ -3476,9 +3405,6 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                                     # Open questions-only file if not already open
                                     if f_question_only is None:
                                         f_question_only = open(output_file_question_only, 'w')
-                                        # Write headers when opening file
-                                        for line in header_lines:
-                                            f_question_only.write(line)
 
                                     # Always write to questions-only file (every record)
                                     # Strip answer and context keys for questions-only file
@@ -3490,16 +3416,12 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                                     # Always write to best-available file (choices always have answers)
                                     if f_best_available is None:
                                         f_best_available = open(output_file_best_available, 'w')
-                                        for line in header_lines:
-                                            f_best_available.write(line)
+
                                     f_best_available.write(json.dumps(choice_record) + '\n')
 
                                     # Open with-answers file if not already open (choices always have answers)
                                     if f_with_answers is None:
                                         f_with_answers = open(output_file, 'w')
-                                        # Write headers when opening file
-                                        for line in header_lines:
-                                            f_with_answers.write(line)
 
                                     # Also write to with-answers file
                                     f_with_answers.write(json.dumps(choice_record) + '\n')
@@ -3528,9 +3450,6 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                                     # Open questions-only file if not already open
                                     if f_question_only is None:
                                         f_question_only = open(output_file_question_only, 'w')
-                                        # Write headers when opening file
-                                        for line in header_lines:
-                                            f_question_only.write(line)
 
                                     # Always write to questions-only file (every record)
                                     # Strip answer and context keys for questions-only file
@@ -3542,16 +3461,12 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                                     # Always write to best-available file (choices always have answers)
                                     if f_best_available is None:
                                         f_best_available = open(output_file_best_available, 'w')
-                                        for line in header_lines:
-                                            f_best_available.write(line)
+
                                     f_best_available.write(json.dumps(choice_record) + '\n')
 
                                     # Open with-answers file if not already open (choices always have answers)
                                     if f_with_answers is None:
                                         f_with_answers = open(output_file, 'w')
-                                        # Write headers when opening file
-                                        for line in header_lines:
-                                            f_with_answers.write(line)
 
                                     # Also write to with-answers file
                                     f_with_answers.write(json.dumps(choice_record) + '\n')

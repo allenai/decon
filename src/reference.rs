@@ -292,24 +292,29 @@ fn process_file_for_duplicates(
     for line in reader.lines() {
         let line = line?;
 
-        // Skip comment lines
-        if line.trim_start().starts_with('#') {
-            continue;
-        }
-
-        total_lines.fetch_add(1, Ordering::Relaxed);
-
-        // Parse JSON and extract text content
+        // Attempt to parse JSON
         let json_obj: Value = match serde_json::from_str(&line) {
             Ok(obj) => obj,
             Err(_) => {
+                // Invalid JSON line, skip but count it as a line
                 json_line_num += 1;
-                continue; // Skip invalid JSON lines
+                continue;
             }
         };
 
-        // Try to extract text from common field names
-        let text = get_text_from_json(&json_obj)?;
+        // Attempt to extract text
+        let text = match get_text_from_json(&json_obj) {
+            Ok(t) => t,
+            Err(_) => {
+                // No text found, skip but count it as a line
+                json_line_num += 1;
+                continue;
+            }
+        };
+
+        // If we reach here, the line is valid and contains text.
+        // Now we can count it and process it for duplicates.
+        total_lines.fetch_add(1, Ordering::Relaxed);
 
         // Clean and normalize the text
         let cleaned_text = clean_text(&text, "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~");
@@ -406,11 +411,6 @@ fn get_line_content(filename: &str, line_num: usize, base_dir: &PathBuf) -> Resu
     let mut json_line_num = 0;
     for line in reader.lines() {
         let line = line?;
-
-        // Skip comment lines
-        if line.trim_start().starts_with('#') {
-            continue;
-        }
 
         if json_line_num == line_num {
             return Ok(line);
@@ -615,15 +615,11 @@ fn filter_file(
     for line in reader.lines() {
         let line = line?;
 
-        // Skip comment lines
-        if line.trim_start().starts_with('#') {
-            continue;
-        }
-
         // First check if line should be kept (deduplication)
         if keep_lines.map_or(true, |set| set.contains(&json_line_num)) {
             lines_examined += 1;
 
+            let mut passed_filters = true;
             // Line passed deduplication, now apply filters
             // Parse JSON to check filters
             if let Ok(json_obj) = serde_json::from_str::<Value>(&line) {
@@ -631,22 +627,26 @@ fn filter_file(
                     // Apply minimum length filter (count characters)
                     if text.len() < MIN_LENGTH {
                         lines_removed_min_length.fetch_add(1, Ordering::Relaxed);
-                        continue;
+                        passed_filters = false;
                     }
 
                     // Apply minimum unique words filter
-                    let words: Vec<&str> = text.split_whitespace().collect();
-                    let unique_words: HashSet<&str> = words.into_iter().collect();
-                    if unique_words.len() < MIN_UNIQUE_WORDS {
-                        lines_removed_min_unique_words.fetch_add(1, Ordering::Relaxed);
-                        continue;
+                    if passed_filters {
+                        let words: Vec<&str> = text.split_whitespace().collect();
+                        let unique_words: HashSet<&str> = words.into_iter().collect();
+                        if unique_words.len() < MIN_UNIQUE_WORDS {
+                            lines_removed_min_unique_words.fetch_add(1, Ordering::Relaxed);
+                            passed_filters = false;
+                        }
                     }
                 }
             }
 
-            // Line passed all filters
-            kept_lines.insert(json_line_num);
-            kept_count += 1;
+            if passed_filters {
+                // Line passed all filters
+                kept_lines.insert(json_line_num);
+                kept_count += 1;
+            }
         }
 
         json_line_num += 1;
@@ -742,11 +742,6 @@ fn write_refined_file(
 
     for line in reader.lines() {
         let line = line?;
-
-        // Skip comment lines
-        if line.trim_start().starts_with('#') {
-            continue;
-        }
 
         total_count += 1;
 
@@ -1092,11 +1087,6 @@ fn process_file_for_minhash(
     for line in reader.lines() {
         let line = line?;
 
-        // Skip comment lines
-        if line.trim_start().starts_with('#') {
-            continue;
-        }
-
         if !keep_lines.contains(&json_line_num) {
             json_line_num += 1;
             continue; // Skip lines that were already exact duplicates
@@ -1105,12 +1095,18 @@ fn process_file_for_minhash(
         // Parse JSON and extract text
         let json_obj: Value = match serde_json::from_str(&line) {
             Ok(obj) => obj,
-            Err(_) => continue,
+            Err(_) => {
+                json_line_num += 1;
+                continue;
+            }
         };
 
         let text = match get_text_from_json(&json_obj) {
             Ok(t) => t,
-            Err(_) => continue,
+            Err(_) => {
+                json_line_num += 1;
+                continue;
+            }
         };
 
         // Clean text and tokenize
@@ -1327,8 +1323,8 @@ fn process_file_for_stats(
     for line in reader.lines() {
         let line = line?;
 
-        // Skip empty lines and comments
-        if line.trim().is_empty() || line.trim_start().starts_with('#') {
+        // Skip empty lines
+        if line.trim().is_empty(){
             continue;
         }
 
