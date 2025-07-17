@@ -984,7 +984,7 @@ EVAL_CONFIG = {
         #         "answer_field": "choices"
         #     }
         # },
-        "livecodebench": {  # TODO: There are 6 ish files, make sure we're getting them all with our process. Does it load first, or all six, additive releases.
+        "livecodebench": {
             "hf_path": "livecodebench/code_generation_lite",
             "splits": [
                 "test"
@@ -1448,12 +1448,118 @@ EVAL_CONFIG = {
                 "answer_field": "answer_original"
             }
         },
-        # These need configs selected TODO: Try and get this in if possible. Lots of configs.
-        # 'omega_compositional': {
-        #     'hf_path': 'allenai/omega-compositional',
-        #     'splits': ['train', 'test'],
-        #     'transform': 'auto'
-        # },
+        "omega_compositional_polynomial_gcd": {
+            "hf_path": "allenai/omega-compositional",
+            "hf_config": "comp_polynomial_gcd",
+            "splits": [
+                "train",
+                "test"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_compositional_n_gon": {
+            "hf_path": "allenai/omega-compositional",
+            "hf_config": "comp_n_gon",
+            "splits": [
+                "train",
+                "test"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_compositional_circles_algebra": {
+            "hf_path": "allenai/omega-compositional",
+            "hf_config": "comp_circles_algebra",
+            "splits": [
+                "train",
+                "test"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_compositional_parametric_intersection": {
+            "hf_path": "allenai/omega-compositional",
+            "hf_config": "comp_parametric_intersection",
+            "splits": [
+                "train",
+                "test"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_compositional_matrix_rank": {
+            "hf_path": "allenai/omega-compositional",
+            "hf_config": "comp_matrix_rank",
+            "splits": [
+                "train",
+                "test"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_compositional_vertex_color": {
+            "hf_path": "allenai/omega-compositional",
+            "hf_config": "comp_vertex_color",
+            "splits": [
+                "train",
+                "test"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
+        "omega_compositional_grid_chips": {
+            "hf_path": "allenai/omega-compositional",
+            "hf_config": "comp_grid_chips",
+            "splits": [
+                "train",
+                "test"
+            ],
+            "transform": {
+                "text_field": "messages.0.content",
+                "answer_field": "ground_truth",
+                "extra_fields": [
+                    "setting_name",
+                    "dataset"
+                ]
+            }
+        },
 
         # 'omega_explorative': {
         #     'hf_path': 'allenai/omega-explorative',
