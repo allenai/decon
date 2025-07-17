@@ -318,6 +318,15 @@ class ContaminationOrchestrator:
         # Print summary statistics
         self.logger.warning(f"\nSUMMARY: Processed={self.stats_files_processed} Clean={self.stats_files_clean} Contaminated={self.stats_files_contaminated} Failed={len(self.failed_files)} Time={elapsed:.2f}s")
         
+        # Clean up clean markers file
+        clean_markers_file = Path(self.config.local_work_dir) / 'clean_markers.txt'
+        if clean_markers_file.exists():
+            try:
+                clean_markers_file.unlink()
+                self.logger.info("Deleted clean_markers.txt")
+            except Exception as e:
+                self.logger.warning(f"Failed to delete clean_markers.txt: {e}")
+        
         # Release lock file
         self._release_lock()
         
