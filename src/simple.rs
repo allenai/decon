@@ -16,7 +16,7 @@ use zstd::stream::read::Decoder as ZstdDecoder;
 use mj_io::{build_pbar, expand_dirs, read_pathbuf_to_mem, write_mem_to_pathbuf};
 
 use crate::{
-    clean_text, get_nested_json_val, get_results_filename, preprocess_text, write_purified_file,
+    clean_text, get_nested_json_val, get_results_filename, write_purified_file,
     Config, OmniTokenizer,
 };
 
@@ -428,8 +428,12 @@ fn process_question_field(
             .map(|word| tokenizer.add_word(word) as usize)
             .collect()
     } else {
+        // For BPE tokenizers, clean text first (matching training data processing)
+        // then add padding since questions are text fragments that likely appear 
+        // mid-document rather than at the beginning
+        let padded_question = format!(" {}", cleaned);
         let Ok(tokens) =
-            catch_unwind(|| preprocess_text(question, tokenizer, &config.punctuation_chars))
+            catch_unwind(|| tokenizer.encode(&padded_question))
         else {
             println!(
                 "Tokenization failed on question for doc_id {} | line {}",
@@ -554,23 +558,18 @@ fn process_answer_field(
             .map(|word| tokenizer.add_word(word) as usize)
             .collect()
     } else {
-        // For BPE tokenizers, include both padded and unpadded versions
-        // This handles answers at the beginning of documents vs in the middle
-        let lowercase_answer = answer.to_lowercase();
-        let padded_answer = format!(" {}", lowercase_answer);
+        // For BPE tokenizers, use cleaned text (matching training data processing)
+        // then add padding since answers are text fragments that likely appear
+        // mid-document rather than at the beginning
+        let padded_answer = format!(" {}", cleaned);
 
-        // Get tokens for both versions
-        let Ok(_unpadded_tokens) = catch_unwind(|| tokenizer.encode(&lowercase_answer)) else {
-            return Ok(());
-        };
+        // Since unpadded would only matter if the match is at the very beginning 
+        // of the document, which is unlikely, we go with padded only
         let Ok(padded_tokens) = catch_unwind(|| tokenizer.encode(&padded_answer)) else {
             return Ok(());
         };
 
-        // Combine both token sets
-        let all_tokens = padded_tokens;
-        //all_tokens.extend(padded_tokens);
-        all_tokens
+        padded_tokens
     };
 
     // Store the actual token length before converting to set
@@ -950,7 +949,7 @@ impl SimpleContaminationEntry {
             if !config.require_answer_when_eval_has_answer {
                 return (true, None, None, None);
             }
-            
+
             // Check if this document has a short answer
             if let Some(answer_token_set) = id_to_short_answer.get(&doc_id) {
                 // Use the new answer matching method

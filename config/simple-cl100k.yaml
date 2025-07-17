@@ -8,8 +8,8 @@ cleaned_output_dir: fixtures/cleaned  # Optional: separate directory for purifie
 purify: false  # Enable creation of cleaned files in cleaned_output_dir
 
 tokenizer_str: cl100k
-ngram_size: 5  # Size of indexed n-grams scanned for question matches, I recommend an odd number :) TODO :)
-max_consecutive_misses: 10  # ngram_size * 2 recommended.
+ngram_size: 10  # Size of indexed n-grams scanned for question matches, I recommend an odd number :) TODO :)
+max_consecutive_misses: 20  # ngram_size * 2 recommended.
 question_threshold: 0.8 # Higher for more precision, lower for more recall
 answer_threshold: 0.8
 min_short_answer_distance: 120 # The minimum window on either side of a question to look for an answer. max(answer_length*2, min_short_answer_distance)

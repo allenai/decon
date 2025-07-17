@@ -317,7 +317,7 @@ enum Commands {
 
         #[arg(
             long,
-            help = "Contamination score threshold for answers in SIMPLE mode [default: 0.8]",
+            help = "Contamination score threshold for answers in SIMPLE mode [default: 0.8]\n",
             display_order = 14,
             help_heading = "Matching and Scoring"
         )]
@@ -877,7 +877,7 @@ fn contamination_detect_with_config(config_obj: &Config) -> Result<(), Error> {
             println!("  Answer threshold: {}", config_obj.answer_threshold);
             println!("  Require answer when eval has answer: {}", config_obj.require_answer_when_eval_has_answer);
             println!("  Tokenizer: {}", config_obj.tokenizer_str);
-            
+
             println!("\nInput and Output:");
             println!("  Local input: {}", config_obj.local_input.display());
             println!("  Content key: {}", config_obj.content_key);
@@ -888,7 +888,7 @@ fn contamination_detect_with_config(config_obj: &Config) -> Result<(), Error> {
             }
             println!("  Purify: {}", config_obj.purify);
             println!();
-            
+
             simple::contamination_detect(&config_obj)
         }
         unknown_mode => {
