@@ -172,8 +172,8 @@ enum Commands {
         #[arg(long)]
         config: Option<PathBuf>,
 
-        #[arg(long, help = "Directory containing result files to analyze for stats")]
-        dir: Option<PathBuf>,
+        #[arg(help = "Directory containing result files to analyze for stats")]
+        dir: PathBuf,
 
         #[arg(
             long,
@@ -882,14 +882,23 @@ fn contamination_detect_with_config(config_obj: &Config) -> Result<(), Error> {
             );
             println!("  Question threshold: {}", config_obj.question_threshold);
             println!("  Answer threshold: {}", config_obj.answer_threshold);
-            println!("  Require answer when eval has answer: {}", config_obj.require_answer_when_eval_has_answer);
+            println!(
+                "  Require answer when eval has answer: {}",
+                config_obj.require_answer_when_eval_has_answer
+            );
             println!("  Tokenizer: {}", config_obj.tokenizer_str);
 
             println!("\nInput and Output:");
             println!("  Local input: {}", config_obj.local_input.display());
             println!("  Content key: {}", config_obj.content_key);
-            println!("  Reference input: {}", config_obj.reference_input.display());
-            println!("  Report output dir: {}", config_obj.report_output_dir.display());
+            println!(
+                "  Reference input: {}",
+                config_obj.reference_input.display()
+            );
+            println!(
+                "  Report output dir: {}",
+                config_obj.report_output_dir.display()
+            );
             if let Some(ref cleaned_dir) = config_obj.cleaned_output_dir {
                 println!("  Cleaned output dir: {}", cleaned_dir.display());
             }
@@ -1005,7 +1014,7 @@ fn main() -> Result<(), Error> {
             top_eval_examples,
         } => review::review_contamination(
             config.as_ref(),
-            dir.as_ref(),
+            Some(dir),
             !*stats && !*all && top_eval_examples.is_none(), // step is true when none of the display modes are set
             *stats,
             *all,
