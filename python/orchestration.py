@@ -302,6 +302,8 @@ class ContaminationOrchestrator:
         files_to_process = self._get_files_to_process()
         if not files_to_process:
             self.logger.warning("No files to process")
+            # Release lock file before returning
+            self._release_lock()
             return
 
         self.logger.warning(f"Processing {len(files_to_process)} files")
