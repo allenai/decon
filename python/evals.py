@@ -973,6 +973,7 @@ EVAL_CONFIG = {
                 "answer_field": "completion"
             }
         },
+        #  ['mcq_4_choices', 'mcq_perturbation', 'open_question']
         # "lexam_mcq": {
         #     "hf_path": "LEXam-Benchmark/LEXam",
         #     "hf_config": "mcq_4_choices",
@@ -2768,60 +2769,6 @@ EVAL_CONFIG = {
     }
 }
 
-
-#         # Please pick one among the available configs: ['mcq_4_choices', 'mcq_perturbation', 'open_question']
-#         'lexam_mcq': {
-#             'hf_path': 'LEXam-Benchmark/LEXam',
-#             'hf_config': 'mcq_4_choices',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'answer_field': 'choices'
-#             }
-#         },
-
-#         },
-
-#         'multipl_e_humaneval_python': {  # Answers for humaneval appear to be in separate files?
-#             'hf_path': 'nuprl/MultiPL-E',
-#             'hf_config': 'humaneval-python',
-#             'splits': ['test'],
-#             'transform': {
-#                 'text_field': 'prompt',
-#             }
-#         },
-
-
-#         # These need configs selected
-#         # 'omega_compositional': {
-#         #     'hf_path': 'allenai/omega-compositional',
-#         #     'splits': ['train', 'test'],
-#         #     'transform': 'auto'
-#         # },
-
-#         # 'omega_explorative': {
-#         #     'hf_path': 'allenai/omega-explorative',
-#         #     'splits': ['train', 'test_in', 'test_out'],
-#         #     'transform': 'auto'
-#         # },
-
-#         # 'omega_transformative': {
-#         #     'hf_path': 'allenai/omega-transformative',
-#         #     'splits': ['train', 'test'],
-#         #     'transform': 'auto'
-#         # },
-
-
-#         'hellaswag': {
-#             'hf_path': 'hellaswag',
-#             'splits': ['train', 'test', 'validation'],
-#             'transform': {
-#                 'text_field': 'ctx',
-#                 'answer_field': 'label'
-#             },
-#             'no_answer_splits': ['test']  # TODO: has answer options, but none labeled.
-#         },
-
 #         # 'ultrachat_200k': {
 #         #     'hf_path': 'HuggingFaceH4/ultrachat_200k',
 #         #     'splits': ['train_sft', 'test_sft', 'train_gen', 'test_gen'],
@@ -2835,52 +2782,6 @@ EVAL_CONFIG = {
 #         #         'text_field': 'text',
 #         #     }
 #         # },
-
-
-#         # New datasets from TARGET_TO_EVAL_MAPPING
-#         # Note: cais/hle is a gated dataset requiring access approval
-#         'mmlu_pro': {
-#             'hf_path': 'TIGER-Lab/MMLU-Pro',
-#             'splits': ['test', 'validation'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'answer_field': 'options',
-#                 'answer_key_field': 'answer_index',
-#                 'choices_field': 'options',
-#                 'extra_fields': ['category']
-#             }
-#         },
-
-#         # TODO: Review whether to include these?
-#         'harmbench_contextual': {
-#             'hf_path': 'walledai/HarmBench',
-#             'hf_config': 'contextual',
-#             'splits': ['train'],
-#             'transform': {
-#                 'text_field': 'prompt',
-#                 'context_field': 'context',
-#                 'extra_fields': ['category']
-#             },
-#             'no_answer_splits': ['train']
-#         },
-
-
-#         # TODO: needs regexp to extract
-#         'agi_eval_gaokao_english': {
-#             'local_path': 'fixtures/reference-static/gaokao-english.jsonl',
-#             'splits': ['train'],
-#             'transform': {
-#                 'text_field': 'question',
-#                 'context_field': 'passage',
-#                 'answer_field': 'label',
-#                 'combine_context_and_question': True,
-#             }
-#         },
-
-
-
-# split_document function removed - no longer needed without text concatenation
-
 
 def load_local_jsonl(file_path):
     """Load a local JSONL file as a HuggingFace Dataset."""
