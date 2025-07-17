@@ -580,15 +580,12 @@ def wizard():
     print(f"  --ssh-key-path {ssh_key} \\")
     print("  --detach\n")
 
-    print("\033[1m # 5. Automatically terminate cluster when complete.\033[0m")
-    print(f"\nmake polling-auto-terminate NAME={cluster_name}")
-
     print("\n" + "━" * 80)
-    print("USEFUL COMMANDS".center(80))
-    print("━" * 80)
-    print(f"  View server logs:   make deploy-logs NAME={cluster_name} LOG=server")
-    print(f"  View orchestrator logs:  make deploy-logs NAME={cluster_name} LOG=orchestrator")
-    print("⚠️  Remember to terminate your cluster when done to avoid unnecessary charges\n")
+    # print("USEFUL COMMANDS".center(80))
+    # print("━" * 80)
+    # print(f"  View server logs:   make deploy-logs NAME={cluster_name} LOG=server")
+    # print(f"  View orchestrator logs:  make deploy-logs NAME={cluster_name} LOG=orchestrator")
+    # print("⚠️  Remember to terminate your cluster when done to avoid unnecessary charges\n")
 
 
 
@@ -722,101 +719,6 @@ def terminate(name):
     except PoorManRayError as e:
         print(f"❌ {e}")
         sys.exit(1)
-
-
-@cli.command(name="polling-auto-terminate")
-@click.option("--name", required=True, help="Cluster name")
-@click.option("--poll-interval", default=60, help="Poll interval in seconds (default: 60)")
-@click.option("--ssh-key", default="~/.ssh/id_rsa", help="Path to SSH private key")
-def polling_auto_terminate(name, poll_interval, ssh_key):
-    """Monitor orchestrator logs and auto-terminate when complete"""
-    print("=====================================")
-    print("Polling Auto-Terminate Monitor")
-    print("=====================================")
-    print(f"Cluster: {name}")
-    print(f"Poll interval: {poll_interval}s")
-    print(f"Monitoring for: WORK COMPLETE EXITING")
-    print(f"Started at: {time.strftime('%Y-%m-%d %H:%M:%S')}")
-    print("=====================================\n")
-
-    deploy_config = DeploymentConfig(
-        cluster_name=name,
-        ssh_key_path=ssh_key
-    )
-
-    try:
-        manager = DeploymentManager(deploy_config)
-
-        # Track consecutive failures
-        consecutive_failures = 0
-        max_failures = 5
-
-        while True:
-            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Checking orchestrator logs...")
-
-            try:
-                # Get orchestrator logs
-                logs = manager.view_logs("orchestrator")
-
-                # Check for completion marker
-                if "WORK COMPLETE EXITING" in logs:
-                    print("\n=====================================")
-                    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] DETECTED: WORK COMPLETE EXITING")
-                    print("=====================================")
-                    print("Work is complete! Initiating cluster termination...")
-                    print()
-
-                    # Small delay to ensure everything is properly flushed
-                    time.sleep(5)
-
-                    # Terminate the cluster (without confirmation prompt)
-                    print(f"Executing cluster termination for '{name}'")
-                    if manager.terminate_cluster():
-                        print("\n=====================================")
-                        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] SUCCESS: Cluster terminated")
-                        print("=====================================")
-                        sys.exit(0)
-                    else:
-                        print("\n=====================================")
-                        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ERROR: Failed to terminate cluster")
-                        print("=====================================")
-                        print(f"Please manually run: poormanray terminate --name {name}")
-                        sys.exit(1)
-                else:
-                    # Reset failure counter on successful log retrieval
-                    consecutive_failures = 0
-                    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Work still in progress...")
-
-            except subprocess.CalledProcessError as e:
-                consecutive_failures += 1
-                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] WARNING: Failed to retrieve logs (attempt {consecutive_failures}/{max_failures})")
-
-                if consecutive_failures >= max_failures:
-                    print("\n=====================================")
-                    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ERROR: Too many consecutive failures")
-                    print("=====================================")
-                    print(f"Unable to retrieve logs after {max_failures} attempts.")
-                    print("The cluster may have already been terminated or there may be a connection issue.")
-                    print(f"Please check manually with: poormanray list --name {name}")
-                    sys.exit(1)
-
-            except Exception as e:
-                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ERROR: Unexpected error: {e}")
-                consecutive_failures += 1
-
-                if consecutive_failures >= max_failures:
-                    print("Too many errors, exiting...")
-                    sys.exit(1)
-
-            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Sleeping for {poll_interval}s...\n")
-            time.sleep(poll_interval)
-
-    except PoorManRayError as e:
-        print(f"❌ {e}")
-        sys.exit(1)
-    except KeyboardInterrupt:
-        print("\n\nMonitoring cancelled by user")
-        sys.exit(0)
 
 
 # Low-level API functions for programmatic use (e.g., MCP server)
