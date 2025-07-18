@@ -16,6 +16,7 @@ import subprocess
 import multiprocessing
 import threading
 import shutil
+import random
 from queue import Queue, Empty
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Tuple
@@ -49,6 +50,9 @@ class OrchestrationConfig:
     upload_queue_max: int = 100  # Max files in upload queue
     upload_batch_size: int = 50  # Jobs per upload batch
     upload_batch_timeout: int = 10  # Seconds to wait before processing partial batch
+    download_retry_attempts: int = 3  # Number of retry attempts for failed downloads
+    download_retry_base_delay: int = 5  # Base delay in seconds for retries
+    download_retry_jitter_max: int = 10  # Maximum jitter in seconds for retries
 
     @classmethod
     def from_yaml(cls, path: str, cli_overrides: Optional[Dict] = None) -> 'OrchestrationConfig':
@@ -71,7 +75,8 @@ class OrchestrationConfig:
         # Apply optional fields
         for field in ['max_concurrent_jobs', 'poll_interval', 's5cmd_workers', 'cleanup_delay',
                       'download_batch_size', 'download_queue_max', 'upload_queue_max',
-                      'upload_batch_size', 'upload_batch_timeout']:
+                      'upload_batch_size', 'upload_batch_timeout', 'download_retry_attempts',
+                      'download_retry_base_delay', 'download_retry_jitter_max']:
             if field in data:
                 setattr(config, field, data[field])
 
@@ -564,74 +569,84 @@ class ContaminationOrchestrator:
         return command_file
 
     def _download_batch(self, s3_keys_with_paths: List[Tuple[str, str]]) -> List[Tuple[str, str, str]]:
-        """Download a batch of files using s5cmd.
+        """Download a batch of files using s5cmd with retry logic.
         Returns list of (local_path, s3_key, relative_path) tuples."""
-        command_file = Path(self.config.local_work_dir) / f"download_batch_{time.time()}.txt"
-        self._create_s5cmd_file(s3_keys_with_paths, command_file)
+        
+        for attempt in range(self.config.download_retry_attempts):
+            command_file = Path(self.config.local_work_dir) / f"download_batch_{time.time()}.txt"
+            self._create_s5cmd_file(s3_keys_with_paths, command_file)
 
-        # Run s5cmd
-        cmd = ['s5cmd', '--numworkers', str(self.config.s5cmd_workers), 'run', str(command_file)]
-        # Starting batch download
+            # Run s5cmd
+            cmd = ['s5cmd', '--numworkers', str(self.config.s5cmd_workers), 'run', str(command_file)]
+            # Starting batch download
 
-        try:
-            start_time = time.time()
-            self.logger.info(f"Running s5cmd with command: {' '.join(cmd)}")
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            elapsed = time.time() - start_time
+            try:
+                start_time = time.time()
+                self.logger.info(f"Running s5cmd with command: {' '.join(cmd)} (attempt {attempt + 1}/{self.config.download_retry_attempts})")
+                result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                elapsed = time.time() - start_time
 
-            # Log s5cmd output
-            if result.stdout:
-                self.logger.info(f"s5cmd stdout:\n{result.stdout}")
-            if result.stderr:
-                self.logger.warning(f"s5cmd stderr:\n{result.stderr}")
+                # Log s5cmd output
+                if result.stdout:
+                    self.logger.info(f"s5cmd stdout:\n{result.stdout}")
+                if result.stderr:
+                    self.logger.warning(f"s5cmd stderr:\n{result.stderr}")
 
-            # Return list of downloaded files
-            download_dir = Path(self.config.local_work_dir) / 'download'
-            downloaded = []
-            missing = []
+                # Return list of downloaded files
+                download_dir = Path(self.config.local_work_dir) / 'download'
+                downloaded = []
+                missing = []
 
-            for s3_key, relative_path in s3_keys_with_paths:
-                local_file = download_dir / relative_path
-                if local_file.exists():
-                    file_size = os.path.getsize(local_file)
-                    if file_size > 0:
-                        downloaded.append((str(local_file), s3_key, relative_path))
-                        self.logger.info(f"Downloaded: {s3_key} ({file_size:,} bytes)")
+                for s3_key, relative_path in s3_keys_with_paths:
+                    local_file = download_dir / relative_path
+                    if local_file.exists():
+                        file_size = os.path.getsize(local_file)
+                        if file_size > 0:
+                            downloaded.append((str(local_file), s3_key, relative_path))
+                            self.logger.info(f"Downloaded: {s3_key} ({file_size:,} bytes)")
+                        else:
+                            self.logger.error(f"Downloaded empty file: {s3_key}")
+                            missing.append(s3_key)
                     else:
-                        self.logger.error(f"Downloaded empty file: {s3_key}")
                         missing.append(s3_key)
-                else:
-                    missing.append(s3_key)
 
-            # Download verified
-            if missing:
-                self.logger.error(f"Failed to download {len(missing)} files:")
-                for m in missing[:5]:  # Show first 5
-                    self.logger.error(f"  - {m}")
-                if len(missing) > 5:
-                    self.logger.error(f"  ... and {len(missing) - 5} more")
+                # Download verified
+                if missing:
+                    self.logger.error(f"Failed to download {len(missing)} files:")
+                    for m in missing[:5]:  # Show first 5
+                        self.logger.error(f"  - {m}")
+                    if len(missing) > 5:
+                        self.logger.error(f"  ... and {len(missing) - 5} more")
 
-            self.logger.info(f"Successfully downloaded {len(downloaded)}/{len(s3_keys_with_paths)} files in {elapsed:.2f}s")
-            return downloaded
+                self.logger.info(f"Successfully downloaded {len(downloaded)}/{len(s3_keys_with_paths)} files in {elapsed:.2f}s")
+                return downloaded
 
-        except subprocess.CalledProcessError as e:
-            self.logger.error(f"s5cmd failed with exit code {e.returncode}")
-            self.logger.error(f"Command was: {' '.join(cmd)}")
-            if e.stdout:
-                self.logger.error(f"s5cmd stdout:\n{e.stdout}")
-            if e.stderr:
-                self.logger.error(f"s5cmd stderr:\n{e.stderr}")
+            except subprocess.CalledProcessError as e:
+                self.logger.error(f"s5cmd failed with exit code {e.returncode} (attempt {attempt + 1}/{self.config.download_retry_attempts})")
+                self.logger.error(f"Command was: {' '.join(cmd)}")
+                if e.stdout:
+                    self.logger.error(f"s5cmd stdout:\n{e.stdout}")
+                if e.stderr:
+                    self.logger.error(f"s5cmd stderr:\n{e.stderr}")
 
-            # Mark all files in batch as failed
-            for s3_key, relative_path in s3_keys_with_paths:
-                self.failed_files.add(s3_key)
+                # If this was the last attempt, mark all files as failed and raise
+                if attempt == self.config.download_retry_attempts - 1:
+                    # Mark all files in batch as failed
+                    for s3_key, relative_path in s3_keys_with_paths:
+                        self.failed_files.add(s3_key)
+                    raise
 
-            raise
+                # Calculate retry delay with jitter
+                base_delay = self.config.download_retry_base_delay
+                jitter = random.uniform(0, self.config.download_retry_jitter_max)
+                retry_delay = base_delay + jitter
+                self.logger.warning(f"Retrying download in {retry_delay:.1f} seconds...")
+                time.sleep(retry_delay)
 
-        finally:
-            # Cleanup command file
-            if command_file.exists():
-                command_file.unlink()
+            finally:
+                # Cleanup command file
+                if command_file.exists():
+                    command_file.unlink()
 
     def _submit_to_server(self, file_path: str, s3_key: str, relative_path: str) -> Optional[Job]:
         """Submit a file to the server for processing."""
@@ -1189,6 +1204,11 @@ def main():
 
     # Other settings
     parser.add_argument('--cleanup-delay', type=int, help='Cleanup delay in seconds (overrides config)')
+    
+    # Retry settings
+    parser.add_argument('--download-retry-attempts', type=int, help='Number of retry attempts for failed downloads (overrides config)')
+    parser.add_argument('--download-retry-base-delay', type=int, help='Base delay in seconds for retries (overrides config)')
+    parser.add_argument('--download-retry-jitter-max', type=int, help='Maximum jitter in seconds for retries (overrides config)')
 
     args = parser.parse_args()
 
@@ -1211,6 +1231,9 @@ def main():
         'upload_batch_size': args.upload_batch_size,
         'upload_batch_timeout': args.upload_batch_timeout,
         'cleanup_delay': args.cleanup_delay,
+        'download_retry_attempts': args.download_retry_attempts,
+        'download_retry_base_delay': args.download_retry_base_delay,
+        'download_retry_jitter_max': args.download_retry_jitter_max,
     }
 
     # Only add non-None values to overrides

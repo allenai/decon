@@ -40,7 +40,7 @@ class DeploymentConfig:
     cluster_name: str
     owner: Optional[str] = None
     instance_count: int = 2
-    instance_type: str = "i4i.2xlarge"
+    instance_type: str = "i4i.4xlarge"
     region: str = "us-east-1"
     ssh_key_path: str = "~/.ssh/id_rsa"
     github_token: Optional[str] = None
@@ -439,7 +439,7 @@ def wizard():
     default_owner = getpass.getuser()
     owner = click.prompt("Owner", default=default_owner, type=str)
     instance_count = click.prompt("Number of instances", type=int, default=2)
-    instance_type = click.prompt("Instance type", default="i4i.2xlarge")
+    instance_type = click.prompt("Instance type", default="i4i.4xlarge")
     ssh_key = click.prompt("SSH key path", default="~/.ssh/id_rsa")
     github_token = click.prompt("GitHub token (only read access for private decon repo required)")
 
@@ -726,7 +726,7 @@ def terminate(name):
 def create_deployment_manager(
     cluster_name: str,
     instance_count: int = 2,
-    instance_type: str = "i4i.2xlarge",
+    instance_type: str = "i4i.4xlarge",
     ssh_key_path: str = "~/.ssh/id_rsa",
     github_token: Optional[str] = None,
     **kwargs
