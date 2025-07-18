@@ -5,7 +5,6 @@ local_input: /home/robert/hack/stackedu
 reference_input: fixtures/reference-best-available
 report_output_dir: fixtures/output  # The location contamination report files will be written
 cleaned_output_dir: fixtures/cleaned  # Optional: separate directory for purified files
-purify: false  # Enable creation of cleaned files in cleaned_output_dir
 
 tokenizer_str: cl100k
 ngram_size: 5  # Size of indexed n-grams scanned for question matches, I recommend an odd number :) TODO :)

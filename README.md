@@ -53,6 +53,10 @@ s5cmd sync s3://your-data-set-prefix fixtures/local_input
 # Run contamination detection.
 target/release/decon detect --config config/simple.yaml
 
+# Pass the purify flag to write a decontaminated copy of your dataset to the
+# configured cleaned_output_dir.
+target/release/decon detect --config config/simple.yaml --purify
+
 # For full set of options, help is available.
 # Note that the options mix all the different modes (I'll clean this up eventually)
 # Also note that each has a sensible default. Performance and outcomes may vary wildly depending on options.

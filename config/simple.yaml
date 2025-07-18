@@ -5,7 +5,6 @@ local_input: /home/robert/Downloads/export-test
 reference_input: fixtures/reference-questions-and-answers
 report_output_dir: fixtures/output
 cleaned_output_dir: fixtures/cleaned
-purify: true
 
 tokenizer_str: word
 ngram_size: 4
