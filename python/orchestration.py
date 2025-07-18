@@ -397,6 +397,11 @@ class ContaminationOrchestrator:
             suffixes = ['.jsonl', '.jsonl.gz', '.jsonl.zst', '.jsonl.bz2', '.jsonl.xz']
 
         bucket, prefix = self._parse_s3_uri(s3_uri)
+        
+        # Ensure prefix ends with '/' to avoid matching similar prefixes like 'data-decon'
+        # when we're looking for 'data/'
+        if prefix and not prefix.endswith('/'):
+            prefix = prefix + '/'
 
         # Listing S3 files
 
