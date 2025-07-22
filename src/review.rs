@@ -729,7 +729,10 @@ fn display_eval_dataset_stats(contamination_results: &[ContaminationResult]) -> 
     };
     let avg_count = ngram_counts.iter().sum::<usize>() as f64 / ngram_counts.len() as f64;
 
-    println!("Total results with n-gram match data: {}", ngram_counts.len());
+    println!(
+        "Total results with n-gram match data: {}",
+        ngram_counts.len()
+    );
     if missing_count > 0 {
         println!("Results without n-gram match data: {}", missing_count);
     }
@@ -756,14 +759,21 @@ fn display_eval_dataset_stats(contamination_results: &[ContaminationResult]) -> 
     // Count matches in each bucket
     let mut bucket_counts: Vec<(String, usize)> = Vec::new();
     for (min, max, label) in &buckets {
-        let count = ngram_counts.iter().filter(|&&c| c >= *min && c <= *max).count();
+        let count = ngram_counts
+            .iter()
+            .filter(|&&c| c >= *min && c <= *max)
+            .count();
         if count > 0 {
             bucket_counts.push((label.to_string(), count));
         }
     }
 
     // Find the maximum bucket count for scaling
-    let max_bucket_count = bucket_counts.iter().map(|(_, count)| *count).max().unwrap_or(0);
+    let max_bucket_count = bucket_counts
+        .iter()
+        .map(|(_, count)| *count)
+        .max()
+        .unwrap_or(0);
 
     println!("N-gram match count distribution:");
     println!();

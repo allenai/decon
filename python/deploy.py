@@ -169,7 +169,7 @@ class DeploymentManager:
         print(f"\n🎯 Starting Decon server on cluster '{self.config.cluster_name}'...")
 
         # Build server command with config overrides
-        server_cmd = "cd decon && nohup cargo run --release -- server --config config/simple.yaml"
+        server_cmd = "cd decon && nohup cargo run --release -- server --config config/default.yaml"
 
         # Add all configuration overrides
         server_cmd += f" --content-key {self.config.content_key}"
@@ -551,7 +551,7 @@ def wizard():
     print("\npoormanray run \\")
     print(f"  --name {cluster_name} \\")
     print("  --command \"cd decon && nohup cargo run --release -- server \\")
-    print("    --config config/simple-cl100k.yaml \\")
+    print("    --config config/default.yaml \\")
     print(f"    --content-key {content_key} \\")
     print(f"    --question-threshold {question_threshold} \\")
     print(f"    --answer-threshold {answer_threshold} \\")

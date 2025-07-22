@@ -68,7 +68,7 @@ pub async fn run_server(config: Config, port: u16) -> Result<()> {
         .unwrap_or_else(|e| {
             eprintln!("Warning: Failed to set Rayon thread pool size: {}", e);
         });
-    
+
     // Configuration already loaded
     println!("Running server with mode: {}", config.mode);
     println!("Using {} worker threads", config.worker_threads);
@@ -267,7 +267,12 @@ async fn worker_loop(
                 let index_clone = index.clone();
                 let job_id_for_processing = job_id.clone();
                 let result = tokio::task::spawn_blocking(move || {
-                    process_single_file(&config_clone, &file_path, &index_clone, &job_id_for_processing)
+                    process_single_file(
+                        &config_clone,
+                        &file_path,
+                        &index_clone,
+                        &job_id_for_processing,
+                    )
                 })
                 .await;
 

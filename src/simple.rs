@@ -206,6 +206,22 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
         vec![config.reference_input.clone()],
         Some(vec![".jsonl", ".gz"].as_slice()),
     )?;
+
+    // Check if any reference files were found and verify they exist
+    let existing_files: Vec<PathBuf> = reference_files
+        .into_iter()
+        .filter(|path| path.exists())
+        .collect();
+
+    if existing_files.is_empty() {
+        return Err(anyhow::anyhow!(
+            "\nReference files not found at {}. Please run 'make evals-s3' to download evaluation datasets.",
+            config.reference_input.display()
+        ));
+    }
+
+    let reference_files = existing_files;
+
     let pbar = build_pbar(reference_files.len(), "Reference files");
 
     // println!("Processing {} reference files for n-gram indexing...", reference_files.len()); //debug

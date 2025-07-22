@@ -1046,7 +1046,7 @@ fn contamination_detect_with_config(config_obj: &Config) -> Result<(), Error> {
         .unwrap_or_else(|e| {
             eprintln!("Warning: Failed to set Rayon thread pool size: {}", e);
         });
-    
+
     match config_obj.mode.as_str() {
         "simple" => {
             println!("Using Simple contamination detection...");

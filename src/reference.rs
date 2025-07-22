@@ -1324,7 +1324,7 @@ fn process_file_for_stats(
         let line = line?;
 
         // Skip empty lines
-        if line.trim().is_empty(){
+        if line.trim().is_empty() {
             continue;
         }
 

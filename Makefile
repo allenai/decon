@@ -35,17 +35,12 @@ help:
 	@echo "  deploy-terminate  - Terminate a deployment (usage: make deploy-terminate NAME=<cluster-name>)"
 	@echo "  polling-auto-terminate - Monitor orchestrator logs and auto-terminate when complete (usage: make polling-auto-terminate NAME=<cluster-name>)"
 
-minhash:
-	cargo run --release detect --config config/minhash.yaml
 
-toxic:
-	cargo run --release detect --config config/toxic.yaml
+simple-word:
+	cargo run --release detect --config config/simple-word.yaml
 
 simple:
-	cargo run --release detect --config config/simple.yaml
-
-simple-cl:
-	cargo run --release detect --config config/simple-cl100k.yaml
+	cargo run --release detect --config config/default.yaml
 
 review:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
