@@ -56,7 +56,7 @@ class DeploymentConfig:
     answer_threshold: float = 0.8
     tokenizer_str: str = "cl100k"
     purify: bool = False
-    reference_input: str = "fixtures/reference-best-available"
+    reference_input: str = "fixtures/reference"
 
     # Orchestrator configuration
     remote_file_input: Optional[str] = None
@@ -473,9 +473,9 @@ def wizard():
 
     tokenizer_str = 'cl100k'
 
-    # Reference dataset selection - forced to best-available
+    # Reference dataset selection
     reference_choice = "best-available"
-    reference_input = 'fixtures/reference-best-available'
+    reference_input = 'fixtures/reference'
 
     # Other options
     server_port = 8080  # Server port hardcoded to default

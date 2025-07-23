@@ -72,7 +72,6 @@ enum Commands {
         #[arg(
             long,
             help = "Directory containing reference data (evals) in decon expected format",
-            default_value = "fixtures/reference-best-available",
             display_order = 3,
             help_heading = "Input and Output"
         )]
@@ -291,7 +290,6 @@ enum Commands {
         #[arg(
             long,
             help = "Directory containing evaluation/reference data",
-            default_value = "fixtures/reference-best-available",
             display_order = 5,
             help_heading = "Input and Output"
         )]
@@ -429,8 +427,7 @@ enum Commands {
         #[arg(
             long,
             help = "Show statistics for reference datasets in a directory\n",
-            value_name = "DIR",
-            default_value = "fixtures/reference-best-available"
+            value_name = "DIR"
         )]
         stats: Option<PathBuf>,
     },

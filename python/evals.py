@@ -9,14 +9,98 @@ from datasets import load_dataset, Dataset
 from pathlib import Path
 import os
 import shutil
+import gzip
 
 # Document splitting configuration - REMOVED (no longer needed without concatenation)
 # We now store question, context, and answer separately
 
+class ChunkedFileWriter:
+    """Handles writing JSONL files in chunks to avoid creating very large files."""
+    
+    CHUNK_SIZE_BYTES = 5 * 1024 * 1024  # 5MB
+    
+    def __init__(self, base_path):
+        """
+        Initialize a chunked file writer.
+        
+        Args:
+            base_path: Path to the output file (without chunk number).
+                       E.g., "output/eval_train.jsonl"
+        """
+        self.base_path = Path(base_path)
+        self.base_name = self.base_path.stem
+        self.extension = ''.join(self.base_path.suffixes)
+        self.output_dir = self.base_path.parent
+        
+        self.chunk_number = 0
+        self.current_chunk_size = 0
+        self.writer = None
+        self.buffer = []
+        self.total_records = 0
+        self.chunk_files = []
+        
+    def write(self, record):
+        """Write a record to the chunked file."""
+        line = json.dumps(record) + '\n'
+        line_bytes = len(line.encode('utf-8'))
+        
+        # Check if we need to start a new chunk
+        if self.current_chunk_size + line_bytes > self.CHUNK_SIZE_BYTES or self.writer is None:
+            self._start_new_chunk()
+        
+        self.buffer.append(line)
+        self.current_chunk_size += line_bytes
+        self.total_records += 1
+        
+        # Flush buffer if it gets large
+        if len(self.buffer) >= 1000:
+            self._flush_buffer()
+    
+    def _start_new_chunk(self):
+        """Start writing to a new chunk file."""
+        # Close current chunk if exists
+        if self.writer is not None:
+            self._flush_buffer()
+            self.writer.close()
+        
+        # Create new chunk file
+        self.chunk_number += 1
+        chunk_filename = f"{self.base_name}-{self.chunk_number}{self.extension}"
+        chunk_path = self.output_dir / chunk_filename
+        self.chunk_files.append(chunk_path)
+        
+        # Open new file
+        if self.extension.endswith('.gz'):
+            self.writer = gzip.open(chunk_path, 'wt', encoding='utf-8')
+        else:
+            self.writer = open(chunk_path, 'w', encoding='utf-8')
+        
+        self.current_chunk_size = 0
+    
+    def _flush_buffer(self):
+        """Write buffered lines to the current file."""
+        if self.writer and self.buffer:
+            for line in self.buffer:
+                self.writer.write(line)
+            self.buffer = []
+    
+    def close(self):
+        """Close the writer and flush any remaining data."""
+        if self.writer:
+            self._flush_buffer()
+            self.writer.close()
+            self.writer = None
+    
+    def get_chunk_files(self):
+        """Get list of chunk files created."""
+        return self.chunk_files
+    
+    def get_total_records(self):
+        """Get total number of records written."""
+        return self.total_records
+
 EVAL_CONFIG = {
-    "output_dir": "fixtures/reference-download-questions-and-answers",
-    "output_dir_question_only": "fixtures/reference-download-questions",
-    "output_dir_best_available": "fixtures/reference-download-best-available",
+    "output_dir": "fixtures/reference",
     "jsonl_format": {
         "eval_field": "eval_name",
         "index_field": "index",
@@ -2928,14 +3012,10 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
         print(f"Error loading {eval_name}: {e}")
         return
 
-    # Create output directories (resolve relative to project root)
+    # Create output directory (resolve relative to project root)
     project_root = Path(__file__).parent.parent
     output_dir = project_root / global_config['output_dir']
-    output_dir_question_only = project_root / global_config['output_dir_question_only']
-    output_dir_best_available = project_root / global_config['output_dir_best_available']
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_dir_question_only.mkdir(parents=True, exist_ok=True)
-    output_dir_best_available.mkdir(parents=True, exist_ok=True)
 
     # Process each split
     for split in eval_config['splits']:
@@ -2945,10 +3025,8 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
 
         print(f"Processing {eval_name} {split} split ({len(dataset[split])} examples)...")
 
-        # Output file paths (same filename in different directories)
+        # Output file path
         output_file = output_dir / f"{eval_name}_{split}.jsonl"
-        output_file_question_only = output_dir_question_only / f"{eval_name}_{split}.jsonl"
-        output_file_best_available = output_dir_best_available / f"{eval_name}_{split}.jsonl"
 
         # Track seen contexts to avoid duplicates
         seen_contexts = set()
@@ -2966,10 +3044,8 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
             "records_without_answers": 0
         }
 
-        # Lazy file handles - only opened when needed
-        f_with_answers = None
-        f_question_only = None
-        f_best_available = None
+        # Lazy ChunkedFileWriter - only created when needed
+        writer_best_available = None
 
         try:
             for idx, example in enumerate(dataset[split]):
@@ -3010,37 +3086,18 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                         dataset_stats["answer_chars"] += len(answer)
                     dataset_stats["records"] += 1
 
-                    # Open questions-only file if not already open
-                    if f_question_only is None:
-                        f_question_only = open(output_file_question_only, 'w')
-
-                    # Always write to questions-only file (every record)
-                    # Strip answer and context keys for questions-only file
-                    question_only_record = record.copy()
-                    question_only_record.pop('answer', None)
-                    question_only_record.pop('context', None)
-                    f_question_only.write(json.dumps(question_only_record) + '\n')
-
-                    # Always write to best-available file (includes answer if available)
-                    if f_best_available is None:
-                        f_best_available = open(output_file_best_available, 'w')
+                    # Create best-available writer if not already created
+                    if writer_best_available is None:
+                        writer_best_available = ChunkedFileWriter(output_file)
 
                     # For best-available, we keep answers if they exist, remove if empty
                     best_available_record = record.copy()
                     if is_answer_empty(answer):
                         best_available_record.pop('answer', None)
-                    f_best_available.write(json.dumps(best_available_record) + '\n')
-
-                    # Also write to with-answers file if answer is not empty
-                    if not is_answer_empty(answer):
-                        # Open with-answers file if not already open
-                        if f_with_answers is None:
-                            f_with_answers = open(output_file, 'w')
-
-                        f_with_answers.write(json.dumps(record) + '\n')
-                        dataset_stats["records_with_answers"] += 1
-                    else:
                         dataset_stats["records_without_answers"] += 1
+                    else:
+                        dataset_stats["records_with_answers"] += 1
+                    writer_best_available.write(best_available_record)
 
                 else:
                     # Check if we should use parallel arrays extraction
@@ -3106,32 +3163,17 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                                     dataset_stats["answer_chars"] += len(answer)
                                 dataset_stats["records"] += 1
 
-                                # Write to files
-                                if f_question_only is None:
-                                    f_question_only = open(output_file_question_only, 'w')
-
-                                question_only_record = record.copy()
-                                question_only_record.pop('answer', None)
-                                question_only_record.pop('context', None)
-                                f_question_only.write(json.dumps(question_only_record) + '\n')
-
-                                # Always write to best-available file
-                                if f_best_available is None:
-                                    f_best_available = open(output_file_best_available, 'w')
+                                # Write to best-available file
+                                if writer_best_available is None:
+                                    writer_best_available = ChunkedFileWriter(output_file)
 
                                 best_available_record = record.copy()
                                 if is_answer_empty(answer):
                                     best_available_record.pop('answer', None)
-                                f_best_available.write(json.dumps(best_available_record) + '\n')
-
-                                if not is_answer_empty(answer):
-                                    if f_with_answers is None:
-                                        f_with_answers = open(output_file, 'w')
-
-                                    f_with_answers.write(json.dumps(record) + '\n')
-                                    dataset_stats["records_with_answers"] += 1
-                                else:
                                     dataset_stats["records_without_answers"] += 1
+                                else:
+                                    dataset_stats["records_with_answers"] += 1
+                                writer_best_available.write(best_available_record)
 
                         # Skip the rest of the normal processing
                         continue
@@ -3344,37 +3386,18 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                         dataset_stats["answer_chars"] += len(answer)
                     dataset_stats["records"] += 1
 
-                    # Open questions-only file if not already open
-                    if f_question_only is None:
-                        f_question_only = open(output_file_question_only, 'w')
-
-                    # Always write to questions-only file (every record)
-                    # Strip answer and context keys for questions-only file
-                    question_only_record = record.copy()
-                    question_only_record.pop('answer', None)
-                    question_only_record.pop('context', None)
-                    f_question_only.write(json.dumps(question_only_record) + '\n')
-
-                    # Always write to best-available file (includes answer if available)
-                    if f_best_available is None:
-                        f_best_available = open(output_file_best_available, 'w')
+                    # Create best-available writer if not already created
+                    if writer_best_available is None:
+                        writer_best_available = ChunkedFileWriter(output_file)
 
                     # For best-available, we keep answers if they exist, remove if empty
                     best_available_record = record.copy()
                     if is_answer_empty(answer):
                         best_available_record.pop('answer', None)
-                    f_best_available.write(json.dumps(best_available_record) + '\n')
-
-                    # Also write to with-answers file if answer is not empty
-                    if not is_answer_empty(answer):
-                        # Open with-answers file if not already open
-                        if f_with_answers is None:
-                            f_with_answers = open(output_file, 'w')
-
-                        f_with_answers.write(json.dumps(record) + '\n')
-                        dataset_stats["records_with_answers"] += 1
-                    else:
                         dataset_stats["records_without_answers"] += 1
+                    else:
+                        dataset_stats["records_with_answers"] += 1
+                    writer_best_available.write(best_available_record)
 
                     # Handle choices field if configured (write as separate records)
                     if 'choices_field' in eval_config['transform']:
@@ -3402,29 +3425,11 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                                     dataset_stats["answer_chars"] += len(choice_answer)
                                     dataset_stats["records"] += 1
 
-                                    # Open questions-only file if not already open
-                                    if f_question_only is None:
-                                        f_question_only = open(output_file_question_only, 'w')
+                                    # Write to best-available file (choices always have answers)
+                                    if writer_best_available is None:
+                                        writer_best_available = ChunkedFileWriter(output_file)
 
-                                    # Always write to questions-only file (every record)
-                                    # Strip answer and context keys for questions-only file
-                                    question_only_choice_record = choice_record.copy()
-                                    question_only_choice_record.pop('answer', None)
-                                    question_only_choice_record.pop('context', None)
-                                    f_question_only.write(json.dumps(question_only_choice_record) + '\n')
-
-                                    # Always write to best-available file (choices always have answers)
-                                    if f_best_available is None:
-                                        f_best_available = open(output_file_best_available, 'w')
-
-                                    f_best_available.write(json.dumps(choice_record) + '\n')
-
-                                    # Open with-answers file if not already open (choices always have answers)
-                                    if f_with_answers is None:
-                                        f_with_answers = open(output_file, 'w')
-
-                                    # Also write to with-answers file
-                                    f_with_answers.write(json.dumps(choice_record) + '\n')
+                                    writer_best_available.write(choice_record)
                                     dataset_stats["records_with_answers"] += 1
                             elif isinstance(choices, list):
                                 # Handle simple list of choices
@@ -3447,39 +3452,17 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                                     dataset_stats["answer_chars"] += len(choice_answer)
                                     dataset_stats["records"] += 1
 
-                                    # Open questions-only file if not already open
-                                    if f_question_only is None:
-                                        f_question_only = open(output_file_question_only, 'w')
+                                    # Write to best-available file (choices always have answers)
+                                    if writer_best_available is None:
+                                        writer_best_available = ChunkedFileWriter(output_file)
 
-                                    # Always write to questions-only file (every record)
-                                    # Strip answer and context keys for questions-only file
-                                    question_only_choice_record = choice_record.copy()
-                                    question_only_choice_record.pop('answer', None)
-                                    question_only_choice_record.pop('context', None)
-                                    f_question_only.write(json.dumps(question_only_choice_record) + '\n')
-
-                                    # Always write to best-available file (choices always have answers)
-                                    if f_best_available is None:
-                                        f_best_available = open(output_file_best_available, 'w')
-
-                                    f_best_available.write(json.dumps(choice_record) + '\n')
-
-                                    # Open with-answers file if not already open (choices always have answers)
-                                    if f_with_answers is None:
-                                        f_with_answers = open(output_file, 'w')
-
-                                    # Also write to with-answers file
-                                    f_with_answers.write(json.dumps(choice_record) + '\n')
+                                    writer_best_available.write(choice_record)
                                     dataset_stats["records_with_answers"] += 1
 
         finally:
-            # Close any open file handles
-            if f_question_only is not None:
-                f_question_only.close()
-            if f_with_answers is not None:
-                f_with_answers.close()
-            if f_best_available is not None:
-                f_best_available.close()
+            # Close the writer
+            if writer_best_available is not None:
+                writer_best_available.close()
 
         # Log missing fields loudly (only for question and answer)
         # Check if this split is expected to have no answers
@@ -3528,10 +3511,15 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
             print(f"Saved {dataset_stats['records']} records total")
 
         if dataset_stats['records'] > 0:
-            print(f"  - All questions: {dataset_stats['records']} records → {output_file_question_only}")
-            print(f"  - Best available: {dataset_stats['records']} records → {output_file_best_available}")
-        if dataset_stats['records_with_answers'] > 0:
-            print(f"  - With answers: {dataset_stats['records_with_answers']} records → {output_file}")
+            # Print chunk information
+            if writer_best_available:
+                chunk_files = writer_best_available.get_chunk_files()
+                if len(chunk_files) > 1:
+                    print(f"  - Saved {dataset_stats['records']} records → {len(chunk_files)} chunks")
+                    for chunk_file in chunk_files:
+                        print(f"    - {chunk_file.name}")
+                else:
+                    print(f"  - Saved {dataset_stats['records']} records → {output_file}")
 
         # Print dataset statistics
         print(f"  Character counts for {eval_name} {split}:")
@@ -3544,28 +3532,18 @@ def download_all_evals():
     """Download all eval datasets"""
     print(f"Processing {len(EVAL_CONFIG['evals'])} eval datasets...")
 
-    # Clear output directories before starting
+    # Clear output directory before starting
     project_root = Path(__file__).parent.parent
     output_dir = project_root / EVAL_CONFIG['output_dir']
-    output_dir_question_only = project_root / EVAL_CONFIG['output_dir_question_only']
-    output_dir_best_available = project_root / EVAL_CONFIG['output_dir_best_available']
 
-    # Remove existing directories if they exist
+    # Remove existing directory if it exists
     if output_dir.exists():
         print(f"Clearing existing directory: {output_dir}")
         shutil.rmtree(output_dir)
-    if output_dir_question_only.exists():
-        print(f"Clearing existing directory: {output_dir_question_only}")
-        shutil.rmtree(output_dir_question_only)
-    if output_dir_best_available.exists():
-        print(f"Clearing existing directory: {output_dir_best_available}")
-        shutil.rmtree(output_dir_best_available)
 
-    # Create fresh directories
+    # Create fresh directory
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_dir_question_only.mkdir(parents=True, exist_ok=True)
-    output_dir_best_available.mkdir(parents=True, exist_ok=True)
-    print("Created fresh output directories")
+    print("Created fresh output directory")
 
     # Initialize global document ID counter (using list for mutable reference)
     document_id_counter = [1]
@@ -3628,7 +3606,7 @@ def download_all_evals():
             else:
                 print(f"  - {dataset_name} (splits: {', '.join(splits)})")
 
-        print(f"\nThese datasets are saved to: {EVAL_CONFIG['output_dir_question_only']}/")
+        print(f"\nThese datasets are saved to: {EVAL_CONFIG['output_dir']}/")
         print(f"{'='*80}\n")
 
 

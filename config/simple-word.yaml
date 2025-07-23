@@ -2,7 +2,7 @@ mode: simple
 
 content_key: text
 local_input: /home/robert/Downloads/export-test
-reference_input: fixtures/reference-questions-and-answers
+reference_input: fixtures/reference
 report_output_dir: fixtures/output
 cleaned_output_dir: fixtures/cleaned
 

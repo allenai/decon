@@ -93,13 +93,11 @@ evals-list:
 	python python/evals.py --list
 
 evals-s3:
-	s5cmd sync s3://decon-evals/* fixtures/
+	s5cmd sync s3://decon-evals/* fixtures/reference/
 
 push-evals:
 	@echo "Syncing reference files to s3://decon-evals/ with deletion..."
-	s5cmd sync --delete fixtures/reference-questions s3://decon-evals/
-	s5cmd sync fixtures/reference-questions-and-answers s3://decon-evals/
-	s5cmd sync fixtures/reference-best-available s3://decon-evals/
+	s5cmd sync --delete fixtures/reference/* s3://decon-evals/
 	@echo "Push to S3 complete!"
 
 embeddings:
@@ -111,7 +109,7 @@ refine:
 reference-stats:
 	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
 		echo "Usage: make reference-stats <path-to-reference-directory>"; \
-		echo "Example: make reference-stats fixtures/reference-best-available"; \
+		echo "Example: make reference-stats fixtures/reference"; \
 	else \
 		DIR=$(filter-out $@,$(MAKECMDGOALS)); \
 		cargo run --release references --stats $$DIR; \

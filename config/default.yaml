@@ -2,7 +2,7 @@ mode: simple
 
 content_key: text # json key for content in the training files
 local_input: fixtures/local_input
-reference_input: fixtures/reference-best-available
+reference_input: fixtures/reference
 report_output_dir: fixtures/output  # The location contamination report files will be written
 cleaned_output_dir: fixtures/cleaned  # Optional: separate directory for purified files
 
