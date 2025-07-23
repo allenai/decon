@@ -1076,6 +1076,40 @@ impl SimpleContaminationEntry {
         length_penalty
     }
 
+    /// Calculate the required threshold based on eval token length
+    pub fn get_required_threshold(&self, config: &Config) -> f32 {
+        let eval_len = self.eval_token_length.unwrap_or(usize::MAX);
+        
+        match (config.perfect_match_eval_token_length_start, config.threshold_match_eval_token_length_end) {
+            (Some(perfect_start), Some(threshold_end)) => {
+                if eval_len <= perfect_start {
+                    1.0  // Perfect match required
+                } else if eval_len >= threshold_end {
+                    config.question_threshold  // Normal threshold
+                } else if perfect_start == threshold_end {
+                    // Step function: immediate transition at the threshold
+                    config.question_threshold
+                } else {
+                    // Linear interpolation between 1.0 and question_threshold
+                    let range = (threshold_end - perfect_start) as f32;
+                    let position = (eval_len - perfect_start) as f32;
+                    let ratio = position / range;
+                    // Interpolate: start at 1.0, end at question_threshold
+                    1.0 - (1.0 - config.question_threshold) * ratio
+                }
+            }
+            (Some(perfect_start), None) => {
+                // Original behavior - hard cutoff
+                if eval_len <= perfect_start {
+                    1.0
+                } else {
+                    config.question_threshold
+                }
+            }
+            _ => config.question_threshold
+        }
+    }
+
     /// Calculate contamination score based on overlap ratio and IDF, with length penalty
     /// Returns a score between 0.0 and 1.0, where higher scores indicate more likely contamination
     pub fn score_question_contamination(&self, _min_length_penalty: f32) -> f32 {
@@ -1100,8 +1134,9 @@ impl SimpleContaminationEntry {
         token_doc_freq: &TokenDocFreqMap,
         total_docs: f32,
     ) -> (bool, Option<f32>, Option<Vec<String>>, Option<f32>) {
-        let question_contam = self.score_question_contamination(config.question_threshold)
-            >= config.question_threshold;
+        let required_threshold = self.get_required_threshold(config);
+        let question_contam = self.score_question_contamination(required_threshold)
+            >= required_threshold;
 
         if question_contam {
             // If require_answer_when_eval_has_answer is false, return question contamination only
@@ -1575,9 +1610,10 @@ pub fn process_simple_training_file(
                     );
 
                     // Track if question was contaminated but excluded due to no answer match
+                    let required_threshold = entry.get_required_threshold(config);
                     let question_contam = entry
-                        .score_question_contamination(config.question_threshold)
-                        >= config.question_threshold;
+                        .score_question_contamination(required_threshold)
+                        >= required_threshold;
                     if question_contam && !is_contaminated {
                         EXCLUDED_NO_ANSWER_MATCH.fetch_add(1, Ordering::Relaxed);
                     }
@@ -2113,6 +2149,7 @@ pub fn save_contamination_results_toxic_format_with_filename_and_eval_text(
                 "eval_unique_ngrams": contamination_entry.eval_unique_ngrams,
                 "contamination_score": contamination_entry.score_question_contamination(config.question_threshold),
                 //"length_penalty": contamination_entry.length_penalty.unwrap_or_else(|| contamination_entry.calculate_length_penalty(config.question_threshold)),
+                "length_adjusted_question_threshold": contamination_entry.get_required_threshold(config),
                 "method": "simple"
             });
 

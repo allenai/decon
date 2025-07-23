@@ -59,6 +59,8 @@ pub struct ContaminationResult {
     pub token_length_delta: Option<i32>,
     #[serde(default)]
     pub ngram_jaccard: Option<f32>,
+    #[serde(default)]
+    pub length_adjusted_question_threshold: Option<f32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -300,6 +302,7 @@ fn filter_contamination_results(
                     eval_token_length: None,
                     token_length_delta: None,
                     ngram_jaccard: None,
+                    length_adjusted_question_threshold: None,
                 };
                 filtered.push(placeholder);
             }
@@ -465,6 +468,7 @@ fn display_contamination_case_internal(result: &ContaminationResult) -> Result<(
             if let Some(idf_overlap) = result.idf_overlap {
                 println!("📈 IDF OVERLAP:    {:.3}", idf_overlap);
             }
+
             if let Some(ngram_jaccard) = result.ngram_jaccard {
                 println!("🔗 N-GRAM JACCARD: {:.3}\n", ngram_jaccard);
             }
@@ -517,9 +521,13 @@ fn display_contamination_case_internal(result: &ContaminationResult) -> Result<(
                 }
             }
 
+            if let Some(threshold) = result.length_adjusted_question_threshold {
+                println!("🎚️  LENGTH-ADJUSTED THRESHOLD: {:.3}", threshold);
+            }
             if let Some(score) = result.contamination_score {
                 println!("⚡ CONTAMINATION SCORE: {:.3}", score);
             }
+
 
             println!();
         }

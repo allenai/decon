@@ -198,6 +198,22 @@ enum Commands {
             help_heading = "Reference Preprocessing"
         )]
         eval_min_unique_word_count: Option<usize>,
+
+        #[arg(
+            long,
+            help = "Token length where perfect match (IDF=1.0) requirement starts",
+            display_order = 19,
+            help_heading = "Matching and Scoring"
+        )]
+        perfect_match_eval_token_length_start: Option<usize>,
+
+        #[arg(
+            long,
+            help = "Token length where interpolation ends and normal threshold applies (must be > perfect_match start)",
+            display_order = 20,
+            help_heading = "Matching and Scoring"
+        )]
+        threshold_match_eval_token_length_end: Option<usize>,
     },
 
     #[command(about = "Review and analyze detect results")]
@@ -408,6 +424,22 @@ enum Commands {
             help_heading = "Reference Preprocessing"
         )]
         eval_min_unique_word_count: Option<usize>,
+
+        #[arg(
+            long,
+            help = "Token length where perfect match (IDF=1.0) requirement starts",
+            display_order = 20,
+            help_heading = "Matching and Scoring"
+        )]
+        perfect_match_eval_token_length_start: Option<usize>,
+
+        #[arg(
+            long,
+            help = "Token length where interpolation ends and normal threshold applies (must be > perfect_match start)",
+            display_order = 21,
+            help_heading = "Matching and Scoring"
+        )]
+        threshold_match_eval_token_length_end: Option<usize>,
     },
 
     #[command(about = "Manage and analyze reference datasets")]
@@ -526,6 +558,14 @@ pub struct Config {
     // Whether to replace non-UTF8 characters when creating purified files
     #[serde(default = "default_replace_non_utf8_chars")]
     pub replace_non_utf8_chars: bool,
+
+    // Token length where perfect match requirement starts
+    #[serde(default)]
+    pub perfect_match_eval_token_length_start: Option<usize>,
+
+    // Token length where interpolation ends and normal threshold applies
+    #[serde(default)]
+    pub threshold_match_eval_token_length_end: Option<usize>,
 }
 
 fn default_mode() -> String {
@@ -595,6 +635,25 @@ pub fn read_config(config_path: &PathBuf) -> Result<Config, Error> {
     let contents = read_pathbuf_to_mem(config_path).unwrap();
     let config: Config = serde_yaml::from_reader(contents).unwrap();
     Ok(config)
+}
+
+/// Validate configuration constraints
+fn validate_config(config: &Config) -> Result<(), Error> {
+    // Check threshold_match_eval_token_length_end >= perfect_match_eval_token_length_start
+    if let (Some(perfect_start), Some(threshold_end)) = (
+        config.perfect_match_eval_token_length_start,
+        config.threshold_match_eval_token_length_end,
+    ) {
+        if threshold_end < perfect_start {
+            return Err(anyhow::anyhow!(
+                "threshold_match_eval_token_length_end ({}) must be greater than or equal to perfect_match_eval_token_length_start ({})",
+                threshold_end,
+                perfect_start
+            ));
+        }
+    }
+    
+    Ok(())
 }
 
 pub fn get_results_filename(mode: &str) -> String {
@@ -1260,6 +1319,8 @@ fn main() -> Result<(), Error> {
             eval_dedup,
             eval_min_cleaned_char_length,
             eval_min_unique_word_count,
+            perfect_match_eval_token_length_start,
+            threshold_match_eval_token_length_end,
         } => {
             // Load config from file
             let mut loaded_config = read_config(config)?;
@@ -1322,6 +1383,15 @@ fn main() -> Result<(), Error> {
             if let Some(emuwc) = eval_min_unique_word_count {
                 loaded_config.eval_min_unique_word_count = *emuwc;
             }
+            if let Some(pmetts) = perfect_match_eval_token_length_start {
+                loaded_config.perfect_match_eval_token_length_start = Some(*pmetts);
+            }
+            if let Some(tmette) = threshold_match_eval_token_length_end {
+                loaded_config.threshold_match_eval_token_length_end = Some(*tmette);
+            }
+
+            // Validate configuration
+            validate_config(&loaded_config)?;
 
             contamination_detect_with_config(&loaded_config)
         }
@@ -1370,6 +1440,8 @@ fn main() -> Result<(), Error> {
             eval_dedup,
             eval_min_cleaned_char_length,
             eval_min_unique_word_count,
+            perfect_match_eval_token_length_start,
+            threshold_match_eval_token_length_end,
         } => {
             // Load config from file
             let mut loaded_config = read_config(config)?;
@@ -1432,6 +1504,15 @@ fn main() -> Result<(), Error> {
             if let Some(emuwc) = eval_min_unique_word_count {
                 loaded_config.eval_min_unique_word_count = *emuwc;
             }
+            if let Some(pmetts) = perfect_match_eval_token_length_start {
+                loaded_config.perfect_match_eval_token_length_start = Some(*pmetts);
+            }
+            if let Some(tmette) = threshold_match_eval_token_length_end {
+                loaded_config.threshold_match_eval_token_length_end = Some(*tmette);
+            }
+
+            // Validate configuration
+            validate_config(&loaded_config)?;
 
             let runtime = tokio::runtime::Runtime::new().unwrap();
             runtime.block_on(server::run_server(loaded_config, *port))

@@ -6,11 +6,19 @@ reference_input: fixtures/reference
 report_output_dir: fixtures/output  # The location contamination report files will be written
 cleaned_output_dir: fixtures/cleaned  # Optional: separate directory for purified files
 
+# Tokenizer and ngram options
 tokenizer_str: cl100k
 ngram_size: 5  # Size of indexed n-grams scanned for question matches, I recommend an odd number :) TODO :)
 sample_every_m_tokens: 10
+
+# Matching options
 max_consecutive_misses: 11  # ngram_size * 2 recommended.
+
 question_threshold: 0.815 # Higher for more precision, lower for more recall
+perfect_match_eval_token_length_start: 15  # Require perfect match (IDF Overlap=1.0) for evals with this many or fewer tokens
+threshold_match_eval_token_length_end: 30  # Require question threshold for evals with this many or more tokens, linear interpolation in between.
+
+
 answer_threshold: 0.8
 min_short_answer_distance: 120 # The minimum window on either side of a question to look for an answer. max(answer_length*2, min_short_answer_distance)
 require-answer-when-eval-has-answer: true

@@ -93,11 +93,11 @@ evals-list:
 	python python/evals.py --list
 
 evals-s3:
-	s5cmd sync s3://decon-evals/* fixtures/reference/
+	s5cmd sync s3://decon-evals/* fixtures/
 
 push-evals:
 	@echo "Syncing reference files to s3://decon-evals/ with deletion..."
-	s5cmd sync --delete fixtures/reference/* s3://decon-evals/
+	s5cmd sync --delete fixtures/reference s3://decon-evals/
 	@echo "Push to S3 complete!"
 
 embeddings:
