@@ -235,7 +235,7 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
 
     // Global statistics for deduplication and filtering
     let total_skipped_duplicates = Arc::new(AtomicUsize::new(0));
-    let total_skipped_min_length = Arc::new(AtomicUsize::new(0));
+    let total_skipped_min_tokens = Arc::new(AtomicUsize::new(0));
     let total_skipped_min_unique_words = Arc::new(AtomicUsize::new(0));
     let total_lines_processed = Arc::new(AtomicUsize::new(0));
 
@@ -258,7 +258,7 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
             &token_doc_freq,
             &dedup_map,
             &total_skipped_duplicates,
-            &total_skipped_min_length,
+            &total_skipped_min_tokens,
             &total_skipped_min_unique_words,
             &total_lines_processed,
         ) {
@@ -268,15 +268,15 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
     });
 
     pbar.finish_with_message("Index building complete");
-    
+
     // Display summary statistics if any preprocessing was done
     let total_lines = total_lines_processed.load(Ordering::Relaxed);
     let skipped_duplicates = total_skipped_duplicates.load(Ordering::Relaxed);
-    let skipped_min_length = total_skipped_min_length.load(Ordering::Relaxed);
+    let skipped_min_tokens = total_skipped_min_tokens.load(Ordering::Relaxed);
     let skipped_min_unique_words = total_skipped_min_unique_words.load(Ordering::Relaxed);
-    let total_skipped = skipped_duplicates + skipped_min_length + skipped_min_unique_words;
-    
-    if config.eval_dedup || config.eval_min_cleaned_char_length > 0 || config.eval_min_unique_word_count > 0 {
+    let total_skipped = skipped_duplicates + skipped_min_tokens + skipped_min_unique_words;
+
+    if config.eval_dedup || config.eval_min_token_length > 0 || config.eval_min_unique_word_count > 0 {
         println!("\nReference preprocessing summary:");
         println!("  Total lines examined: {}", total_lines + total_skipped);
         println!("  Lines indexed: {}", total_lines);
@@ -285,8 +285,8 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
             if skipped_duplicates > 0 {
                 println!("    - Duplicates: {}", skipped_duplicates);
             }
-            if skipped_min_length > 0 {
-                println!("    - Below minimum length: {}", skipped_min_length);
+            if skipped_min_tokens > 0 {
+                println!("    - Below minimum tokens: {}", skipped_min_tokens);
             }
             if skipped_min_unique_words > 0 {
                 println!("    - Below minimum unique words: {}", skipped_min_unique_words);
@@ -325,7 +325,7 @@ fn process_simple_reference_file(
     token_doc_freq: &TokenDocFreqMap,
     dedup_map: &Option<DashMap<(u64, u64), (String, usize)>>,
     global_skipped_duplicates: &Arc<AtomicUsize>,
-    global_skipped_min_length: &Arc<AtomicUsize>,
+    global_skipped_min_tokens: &Arc<AtomicUsize>,
     global_skipped_min_unique_words: &Arc<AtomicUsize>,
     global_lines_processed: &Arc<AtomicUsize>,
 ) -> Result<(), Error> {
@@ -342,7 +342,7 @@ fn process_simple_reference_file(
 
     let mut _lines_processed = 0;
     let mut _skipped_entries = 0;
-    let mut _skipped_min_length = 0;
+    let mut _skipped_min_tokens = 0;
     let mut _skipped_min_unique_words = 0;
     let mut _skipped_duplicates = 0;
 
@@ -369,26 +369,40 @@ fn process_simple_reference_file(
         // Get question and answer text for filtering
         let question_text = json_obj.get("question").and_then(|v| v.as_str()).unwrap_or("");
         let answer_text = json_obj.get("answer").and_then(|v| v.as_str()).unwrap_or("");
-        
+
         // Clean texts early for filtering
         let cleaned_question = clean_text(question_text, &config.punctuation_chars);
         let cleaned_answer = clean_text(answer_text, &config.punctuation_chars);
-        
+
         // For filtering and deduplication, use combined cleaned question + answer (or just question if no answer)
         let combined_cleaned_text = if has_answer_fields && !cleaned_answer.is_empty() {
             format!("{} {}", cleaned_question, cleaned_answer)
         } else {
             cleaned_question.clone()
         };
-        
-        // Apply minimum length filter on cleaned text
-        if config.eval_min_cleaned_char_length > 0 && combined_cleaned_text.len() < config.eval_min_cleaned_char_length {
-            _skipped_entries += 1;
-            _skipped_min_length += 1;
-            global_skipped_min_length.fetch_add(1, Ordering::Relaxed);
-            continue;
+
+        // Apply minimum token filter on cleaned text
+        if config.eval_min_token_length > 0 {
+            // Tokenize combined text for filtering
+            let combined_tokens = if config.tokenizer_str == "word" {
+                combined_cleaned_text.split_whitespace().count()
+            } else {
+                // For BPE tokenizers, add padding and tokenize
+                let padded_text = format!(" {}", combined_cleaned_text);
+                match catch_unwind(|| tokenizer.encode(&padded_text)) {
+                    Ok(tokens) => tokens.len(),
+                    Err(_) => 0  // Skip if tokenization fails
+                }
+            };
+
+            if combined_tokens < config.eval_min_token_length {
+                _skipped_entries += 1;
+                _skipped_min_tokens += 1;
+                global_skipped_min_tokens.fetch_add(1, Ordering::Relaxed);
+                continue;
+            }
         }
-        
+
         // Apply minimum unique word count filter
         if config.eval_min_unique_word_count > 0 {
             let words: HashSet<&str> = combined_cleaned_text.split_whitespace().collect();
@@ -399,26 +413,26 @@ fn process_simple_reference_file(
                 continue;
             }
         }
-        
+
         // Apply deduplication if enabled
         if let Some(ref dedup_map) = dedup_map {
             // Already have cleaned texts from above, just normalize for deduplication
             let normalized_question = cleaned_question.to_lowercase();
             let question_hash = hash_text_for_dedup(&normalized_question);
-            
+
             let normalized_answer = cleaned_answer.to_lowercase();
             let answer_hash = if answer_text.is_empty() {
                 0 // Special value for no answer
             } else {
                 hash_text_for_dedup(&normalized_answer)
             };
-            
+
             let dedup_key = (question_hash, answer_hash);
-            
+
             // Check if we've seen this exact question+answer combination before
             if let Some(first_occurrence) = dedup_map.get(&dedup_key) {
                 let (first_file, first_line) = first_occurrence.value();
-                
+
                 // Debug print if DECON_DEBUG_DEDUP is set
                 if std::env::var("DECON_DEBUG_DEDUP").is_ok() {
                     println!("\n=== DUPLICATE DETECTED ===");
@@ -434,13 +448,13 @@ fn process_simple_reference_file(
                     println!("Answer hash: {}", answer_hash);
                     println!("========================\n");
                 }
-                
+
                 _skipped_entries += 1;
                 _skipped_duplicates += 1;
                 global_skipped_duplicates.fetch_add(1, Ordering::Relaxed);
                 continue;
             }
-            
+
             // Mark as seen with file and line info
             dedup_map.insert(dedup_key, (eval_name.clone(), line_num));
         }
@@ -484,12 +498,7 @@ fn process_simple_reference_file(
     }
 
     global_lines_processed.fetch_add(_lines_processed, Ordering::Relaxed);
-    
-    // Log filtering statistics per file if verbose logging is enabled
-    if std::env::var("DECON_VERBOSE").is_ok() && (config.eval_dedup || config.eval_min_cleaned_char_length > 0 || config.eval_min_unique_word_count > 0) {
-        println!("  {}: processed {} lines, skipped {} total ({} min_length, {} min_unique_words, {} duplicates)", 
-            eval_name, _lines_processed, _skipped_entries, _skipped_min_length, _skipped_min_unique_words, _skipped_duplicates);
-    }
+
     Ok(())
 }
 
@@ -1079,7 +1088,7 @@ impl SimpleContaminationEntry {
     /// Calculate the required threshold based on eval token length
     pub fn get_required_threshold(&self, config: &Config) -> f32 {
         let eval_len = self.eval_token_length.unwrap_or(usize::MAX);
-        
+
         match (config.perfect_match_eval_token_length_start, config.threshold_match_eval_token_length_end) {
             (Some(perfect_start), Some(threshold_end)) => {
                 if eval_len <= perfect_start {
@@ -2128,7 +2137,7 @@ pub fn save_contamination_results_toxic_format_with_filename_and_eval_text(
     let default_filename = get_results_filename("simple");
     let filename = custom_filename.unwrap_or(&default_filename);
     let output_file = config.report_output_dir.join(filename);
-    
+
     // Create parent directories if they don't exist (for preserving directory structure)
     if let Some(parent) = output_file.parent() {
         create_dir_all(parent)?;

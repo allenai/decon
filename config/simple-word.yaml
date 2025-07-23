@@ -15,7 +15,7 @@ min_short_answer_distance: 30
 
 # Reference preprocessing options
 eval_dedup: false  # Enable exact deduplication of reference entries
-eval_min_cleaned_char_length: 0  # Minimum character count for reference entries after cleaning (0 = disabled)
+eval_min_token_length: 0  # Minimum token count for reference entries (0 = disabled)
 eval_min_unique_word_count: 0  # Minimum unique word count for reference entries (0 = disabled)
 
 punctuation_chars: "!’\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~”“‘’"  # (uses default if not specified)

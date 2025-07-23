@@ -185,11 +185,11 @@ enum Commands {
 
         #[arg(
             long,
-            help = "Minimum character count for reference entries (0 = disabled) [default: 0]",
+            help = "Minimum token count for reference entries (0 = disabled) [default: 0]",
             display_order = 17,
             help_heading = "Reference Preprocessing"
         )]
-        eval_min_cleaned_char_length: Option<usize>,
+        eval_min_token_length: Option<usize>,
 
         #[arg(
             long,
@@ -411,11 +411,11 @@ enum Commands {
 
         #[arg(
             long,
-            help = "Minimum character count for reference entries (0 = disabled) [default: 0]",
+            help = "Minimum token count for reference entries (0 = disabled) [default: 0]",
             display_order = 18,
             help_heading = "Reference Preprocessing"
         )]
-        eval_min_cleaned_char_length: Option<usize>,
+        eval_min_token_length: Option<usize>,
 
         #[arg(
             long,
@@ -547,9 +547,9 @@ pub struct Config {
     #[serde(default)]
     pub eval_dedup: bool,
 
-    // Minimum character count for reference entries, 0 = disabled (default: 0)
+    // Minimum token count for reference entries, 0 = disabled (default: 0)
     #[serde(default)]
-    pub eval_min_cleaned_char_length: usize,
+    pub eval_min_token_length: usize,
 
     // Minimum unique word count for reference entries, 0 = disabled (default: 0)
     #[serde(default)]
@@ -1244,8 +1244,8 @@ fn contamination_detect_with_config(config_obj: &Config) -> Result<(), Error> {
             // Display reference preprocessing options if any are enabled
             println!("\nReference Preprocessing:");
             println!("  Deduplication: {}", if config_obj.eval_dedup { "enabled" } else { "disabled" });
-            if config_obj.eval_min_cleaned_char_length > 0 {
-                println!("  Minimum length: {} characters (after cleaning)", config_obj.eval_min_cleaned_char_length);
+            if config_obj.eval_min_token_length > 0 {
+                println!("  Minimum length: {} tokens", config_obj.eval_min_token_length);
             }
             if config_obj.eval_min_unique_word_count > 0 {
                 println!("  Minimum unique words: {}", config_obj.eval_min_unique_word_count);
@@ -1317,7 +1317,7 @@ fn main() -> Result<(), Error> {
             require_answer_when_eval_has_answer,
             worker_threads,
             eval_dedup,
-            eval_min_cleaned_char_length,
+            eval_min_token_length,
             eval_min_unique_word_count,
             perfect_match_eval_token_length_start,
             threshold_match_eval_token_length_end,
@@ -1377,8 +1377,8 @@ fn main() -> Result<(), Error> {
             if *eval_dedup {
                 loaded_config.eval_dedup = true;
             }
-            if let Some(eml) = eval_min_cleaned_char_length {
-                loaded_config.eval_min_cleaned_char_length = *eml;
+            if let Some(eml) = eval_min_token_length {
+                loaded_config.eval_min_token_length = *eml;
             }
             if let Some(emuwc) = eval_min_unique_word_count {
                 loaded_config.eval_min_unique_word_count = *emuwc;
@@ -1438,7 +1438,7 @@ fn main() -> Result<(), Error> {
             require_answer_when_eval_has_answer,
             worker_threads,
             eval_dedup,
-            eval_min_cleaned_char_length,
+            eval_min_token_length,
             eval_min_unique_word_count,
             perfect_match_eval_token_length_start,
             threshold_match_eval_token_length_end,
@@ -1498,8 +1498,8 @@ fn main() -> Result<(), Error> {
             if *eval_dedup {
                 loaded_config.eval_dedup = true;
             }
-            if let Some(eml) = eval_min_cleaned_char_length {
-                loaded_config.eval_min_cleaned_char_length = *eml;
+            if let Some(eml) = eval_min_token_length {
+                loaded_config.eval_min_token_length = *eml;
             }
             if let Some(emuwc) = eval_min_unique_word_count {
                 loaded_config.eval_min_unique_word_count = *emuwc;
