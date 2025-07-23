@@ -1,11 +1,14 @@
 *.ipynb
 *.pyc
 fixtures/output/*.*
+fixtures/output/**
 fixtures/embeddings/*.*
 fixtures/reference/*.*
 fixtures/reference-download/*.*
 fixtures/cleaned/*.*
+fixtures/cleaned/**/
 fixtures/local_input/*.*
+fixtures/local_input/**
 fixtures/big_input
 fixtures/dumps
 fixtures/output_cl100k/

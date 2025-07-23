@@ -595,9 +595,22 @@ pub fn get_unique_results_filename(
     }
 }
 
-pub fn get_purified_filename(input_file: &PathBuf) -> String {
-    // Get the full filename
-    let filename = input_file
+pub fn get_purified_filename(input_file: &PathBuf, base_input_dir: &PathBuf) -> Result<String, anyhow::Error> {
+    // Calculate relative path from base_input_dir to input_file
+    let relative_path = input_file
+        .strip_prefix(base_input_dir)
+        .unwrap_or_else(|_| {
+            // If strip_prefix fails, just use the filename
+            input_file.file_name()
+                .map(std::path::Path::new)
+                .unwrap_or_else(|| std::path::Path::new("unknown"))
+        });
+    
+    // Get parent directory path (if any)
+    let parent_dir = relative_path.parent();
+    
+    // Get the filename
+    let filename = relative_path
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("unknown");
@@ -607,14 +620,25 @@ pub fn get_purified_filename(input_file: &PathBuf) -> String {
         &filename[..pos]
     } else {
         // If no .jsonl extension, just use the stem
-        input_file
+        relative_path
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("unknown")
     };
 
-    // Format: {base name}.jsonl.gz
-    format!("{}.jsonl.gz", base_name)
+    // Construct the purified filename
+    let purified_filename = format!("{}.jsonl.gz", base_name);
+    
+    // Combine with parent directory if it exists
+    if let Some(parent) = parent_dir {
+        if parent.as_os_str().is_empty() {
+            Ok(purified_filename)
+        } else {
+            Ok(parent.join(purified_filename).to_string_lossy().to_string())
+        }
+    } else {
+        Ok(purified_filename)
+    }
 }
 
 pub fn write_purified_file(
@@ -622,15 +646,17 @@ pub fn write_purified_file(
     cleaned_output_dir: &PathBuf,
     contaminated_lines: &std::collections::HashSet<usize>,
     config: &Config,
+    base_input_dir: &PathBuf,
 ) -> Result<PathBuf, anyhow::Error> {
     if config.replace_non_utf8_chars {
         write_purified_file_with_utf8_lossy_conversion(
             input_path,
             cleaned_output_dir,
             contaminated_lines,
+            base_input_dir,
         )
     } else {
-        write_purified_file_bytes(input_path, cleaned_output_dir, contaminated_lines)
+        write_purified_file_bytes(input_path, cleaned_output_dir, contaminated_lines, base_input_dir)
     }
 }
 
@@ -658,6 +684,7 @@ pub fn write_purified_file_bytes(
     input_path: &PathBuf,
     cleaned_output_dir: &PathBuf,
     contaminated_lines: &std::collections::HashSet<usize>,
+    base_input_dir: &PathBuf,
 ) -> Result<PathBuf, anyhow::Error> {
     use flate2::read::GzDecoder;
     use flate2::write::GzEncoder;
@@ -665,11 +692,13 @@ pub fn write_purified_file_bytes(
     use std::fs::{create_dir_all, File};
     use std::io::{BufRead, BufReader, BufWriter, Write};
 
-    // Ensure output directory exists
-    create_dir_all(cleaned_output_dir)?;
-
-    let purified_filename = get_purified_filename(input_path);
+    let purified_filename = get_purified_filename(input_path, base_input_dir)?;
     let purified_path = cleaned_output_dir.join(&purified_filename);
+    
+    // Create parent directories if they don't exist (for preserving directory structure)
+    if let Some(parent) = purified_path.parent() {
+        create_dir_all(parent)?;
+    }
 
     // Open input file with streaming reader
     let file = File::open(input_path)?;
@@ -767,6 +796,7 @@ pub fn write_purified_file_with_utf8_lossy_conversion(
     input_path: &PathBuf,
     cleaned_output_dir: &PathBuf,
     contaminated_lines: &std::collections::HashSet<usize>,
+    base_input_dir: &PathBuf,
 ) -> Result<PathBuf, anyhow::Error> {
     use flate2::read::GzDecoder;
     use flate2::write::GzEncoder;
@@ -774,11 +804,13 @@ pub fn write_purified_file_with_utf8_lossy_conversion(
     use std::fs::{create_dir_all, File};
     use std::io::{BufRead, BufReader, BufWriter, Write};
 
-    // Ensure output directory exists
-    create_dir_all(cleaned_output_dir)?;
-
-    let purified_filename = get_purified_filename(input_path);
+    let purified_filename = get_purified_filename(input_path, base_input_dir)?;
     let purified_path = cleaned_output_dir.join(&purified_filename);
+    
+    // Create parent directories if they don't exist (for preserving directory structure)
+    if let Some(parent) = purified_path.parent() {
+        create_dir_all(parent)?;
+    }
 
     // Open input file with streaming reader
     let file = File::open(input_path)?;

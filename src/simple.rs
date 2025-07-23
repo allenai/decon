@@ -2084,7 +2084,7 @@ fn create_purified_files_streaming(
         };
 
         // Always create a purified file when purify mode is enabled
-        write_purified_file(file_path, cleaned_dir, &contaminated_lines, config)?;
+        write_purified_file(file_path, cleaned_dir, &contaminated_lines, config, &config.local_input)?;
 
         if contaminated_lines.is_empty() {
             println!("Copied clean file: {}", file_name);
