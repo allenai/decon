@@ -690,7 +690,13 @@ fn detect_simple_contamination(
 
                 // Save results for this file if contamination was found
                 if !file_contamination_results.is_empty() {
-                    let unique_filename = crate::get_unique_results_filename(file_path, config);
+                    let unique_filename = match crate::get_unique_results_filename(file_path, config, &config.local_input) {
+                        Ok(filename) => filename,
+                        Err(e) => {
+                            println!("Error generating unique filename for {:?}: {:?}", file_path, e);
+                            return;
+                        }
+                    };
                     if let Err(e) =
                         save_contamination_results_toxic_format_with_filename_and_eval_text(
                             config,
@@ -1943,13 +1949,15 @@ pub fn save_contamination_results_toxic_format_with_filename_and_eval_text(
     custom_filename: Option<&str>,
     eval_text_snippets: &EvalTextSnippets,
 ) -> Result<PathBuf, Error> {
-    // Create output directory if it doesn't exist
-    create_dir_all(&config.report_output_dir)?;
-
     // Use custom filename if provided, otherwise use default
     let default_filename = get_results_filename("simple");
     let filename = custom_filename.unwrap_or(&default_filename);
     let output_file = config.report_output_dir.join(filename);
+    
+    // Create parent directories if they don't exist (for preserving directory structure)
+    if let Some(parent) = output_file.parent() {
+        create_dir_all(parent)?;
+    }
 
     let mut output_data = Vec::new();
 

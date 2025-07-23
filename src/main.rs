@@ -550,21 +550,49 @@ pub fn get_results_filename(mode: &str) -> String {
     }
 }
 
-pub fn get_unique_results_filename(input_file: &PathBuf, config: &Config) -> String {
-    // Extract the base filename without extension
-    let base_name = input_file
+pub fn get_unique_results_filename(
+    input_file: &PathBuf, 
+    config: &Config,
+    base_input_dir: &PathBuf
+) -> Result<String, anyhow::Error> {
+    // Calculate relative path from base_input_dir to input_file
+    let relative_path = input_file
+        .strip_prefix(base_input_dir)
+        .unwrap_or_else(|_| {
+            // If strip_prefix fails, just use the filename
+            input_file.file_name()
+                .map(std::path::Path::new)
+                .unwrap_or_else(|| std::path::Path::new("unknown"))
+        });
+    
+    // Get parent directory path (if any)
+    let parent_dir = relative_path.parent();
+    
+    // Get base filename without extension
+    let base_name = relative_path
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("unknown");
-
+    
     // Get the appropriate threshold value based on mode
     let threshold = match config.mode.as_str() {
         "simple" => config.question_threshold,
         _ => 0.0,
     };
-
-    // Format: {input file name}-{mode}-{overlap_threshold}.jsonl
-    format!("{}-{}-{:.2}.jsonl", base_name, config.mode, threshold)
+    
+    // Construct the result filename
+    let result_filename = format!("{}-{}-{:.2}.jsonl", base_name, config.mode, threshold);
+    
+    // Combine with parent directory if it exists
+    if let Some(parent) = parent_dir {
+        if parent.as_os_str().is_empty() {
+            Ok(result_filename)
+        } else {
+            Ok(parent.join(result_filename).to_string_lossy().to_string())
+        }
+    } else {
+        Ok(result_filename)
+    }
 }
 
 pub fn get_purified_filename(input_file: &PathBuf) -> String {
