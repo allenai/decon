@@ -14,5 +14,10 @@ question_threshold: 0.815 # Higher for more precision, lower for more recall
 answer_threshold: 0.8
 min_short_answer_distance: 120 # The minimum window on either side of a question to look for an answer. max(answer_length*2, min_short_answer_distance)
 require-answer-when-eval-has-answer: true
-eval_min_token_count: 10  # Minimum post-cleaning token count necessary to include for eval file indexing.
+
+# Reference preprocessing options
+eval_dedup: true  # Enable exact deduplication of reference entries
+eval_min_cleaned_char_length: 50  # Minimum character count for reference entries after cleaning (0 = disabled)
+eval_min_unique_word_count: 4  # Minimum unique word count for reference entries (0 = disabled)
+
 punctuation_chars: "!’\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~”“"  # (uses default if not specified)

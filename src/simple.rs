@@ -201,6 +201,15 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
     // Initialize tokenizer
     let tokenizer = OmniTokenizer::new(&config.tokenizer_str)?;
 
+    // Create dedup map if deduplication is enabled
+    // Now stores (eval_name, line_num) of first occurrence for debug tracking
+    // Key is (question_hash, answer_hash) to handle cases where same question has different answers
+    let dedup_map: Option<DashMap<(u64, u64), (String, usize)>> = if config.eval_dedup {
+        Some(DashMap::new())
+    } else {
+        None
+    };
+
     // Find all reference files
     let reference_files = expand_dirs(
         vec![config.reference_input.clone()],
@@ -224,6 +233,12 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
 
     let pbar = build_pbar(reference_files.len(), "Reference files");
 
+    // Global statistics for deduplication and filtering
+    let total_skipped_duplicates = Arc::new(AtomicUsize::new(0));
+    let total_skipped_min_length = Arc::new(AtomicUsize::new(0));
+    let total_skipped_min_unique_words = Arc::new(AtomicUsize::new(0));
+    let total_lines_processed = Arc::new(AtomicUsize::new(0));
+
     // println!("Processing {} reference files for n-gram indexing...", reference_files.len()); //debug
 
     reference_files.par_iter().for_each(|file_path| {
@@ -241,14 +256,43 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
             &eval_text_snippets,
             &doc_to_ngram_ids,
             &token_doc_freq,
+            &dedup_map,
+            &total_skipped_duplicates,
+            &total_skipped_min_length,
+            &total_skipped_min_unique_words,
+            &total_lines_processed,
         ) {
             println!("Error processing reference file {:?}: {:?}", file_path, e);
         }
         pbar.inc(1);
     });
 
-    // println!("Finished processing reference files. Total unique n-grams: {}", ngram_to_id.len()); //debug
-    // println!("Total eval documents indexed: {}", eval_documents.len()); //debug
+    pbar.finish_with_message("Index building complete");
+    
+    // Display summary statistics if any preprocessing was done
+    let total_lines = total_lines_processed.load(Ordering::Relaxed);
+    let skipped_duplicates = total_skipped_duplicates.load(Ordering::Relaxed);
+    let skipped_min_length = total_skipped_min_length.load(Ordering::Relaxed);
+    let skipped_min_unique_words = total_skipped_min_unique_words.load(Ordering::Relaxed);
+    let total_skipped = skipped_duplicates + skipped_min_length + skipped_min_unique_words;
+    
+    if config.eval_dedup || config.eval_min_cleaned_char_length > 0 || config.eval_min_unique_word_count > 0 {
+        println!("\nReference preprocessing summary:");
+        println!("  Total lines examined: {}", total_lines + total_skipped);
+        println!("  Lines indexed: {}", total_lines);
+        if total_skipped > 0 {
+            println!("  Lines skipped: {} total", total_skipped);
+            if skipped_duplicates > 0 {
+                println!("    - Duplicates: {}", skipped_duplicates);
+            }
+            if skipped_min_length > 0 {
+                println!("    - Below minimum length: {}", skipped_min_length);
+            }
+            if skipped_min_unique_words > 0 {
+                println!("    - Below minimum unique words: {}", skipped_min_unique_words);
+            }
+        }
+    }
 
     Ok((
         ngram_to_id,
@@ -279,6 +323,11 @@ fn process_simple_reference_file(
     eval_text_snippets: &EvalTextSnippets,
     doc_to_ngram_ids: &DocToNgramIdsMap,
     token_doc_freq: &TokenDocFreqMap,
+    dedup_map: &Option<DashMap<(u64, u64), (String, usize)>>,
+    global_skipped_duplicates: &Arc<AtomicUsize>,
+    global_skipped_min_length: &Arc<AtomicUsize>,
+    global_skipped_min_unique_words: &Arc<AtomicUsize>,
+    global_lines_processed: &Arc<AtomicUsize>,
 ) -> Result<(), Error> {
     let data = read_pathbuf_to_mem(file_path)?;
 
@@ -293,6 +342,9 @@ fn process_simple_reference_file(
 
     let mut _lines_processed = 0;
     let mut _skipped_entries = 0;
+    let mut _skipped_min_length = 0;
+    let mut _skipped_min_unique_words = 0;
+    let mut _skipped_duplicates = 0;
 
     for (line_num, line) in data.lines().enumerate() {
         let line = line?;
@@ -313,6 +365,85 @@ fn process_simple_reference_file(
             .and_then(|v| v.as_u64())
             .ok_or_else(|| anyhow::anyhow!("Missing or invalid doc_id field in reference file"))?
             as u32;
+
+        // Get question and answer text for filtering
+        let question_text = json_obj.get("question").and_then(|v| v.as_str()).unwrap_or("");
+        let answer_text = json_obj.get("answer").and_then(|v| v.as_str()).unwrap_or("");
+        
+        // Clean texts early for filtering
+        let cleaned_question = clean_text(question_text, &config.punctuation_chars);
+        let cleaned_answer = clean_text(answer_text, &config.punctuation_chars);
+        
+        // For filtering and deduplication, use combined cleaned question + answer (or just question if no answer)
+        let combined_cleaned_text = if has_answer_fields && !cleaned_answer.is_empty() {
+            format!("{} {}", cleaned_question, cleaned_answer)
+        } else {
+            cleaned_question.clone()
+        };
+        
+        // Apply minimum length filter on cleaned text
+        if config.eval_min_cleaned_char_length > 0 && combined_cleaned_text.len() < config.eval_min_cleaned_char_length {
+            _skipped_entries += 1;
+            _skipped_min_length += 1;
+            global_skipped_min_length.fetch_add(1, Ordering::Relaxed);
+            continue;
+        }
+        
+        // Apply minimum unique word count filter
+        if config.eval_min_unique_word_count > 0 {
+            let words: HashSet<&str> = combined_cleaned_text.split_whitespace().collect();
+            if words.len() < config.eval_min_unique_word_count {
+                _skipped_entries += 1;
+                _skipped_min_unique_words += 1;
+                global_skipped_min_unique_words.fetch_add(1, Ordering::Relaxed);
+                continue;
+            }
+        }
+        
+        // Apply deduplication if enabled
+        if let Some(ref dedup_map) = dedup_map {
+            // Already have cleaned texts from above, just normalize for deduplication
+            let normalized_question = cleaned_question.to_lowercase();
+            let question_hash = hash_text_for_dedup(&normalized_question);
+            
+            let normalized_answer = cleaned_answer.to_lowercase();
+            let answer_hash = if answer_text.is_empty() {
+                0 // Special value for no answer
+            } else {
+                hash_text_for_dedup(&normalized_answer)
+            };
+            
+            let dedup_key = (question_hash, answer_hash);
+            
+            // Check if we've seen this exact question+answer combination before
+            if let Some(first_occurrence) = dedup_map.get(&dedup_key) {
+                let (first_file, first_line) = first_occurrence.value();
+                
+                // Debug print if DECON_DEBUG_DEDUP is set
+                if std::env::var("DECON_DEBUG_DEDUP").is_ok() {
+                    println!("\n=== DUPLICATE DETECTED ===");
+                    println!("Current: {} line {}", eval_name, line_num);
+                    println!("Duplicate of: {} line {}", first_file, first_line);
+                    println!("Question: {}", question_text);
+                    println!("Answer: {}", answer_text);
+                    println!("Cleaned question: {}", cleaned_question);
+                    println!("Normalized question: {}", normalized_question);
+                    println!("Question hash: {}", question_hash);
+                    println!("Cleaned answer: {}", cleaned_answer);
+                    println!("Normalized answer: {}", normalized_answer);
+                    println!("Answer hash: {}", answer_hash);
+                    println!("========================\n");
+                }
+                
+                _skipped_entries += 1;
+                _skipped_duplicates += 1;
+                global_skipped_duplicates.fetch_add(1, Ordering::Relaxed);
+                continue;
+            }
+            
+            // Mark as seen with file and line info
+            dedup_map.insert(dedup_key, (eval_name.clone(), line_num));
+        }
 
         // Process question field
         if let Some(question) = json_obj.get("question").and_then(|v| v.as_str()) {
@@ -352,7 +483,13 @@ fn process_simple_reference_file(
         }
     }
 
-    // println!("Finished {}: processed {} lines, skipped {} short entries", eval_name, _lines_processed, _skipped_entries); //debug
+    global_lines_processed.fetch_add(_lines_processed, Ordering::Relaxed);
+    
+    // Log filtering statistics per file if verbose logging is enabled
+    if std::env::var("DECON_VERBOSE").is_ok() && (config.eval_dedup || config.eval_min_cleaned_char_length > 0 || config.eval_min_unique_word_count > 0) {
+        println!("  {}: processed {} lines, skipped {} total ({} min_length, {} min_unique_words, {} duplicates)", 
+            eval_name, _lines_processed, _skipped_entries, _skipped_min_length, _skipped_min_unique_words, _skipped_duplicates);
+    }
     Ok(())
 }
 
@@ -361,6 +498,14 @@ fn hash_ngram(tokens: &[usize]) -> u64 {
     use std::hash::{DefaultHasher, Hash, Hasher};
     let mut hasher = DefaultHasher::new();
     tokens.hash(&mut hasher);
+    hasher.finish()
+}
+
+// Helper function to hash text for deduplication
+fn hash_text_for_dedup(text: &str) -> u64 {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    text.hash(&mut hasher);
     hasher.finish()
 }
 
@@ -459,12 +604,6 @@ fn process_question_field(
         tokens
     };
     let token_count = word_tokens.len();
-
-    // Skip entries with insufficient tokens for meaningful n-gram analysis
-    if token_count < config.eval_min_token_count {
-        *skipped_entries += 1;
-        return Ok(());
-    }
 
     *lines_processed += 1;
 

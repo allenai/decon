@@ -174,6 +174,31 @@ enum Commands {
             help_heading = "Performance"
         )]
         worker_threads: Option<usize>,
+
+        // Reference preprocessing options
+        #[arg(
+            long,
+            help = "Enable exact deduplication of reference entries",
+            display_order = 16,
+            help_heading = "Reference Preprocessing"
+        )]
+        eval_dedup: bool,
+
+        #[arg(
+            long,
+            help = "Minimum character count for reference entries (0 = disabled) [default: 0]",
+            display_order = 17,
+            help_heading = "Reference Preprocessing"
+        )]
+        eval_min_cleaned_char_length: Option<usize>,
+
+        #[arg(
+            long,
+            help = "Minimum unique word count for reference entries (0 = disabled) [default: 0]",
+            display_order = 18,
+            help_heading = "Reference Preprocessing"
+        )]
+        eval_min_unique_word_count: Option<usize>,
     },
 
     #[command(about = "Review and analyze detect results")]
@@ -360,6 +385,31 @@ enum Commands {
             help_heading = "Performance"
         )]
         worker_threads: Option<usize>,
+
+        // Reference preprocessing options
+        #[arg(
+            long,
+            help = "Enable exact deduplication of reference entries",
+            display_order = 17,
+            help_heading = "Reference Preprocessing"
+        )]
+        eval_dedup: bool,
+
+        #[arg(
+            long,
+            help = "Minimum character count for reference entries (0 = disabled) [default: 0]",
+            display_order = 18,
+            help_heading = "Reference Preprocessing"
+        )]
+        eval_min_cleaned_char_length: Option<usize>,
+
+        #[arg(
+            long,
+            help = "Minimum unique word count for reference entries (0 = disabled) [default: 0]",
+            display_order = 19,
+            help_heading = "Reference Preprocessing"
+        )]
+        eval_min_unique_word_count: Option<usize>,
     },
 
     #[command(about = "Manage and analyze reference datasets")]
@@ -463,8 +513,18 @@ pub struct Config {
     pub require_answer_when_eval_has_answer: bool,
 
     // Minimum word count for eval file indexing in SIMPLE mode
-    #[serde(default = "default_eval_min_token_count")]
-    pub eval_min_token_count: usize,
+
+    // Enable exact deduplication of reference entries (default: false)
+    #[serde(default)]
+    pub eval_dedup: bool,
+
+    // Minimum character count for reference entries, 0 = disabled (default: 0)
+    #[serde(default)]
+    pub eval_min_cleaned_char_length: usize,
+
+    // Minimum unique word count for reference entries, 0 = disabled (default: 0)
+    #[serde(default)]
+    pub eval_min_unique_word_count: usize,
 
     // Whether to replace non-UTF8 characters when creating purified files
     #[serde(default = "default_replace_non_utf8_chars")]
@@ -509,9 +569,6 @@ fn default_worker_threads() -> usize {
         .unwrap_or(4) // Default to 4 if unable to detect CPU cores
 }
 
-fn default_eval_min_token_count() -> usize {
-    10 // Default minimum word count for eval file indexing
-}
 
 fn default_min_short_answer_distance() -> usize {
     30 // Default maximum token distance to search for short answers
@@ -551,7 +608,7 @@ pub fn get_results_filename(mode: &str) -> String {
 }
 
 pub fn get_unique_results_filename(
-    input_file: &PathBuf, 
+    input_file: &PathBuf,
     config: &Config,
     base_input_dir: &PathBuf
 ) -> Result<String, anyhow::Error> {
@@ -564,25 +621,25 @@ pub fn get_unique_results_filename(
                 .map(std::path::Path::new)
                 .unwrap_or_else(|| std::path::Path::new("unknown"))
         });
-    
+
     // Get parent directory path (if any)
     let parent_dir = relative_path.parent();
-    
+
     // Get base filename without extension
     let base_name = relative_path
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("unknown");
-    
+
     // Get the appropriate threshold value based on mode
     let threshold = match config.mode.as_str() {
         "simple" => config.question_threshold,
         _ => 0.0,
     };
-    
+
     // Construct the result filename
     let result_filename = format!("{}-{}-{:.2}.jsonl", base_name, config.mode, threshold);
-    
+
     // Combine with parent directory if it exists
     if let Some(parent) = parent_dir {
         if parent.as_os_str().is_empty() {
@@ -605,10 +662,10 @@ pub fn get_purified_filename(input_file: &PathBuf, base_input_dir: &PathBuf) -> 
                 .map(std::path::Path::new)
                 .unwrap_or_else(|| std::path::Path::new("unknown"))
         });
-    
+
     // Get parent directory path (if any)
     let parent_dir = relative_path.parent();
-    
+
     // Get the filename
     let filename = relative_path
         .file_name()
@@ -628,7 +685,7 @@ pub fn get_purified_filename(input_file: &PathBuf, base_input_dir: &PathBuf) -> 
 
     // Construct the purified filename
     let purified_filename = format!("{}.jsonl.gz", base_name);
-    
+
     // Combine with parent directory if it exists
     if let Some(parent) = parent_dir {
         if parent.as_os_str().is_empty() {
@@ -694,7 +751,7 @@ pub fn write_purified_file_bytes(
 
     let purified_filename = get_purified_filename(input_path, base_input_dir)?;
     let purified_path = cleaned_output_dir.join(&purified_filename);
-    
+
     // Create parent directories if they don't exist (for preserving directory structure)
     if let Some(parent) = purified_path.parent() {
         create_dir_all(parent)?;
@@ -806,7 +863,7 @@ pub fn write_purified_file_with_utf8_lossy_conversion(
 
     let purified_filename = get_purified_filename(input_path, base_input_dir)?;
     let purified_path = cleaned_output_dir.join(&purified_filename);
-    
+
     // Create parent directories if they don't exist (for preserving directory structure)
     if let Some(parent) = purified_path.parent() {
         create_dir_all(parent)?;
@@ -1128,6 +1185,17 @@ fn contamination_detect_with_config(config_obj: &Config) -> Result<(), Error> {
             println!("  Tokenizer: {}", config_obj.tokenizer_str);
             println!("  Worker threads: {}", config_obj.worker_threads);
 
+            // Display reference preprocessing options if any are enabled
+            println!("\nReference Preprocessing:");
+            println!("  Deduplication: {}", if config_obj.eval_dedup { "enabled" } else { "disabled" });
+            if config_obj.eval_min_cleaned_char_length > 0 {
+                println!("  Minimum length: {} characters (after cleaning)", config_obj.eval_min_cleaned_char_length);
+            }
+            if config_obj.eval_min_unique_word_count > 0 {
+                println!("  Minimum unique words: {}", config_obj.eval_min_unique_word_count);
+            }
+
+
             println!("\nInput and Output:");
             println!("  Local input: {}", config_obj.local_input.display());
             println!("  Content key: {}", config_obj.content_key);
@@ -1192,6 +1260,9 @@ fn main() -> Result<(), Error> {
             answer_threshold,
             require_answer_when_eval_has_answer,
             worker_threads,
+            eval_dedup,
+            eval_min_cleaned_char_length,
+            eval_min_unique_word_count,
         } => {
             // Load config from file
             let mut loaded_config = read_config(config)?;
@@ -1242,6 +1313,17 @@ fn main() -> Result<(), Error> {
             }
             if let Some(wt) = worker_threads {
                 loaded_config.worker_threads = *wt;
+            }
+
+            // Reference preprocessing overrides
+            if *eval_dedup {
+                loaded_config.eval_dedup = true;
+            }
+            if let Some(eml) = eval_min_cleaned_char_length {
+                loaded_config.eval_min_cleaned_char_length = *eml;
+            }
+            if let Some(emuwc) = eval_min_unique_word_count {
+                loaded_config.eval_min_unique_word_count = *emuwc;
             }
 
             contamination_detect_with_config(&loaded_config)
@@ -1288,6 +1370,9 @@ fn main() -> Result<(), Error> {
             answer_threshold,
             require_answer_when_eval_has_answer,
             worker_threads,
+            eval_dedup,
+            eval_min_cleaned_char_length,
+            eval_min_unique_word_count,
         } => {
             // Load config from file
             let mut loaded_config = read_config(config)?;
@@ -1338,6 +1423,17 @@ fn main() -> Result<(), Error> {
             }
             if let Some(wt) = worker_threads {
                 loaded_config.worker_threads = *wt;
+            }
+
+            // Reference preprocessing overrides
+            if *eval_dedup {
+                loaded_config.eval_dedup = true;
+            }
+            if let Some(eml) = eval_min_cleaned_char_length {
+                loaded_config.eval_min_cleaned_char_length = *eml;
+            }
+            if let Some(emuwc) = eval_min_unique_word_count {
+                loaded_config.eval_min_unique_word_count = *emuwc;
             }
 
             let runtime = tokio::runtime::Runtime::new().unwrap();
