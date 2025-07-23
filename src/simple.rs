@@ -2245,8 +2245,16 @@ fn create_purified_files_streaming(
         .as_ref()
         .unwrap_or(&config.report_output_dir);
 
-    // Process each training file that has contamination
-    for file_path in training_files {
+    // Create progress bar for purification
+    let pbar = build_pbar(training_files.len(), "Purifying files");
+
+    // Track statistics
+    let total_files_processed = Arc::new(AtomicUsize::new(0));
+    let total_lines_removed = Arc::new(AtomicUsize::new(0));
+    let total_clean_files = Arc::new(AtomicUsize::new(0));
+
+    // Process each training file in parallel
+    training_files.par_iter().for_each(|file_path| {
         // Match the same logic used in process_training_file
         let file_name = match file_path.extension().and_then(|s| s.to_str()) {
             Some("gz") | Some("zst") => file_path
@@ -2268,20 +2276,43 @@ fn create_purified_files_streaming(
             HashSet::new()
         };
 
-        // Always create a purified file when purify mode is enabled
-        write_purified_file(file_path, cleaned_dir, &contaminated_lines, config, &config.local_input)?;
+        // Track if file is clean
+        let is_clean = contaminated_lines.is_empty();
+        let lines_removed = contaminated_lines.len();
 
-        if contaminated_lines.is_empty() {
-            println!("Copied clean file: {}", file_name);
-        } else {
-            println!(
-                "Created purified file for {} (removed {} lines)",
-                file_name,
-                contaminated_lines.len()
-            );
+        // Always create a purified file when purify mode is enabled
+        match write_purified_file(file_path, cleaned_dir, &contaminated_lines, config, &config.local_input) {
+            Ok(_) => {
+                total_files_processed.fetch_add(1, Ordering::Relaxed);
+                if is_clean {
+                    total_clean_files.fetch_add(1, Ordering::Relaxed);
+                } else {
+                    total_lines_removed.fetch_add(lines_removed, Ordering::Relaxed);
+                }
+            }
+            Err(e) => {
+                eprintln!("Error purifying file {:?}: {:?}", file_path, e);
+            }
         }
+
+        pbar.inc(1);
+    });
+
+    pbar.finish_with_message("Purification complete");
+
+    // Print summary statistics
+    let files_processed = total_files_processed.load(Ordering::Relaxed);
+    let clean_files = total_clean_files.load(Ordering::Relaxed);
+    let contaminated_files_count = files_processed - clean_files;
+    let lines_removed = total_lines_removed.load(Ordering::Relaxed);
+
+    println!("\nPurification Summary:");
+    println!("  Total files processed: {}", files_processed);
+    println!("  Clean files copied: {}", clean_files);
+    println!("  Contaminated files purified: {}", contaminated_files_count);
+    if contaminated_files_count > 0 {
+        println!("  Total lines removed: {}", lines_removed);
     }
 
-    println!("Purification complete.");
     Ok(())
 }
