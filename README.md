@@ -39,18 +39,18 @@ cargo build --release
 
 # Download evaluation datasets. The cli will look for these in the configured reference directory.
 # The datasets use "best-available" format - includes answers when available
-s5cmd sync s3://decon-evals/* fixtures/reference/
+s5cmd sync s3://decon-evals/* fixtures/
 
 # Download your data set to the directory of your choice.
 # NOTE: you will probably want a different location, this is just the default.
 s5cmd sync s3://your-data-set-prefix fixtures/local_input
 
 # Run contamination detection.
-target/release/decon detect --config config/simple.yaml
+target/release/decon detect --config config/default.yaml
 
 # Pass the purify flag to write a decontaminated copy of your dataset to the
 # configured cleaned_output_dir.
-target/release/decon detect --config config/simple.yaml --purify
+target/release/decon detect --config config/default.yaml --purify
 
 # For full set of options, help is available.
 # Note that the options mix all the different modes (I'll clean this up eventually)
