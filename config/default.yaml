@@ -20,4 +20,4 @@ eval_dedup: true  # Enable exact deduplication of reference entries
 eval_min_cleaned_char_length: 50  # Minimum character count for reference entries after cleaning (0 = disabled)
 eval_min_unique_word_count: 4  # Minimum unique word count for reference entries (0 = disabled)
 
-punctuation_chars: "!’\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~”“"  # (uses default if not specified)
+punctuation_chars: "!’\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~”“‘’"  # (uses default if not specified)
