@@ -1312,7 +1312,7 @@ fn short_answer_tokens(
     doc_id: u32,
     training_tokens: &[usize],
     config: &Config,
-    tokenizer: &OmniTokenizer,
+    _tokenizer: &OmniTokenizer,
 ) -> HashSet<usize> {
     // Calculate window size as max(answer_length*2, min_short_answer_distance)
     // Use the actual token length, not the unique token count
