@@ -93,6 +93,7 @@ pub fn review_contamination(
     skip_exact: bool,
     top_eval_examples: Option<usize>,
     sort_match_length_descending: bool,
+    sort_match_length_ascending: bool,
 ) -> Result<(), Error> {
     println!("=== CONTAMINATION REVIEW ===");
 
@@ -125,6 +126,13 @@ pub fn review_contamination(
             let count_a = a.ngram_match_cnt.unwrap_or(0);
             let count_b = b.ngram_match_cnt.unwrap_or(0);
             count_b.cmp(&count_a) // Note: b compared to a for descending order
+        });
+    } else if sort_match_length_ascending {
+        // Sort by ngram_match_cnt in ascending order (lowest first)
+        all_results.sort_by(|a, b| {
+            let count_a = a.ngram_match_cnt.unwrap_or(0);
+            let count_b = b.ngram_match_cnt.unwrap_or(0);
+            count_a.cmp(&count_b) // Note: a compared to b for ascending order
         });
     } else {
         // Default: Sort by contamination_score in ascending order
