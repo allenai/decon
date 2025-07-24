@@ -536,7 +536,6 @@ fn display_contamination_case_internal(result: &ContaminationResult) -> Result<(
                 println!("⚡ CONTAMINATION SCORE: {:.3}", score);
             }
 
-
             println!();
         }
     }

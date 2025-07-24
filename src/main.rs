@@ -612,7 +612,6 @@ fn default_worker_threads() -> usize {
         .unwrap_or(4) // Default to 4 if unable to detect CPU cores
 }
 
-
 fn default_min_short_answer_distance() -> usize {
     30 // Default maximum token distance to search for short answers
 }
@@ -658,7 +657,7 @@ fn validate_config(config: &Config) -> Result<(), Error> {
             ));
         }
     }
-    
+
     Ok(())
 }
 
@@ -672,17 +671,16 @@ pub fn get_results_filename(mode: &str) -> String {
 pub fn get_unique_results_filename(
     input_file: &PathBuf,
     config: &Config,
-    base_input_dir: &PathBuf
+    base_input_dir: &PathBuf,
 ) -> Result<String, anyhow::Error> {
     // Calculate relative path from base_input_dir to input_file
-    let relative_path = input_file
-        .strip_prefix(base_input_dir)
-        .unwrap_or_else(|_| {
-            // If strip_prefix fails, just use the filename
-            input_file.file_name()
-                .map(std::path::Path::new)
-                .unwrap_or_else(|| std::path::Path::new("unknown"))
-        });
+    let relative_path = input_file.strip_prefix(base_input_dir).unwrap_or_else(|_| {
+        // If strip_prefix fails, just use the filename
+        input_file
+            .file_name()
+            .map(std::path::Path::new)
+            .unwrap_or_else(|| std::path::Path::new("unknown"))
+    });
 
     // Get parent directory path (if any)
     let parent_dir = relative_path.parent();
@@ -714,16 +712,18 @@ pub fn get_unique_results_filename(
     }
 }
 
-pub fn get_purified_filename(input_file: &PathBuf, base_input_dir: &PathBuf) -> Result<String, anyhow::Error> {
+pub fn get_purified_filename(
+    input_file: &PathBuf,
+    base_input_dir: &PathBuf,
+) -> Result<String, anyhow::Error> {
     // Calculate relative path from base_input_dir to input_file
-    let relative_path = input_file
-        .strip_prefix(base_input_dir)
-        .unwrap_or_else(|_| {
-            // If strip_prefix fails, just use the filename
-            input_file.file_name()
-                .map(std::path::Path::new)
-                .unwrap_or_else(|| std::path::Path::new("unknown"))
-        });
+    let relative_path = input_file.strip_prefix(base_input_dir).unwrap_or_else(|_| {
+        // If strip_prefix fails, just use the filename
+        input_file
+            .file_name()
+            .map(std::path::Path::new)
+            .unwrap_or_else(|| std::path::Path::new("unknown"))
+    });
 
     // Get parent directory path (if any)
     let parent_dir = relative_path.parent();
@@ -775,7 +775,12 @@ pub fn write_purified_file(
             base_input_dir,
         )
     } else {
-        write_purified_file_bytes(input_path, cleaned_output_dir, contaminated_lines, base_input_dir)
+        write_purified_file_bytes(
+            input_path,
+            cleaned_output_dir,
+            contaminated_lines,
+            base_input_dir,
+        )
     }
 }
 
@@ -1249,14 +1254,26 @@ fn contamination_detect_with_config(config_obj: &Config) -> Result<(), Error> {
 
             // Display reference preprocessing options if any are enabled
             println!("\nReference Preprocessing:");
-            println!("  Deduplication: {}", if config_obj.eval_dedup { "enabled" } else { "disabled" });
+            println!(
+                "  Deduplication: {}",
+                if config_obj.eval_dedup {
+                    "enabled"
+                } else {
+                    "disabled"
+                }
+            );
             if config_obj.eval_min_token_length > 0 {
-                println!("  Minimum length: {} tokens", config_obj.eval_min_token_length);
+                println!(
+                    "  Minimum length: {} tokens",
+                    config_obj.eval_min_token_length
+                );
             }
             if config_obj.eval_min_unique_word_count > 0 {
-                println!("  Minimum unique words: {}", config_obj.eval_min_unique_word_count);
+                println!(
+                    "  Minimum unique words: {}",
+                    config_obj.eval_min_unique_word_count
+                );
             }
-
 
             println!("\nInput and Output:");
             println!("  Local input: {}", config_obj.local_input.display());

@@ -276,7 +276,10 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
     let skipped_min_unique_words = total_skipped_min_unique_words.load(Ordering::Relaxed);
     let total_skipped = skipped_duplicates + skipped_min_tokens + skipped_min_unique_words;
 
-    if config.eval_dedup || config.eval_min_token_length > 0 || config.eval_min_unique_word_count > 0 {
+    if config.eval_dedup
+        || config.eval_min_token_length > 0
+        || config.eval_min_unique_word_count > 0
+    {
         println!("\nReference preprocessing summary:");
         println!("  Total lines examined: {}", total_lines + total_skipped);
         println!("  Lines indexed: {}", total_lines);
@@ -289,7 +292,10 @@ pub fn build_simple_index(config: &Config) -> Result<SimpleIndex, Error> {
                 println!("    - Below minimum tokens: {}", skipped_min_tokens);
             }
             if skipped_min_unique_words > 0 {
-                println!("    - Below minimum unique words: {}", skipped_min_unique_words);
+                println!(
+                    "    - Below minimum unique words: {}",
+                    skipped_min_unique_words
+                );
             }
         }
     }
@@ -367,8 +373,14 @@ fn process_simple_reference_file(
             as u32;
 
         // Get question and answer text for filtering
-        let question_text = json_obj.get("question").and_then(|v| v.as_str()).unwrap_or("");
-        let answer_text = json_obj.get("answer").and_then(|v| v.as_str()).unwrap_or("");
+        let question_text = json_obj
+            .get("question")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let answer_text = json_obj
+            .get("answer")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
 
         // Clean texts early for filtering
         let cleaned_question = clean_text(question_text, &config.punctuation_chars);
@@ -391,7 +403,7 @@ fn process_simple_reference_file(
                 let padded_text = format!(" {}", combined_cleaned_text);
                 match catch_unwind(|| tokenizer.encode(&padded_text)) {
                     Ok(tokens) => tokens.len(),
-                    Err(_) => 0  // Skip if tokenization fails
+                    Err(_) => 0, // Skip if tokenization fails
                 }
             };
 
@@ -838,10 +850,17 @@ fn detect_simple_contamination(
 
                 // Save results for this file if contamination was found
                 if !file_contamination_results.is_empty() {
-                    let unique_filename = match crate::get_unique_results_filename(file_path, config, &config.local_input) {
+                    let unique_filename = match crate::get_unique_results_filename(
+                        file_path,
+                        config,
+                        &config.local_input,
+                    ) {
                         Ok(filename) => filename,
                         Err(e) => {
-                            println!("Error generating unique filename for {:?}: {:?}", file_path, e);
+                            println!(
+                                "Error generating unique filename for {:?}: {:?}",
+                                file_path, e
+                            );
                             return;
                         }
                     };
@@ -1089,12 +1108,15 @@ impl SimpleContaminationEntry {
     pub fn get_required_threshold(&self, config: &Config) -> f32 {
         let eval_len = self.eval_token_length.unwrap_or(usize::MAX);
 
-        match (config.perfect_match_eval_token_length_start, config.threshold_match_eval_token_length_end) {
+        match (
+            config.perfect_match_eval_token_length_start,
+            config.threshold_match_eval_token_length_end,
+        ) {
             (Some(perfect_start), Some(threshold_end)) => {
                 if eval_len <= perfect_start {
-                    1.0  // Perfect match required
+                    1.0 // Perfect match required
                 } else if eval_len >= threshold_end {
-                    config.question_threshold  // Normal threshold
+                    config.question_threshold // Normal threshold
                 } else if perfect_start == threshold_end {
                     // Step function: immediate transition at the threshold
                     config.question_threshold
@@ -1115,7 +1137,7 @@ impl SimpleContaminationEntry {
                     config.question_threshold
                 }
             }
-            _ => config.question_threshold
+            _ => config.question_threshold,
         }
     }
 
@@ -1144,8 +1166,8 @@ impl SimpleContaminationEntry {
         total_docs: f32,
     ) -> (bool, Option<f32>, Option<Vec<String>>, Option<f32>) {
         let required_threshold = self.get_required_threshold(config);
-        let question_contam = self.score_question_contamination(required_threshold)
-            >= required_threshold;
+        let question_contam =
+            self.score_question_contamination(required_threshold) >= required_threshold;
 
         if question_contam {
             // If require_answer_when_eval_has_answer is false, return question contamination only
@@ -1181,6 +1203,41 @@ impl SimpleContaminationEntry {
         }
 
         (question_contam, None, None, None)
+    }
+}
+
+/// Calculate the required answer threshold based on answer token length
+fn get_required_answer_threshold(answer_token_length: usize, config: &Config) -> f32 {
+    match (
+        config.perfect_match_eval_token_length_start,
+        config.threshold_match_eval_token_length_end,
+    ) {
+        (Some(perfect_start), Some(threshold_end)) => {
+            if answer_token_length <= perfect_start {
+                1.0 // Perfect match required
+            } else if answer_token_length >= threshold_end {
+                config.answer_threshold // Normal threshold
+            } else if perfect_start == threshold_end {
+                // Step function: immediate transition at the threshold
+                config.answer_threshold
+            } else {
+                // Linear interpolation between 1.0 and answer_threshold
+                let range = (threshold_end - perfect_start) as f32;
+                let position = (answer_token_length - perfect_start) as f32;
+                let ratio = position / range;
+                // Interpolate: start at 1.0, end at answer_threshold
+                1.0 - (1.0 - config.answer_threshold) * ratio
+            }
+        }
+        (Some(perfect_start), None) => {
+            // Original behavior - hard cutoff
+            if answer_token_length <= perfect_start {
+                1.0
+            } else {
+                config.answer_threshold
+            }
+        }
+        _ => config.answer_threshold,
     }
 }
 
@@ -1242,8 +1299,16 @@ fn has_matching_answer(
         total_docs,
     );
 
+    // Get answer token length and calculate required threshold
+    let answer_token_length = eval_doc_id_to_answer_token_length
+        .get(&doc_id)
+        .map(|len| *len)
+        .unwrap_or_else(|| answer_token_set.len()); // Fallback to unique count if not found
+
+    let required_answer_threshold = get_required_answer_threshold(answer_token_length, config);
+
     // Check if meets threshold using IDF overlap
-    let is_contaminated = answer_idf_overlap >= config.answer_threshold;
+    let is_contaminated = answer_idf_overlap >= required_answer_threshold;
 
     (
         is_contaminated,
@@ -1620,8 +1685,7 @@ pub fn process_simple_training_file(
 
                     // Track if question was contaminated but excluded due to no answer match
                     let required_threshold = entry.get_required_threshold(config);
-                    let question_contam = entry
-                        .score_question_contamination(required_threshold)
+                    let question_contam = entry.score_question_contamination(required_threshold)
                         >= required_threshold;
                     if question_contam && !is_contaminated {
                         EXCLUDED_NO_ANSWER_MATCH.fetch_add(1, Ordering::Relaxed);
@@ -2281,7 +2345,13 @@ fn create_purified_files_streaming(
         let lines_removed = contaminated_lines.len();
 
         // Always create a purified file when purify mode is enabled
-        match write_purified_file(file_path, cleaned_dir, &contaminated_lines, config, &config.local_input) {
+        match write_purified_file(
+            file_path,
+            cleaned_dir,
+            &contaminated_lines,
+            config,
+            &config.local_input,
+        ) {
             Ok(_) => {
                 total_files_processed.fetch_add(1, Ordering::Relaxed);
                 if is_clean {
@@ -2309,7 +2379,10 @@ fn create_purified_files_streaming(
     println!("\nPurification Summary:");
     println!("  Total files processed: {}", files_processed);
     println!("  Clean files copied: {}", clean_files);
-    println!("  Contaminated files purified: {}", contaminated_files_count);
+    println!(
+        "  Contaminated files purified: {}",
+        contaminated_files_count
+    );
     if contaminated_files_count > 0 {
         println!("  Total lines removed: {}", lines_removed);
     }
