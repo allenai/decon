@@ -15,12 +15,12 @@ sample_every_m_tokens: 10
 max_consecutive_misses: 11  # ngram_size * 2 recommended.
 
 question_threshold: 0.815 # Higher for more precision, lower for more recall
-perfect_match_eval_token_length_start: 35  # Require perfect match (IDF Overlap=1.0) for evals with this many or fewer tokens. Should probably start after eval_min_token_length
+perfect_match_eval_token_length_start: 25  # Require perfect match (IDF Overlap=1.0) for evals with this many or fewer tokens. Should probably start after eval_min_token_length
 threshold_match_eval_token_length_end: 50  # Require question threshold for evals with this many or more tokens, linear interpolation in between.
 
 
 answer_threshold: 0.8
-min_short_answer_distance: 120 # The minimum window on either side of a question to look for an answer. max(answer_length*2, min_short_answer_distance)
+min_short_answer_distance: 20 # The minimum window after a question to look for an answer. max(answer_length*2, min_short_answer_distance)
 require-answer-when-eval-has-answer: true
 
 # Reference preprocessing options

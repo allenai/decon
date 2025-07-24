@@ -1241,7 +1241,7 @@ fn get_required_answer_threshold(answer_token_length: usize, config: &Config) ->
     }
 }
 
-/// Check if the answer matches - exact same behavior as before
+/// Check if the answer matches - only looks after the contamination cluster
 /// Returns (is_contaminated, overlap_ratio, matched_tokens_text, answer_idf_overlap)
 fn has_matching_answer(
     answer_token_set: &HashSet<usize>,
@@ -1254,8 +1254,8 @@ fn has_matching_answer(
     token_doc_freq: &TokenDocFreqMap,
     total_docs: f32,
 ) -> (bool, f32, Vec<String>, f32) {
-    // Get matching tokens separately for prefix and suffix
-    let (prefix_matches, suffix_matches) = short_answer_tokens(
+    // Get matching tokens from suffix only (after the contamination)
+    let matching_tokens = short_answer_tokens(
         answer_token_set,
         eval_doc_id_to_answer_token_length,
         cluster,
@@ -1265,24 +1265,11 @@ fn has_matching_answer(
         tokenizer,
     );
 
-    // Calculate overlap ratios for prefix and suffix
-    let prefix_overlap_ratio = if answer_token_set.is_empty() {
+    // Calculate overlap ratio for suffix
+    let answer_overlap_ratio = if answer_token_set.is_empty() {
         0.0
     } else {
-        prefix_matches.len() as f32 / answer_token_set.len() as f32
-    };
-
-    let suffix_overlap_ratio = if answer_token_set.is_empty() {
-        0.0
-    } else {
-        suffix_matches.len() as f32 / answer_token_set.len() as f32
-    };
-
-    // Use the better overlap ratio and corresponding matches
-    let (answer_overlap_ratio, matching_tokens) = if prefix_overlap_ratio >= suffix_overlap_ratio {
-        (prefix_overlap_ratio, prefix_matches)
-    } else {
-        (suffix_overlap_ratio, suffix_matches)
+        matching_tokens.len() as f32 / answer_token_set.len() as f32
     };
 
     // Convert matching token IDs to text
@@ -1326,7 +1313,7 @@ fn short_answer_tokens(
     training_tokens: &[usize],
     config: &Config,
     tokenizer: &OmniTokenizer,
-) -> (HashSet<usize>, HashSet<usize>) {
+) -> HashSet<usize> {
     // Calculate window size as max(answer_length*2, min_short_answer_distance)
     // Use the actual token length, not the unique token count
     let answer_length = eval_doc_id_to_answer_token_length
@@ -1336,29 +1323,20 @@ fn short_answer_tokens(
     let window_size = std::cmp::max(answer_length * 2, config.min_short_answer_distance);
 
     // Get document-specific boundaries
-    let (doc_start_idx, doc_end_idx) = cluster
+    let (_doc_start_idx, doc_end_idx) = cluster
         .document_boundaries
         .get(&doc_id)
         .copied()
         .expect("Document boundaries should exist for all matched documents");
 
     if config.exclude_question_from_answer_sweep {
-        // When excluding question tokens, search in prefix and suffix regions
-        let prefix_search_start = doc_start_idx.saturating_sub(window_size);
-        let prefix_search_end = doc_start_idx;
+        // When excluding question tokens, search only in suffix region (after the contamination)
         // Fix: doc_end_idx is the last n-gram position, but we need the last token position
         let suffix_search_start = doc_end_idx + config.ngram_size - 1 + 1;
         let suffix_search_end = (suffix_search_start + window_size).min(training_tokens.len());
 
-        // Collect tokens from both regions
+        // Collect tokens from suffix region only
         let mut training_token_set = HashSet::new();
-
-        // Add prefix tokens and decode for debug display
-        let mut prefix_tokens = Vec::new();
-        if prefix_search_start < prefix_search_end {
-            prefix_tokens.extend(&training_tokens[prefix_search_start..prefix_search_end]);
-            training_token_set.extend(prefix_tokens.iter().copied());
-        }
 
         // Add suffix tokens and decode for debug display
         let mut suffix_tokens = Vec::new();
@@ -1368,104 +1346,8 @@ fn short_answer_tokens(
             training_token_set.extend(suffix_tokens.iter().copied());
         }
 
-        // Debug logging - decode and display the prefix and suffix text
-        if std::env::var("DEBUG_ANSWER").is_ok() {
-            let prefix_text = if tokenizer.tokenizer_name == "word" {
-                // For word tokenizer, convert token IDs back to words
-                prefix_tokens
-                    .iter()
-                    .filter_map(|&token_id| tokenizer.get_word(token_id as u32))
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            } else if let Some(inner) = tokenizer.inner.as_ref() {
-                // For BPE tokenizers, decode token array
-                inner
-                    .decode(prefix_tokens.clone())
-                    .unwrap_or_else(|_| "[decode error]".to_string())
-            } else {
-                "[no decoder]".to_string()
-            };
-
-            let suffix_text = if tokenizer.tokenizer_name == "word" {
-                // For word tokenizer, convert token IDs back to words
-                suffix_tokens
-                    .iter()
-                    .filter_map(|&token_id| tokenizer.get_word(token_id as u32))
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            } else if let Some(inner) = tokenizer.inner.as_ref() {
-                // For BPE tokenizers, decode token array
-                inner
-                    .decode(suffix_tokens.clone())
-                    .unwrap_or_else(|_| "[decode error]".to_string())
-            } else {
-                "[no decoder]".to_string()
-            };
-
-            // Decode answer tokens to see what we're looking for
-            let answer_text = if tokenizer.tokenizer_name == "word" {
-                answer_token_set
-                    .iter()
-                    .filter_map(|&token_id| tokenizer.get_word(token_id as u32))
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            } else if let Some(inner) = tokenizer.inner.as_ref() {
-                let answer_vec: Vec<usize> = answer_token_set.iter().copied().collect();
-                inner
-                    .decode(answer_vec)
-                    .unwrap_or_else(|_| "[decode error]".to_string())
-            } else {
-                "[no decoder]".to_string()
-            };
-
-            println!("\n=== Answer Detection Debug (doc_id: {}) ===", doc_id);
-            println!(
-                "Answer text to find: \"{}\" ({} tokens)",
-                answer_text,
-                answer_token_set.len()
-            );
-            println!("Answer token IDs: {:?}", answer_token_set);
-            println!("Prefix ({} tokens): {}", prefix_tokens.len(), prefix_text);
-            println!("Suffix ({} tokens): {}", suffix_tokens.len(), suffix_text);
-
-            // Show what tokens we found in common
-            let found_in_training: HashSet<usize> = answer_token_set
-                .iter()
-                .filter(|token| training_token_set.contains(token))
-                .copied()
-                .collect();
-            println!(
-                "Found {} of {} answer tokens in training text",
-                found_in_training.len(),
-                answer_token_set.len()
-            );
-            println!("Found token IDs: {:?}", found_in_training);
-            let missing_tokens: HashSet<usize> = answer_token_set
-                .difference(&found_in_training)
-                .copied()
-                .collect();
-            println!("Missing token IDs: {:?}", missing_tokens);
-
-            // Debug: Show the last few tokens of prefix and first few of suffix
-            if prefix_tokens.len() >= 4 {
-                let last_prefix_tokens = &prefix_tokens[prefix_tokens.len() - 4..];
-                println!("Last 4 prefix tokens: {:?}", last_prefix_tokens);
-            }
-            if suffix_tokens.len() >= 4 {
-                let first_suffix_tokens = &suffix_tokens[..4.min(suffix_tokens.len())];
-                println!("First 4 suffix tokens: {:?}", first_suffix_tokens);
-            }
-        }
-
-        // Find matching tokens separately for prefix and suffix
-        let prefix_token_set: HashSet<usize> = prefix_tokens.iter().copied().collect();
+        // Find matching tokens from suffix only
         let suffix_token_set: HashSet<usize> = suffix_tokens.iter().copied().collect();
-
-        let prefix_matches: HashSet<usize> = answer_token_set
-            .iter()
-            .filter(|token| prefix_token_set.contains(token))
-            .copied()
-            .collect();
 
         let suffix_matches: HashSet<usize> = answer_token_set
             .iter()
@@ -1473,26 +1355,13 @@ fn short_answer_tokens(
             .copied()
             .collect();
 
-        (prefix_matches, suffix_matches)
+        suffix_matches
     } else {
-        // Original behavior: search entire window including the question
-        // Split into prefix (before question) and suffix (after question) parts
-        let prefix_start = doc_start_idx.saturating_sub(window_size);
-        let prefix_end = doc_start_idx;
+        // Original behavior: search only after the question (suffix)
         let suffix_start = doc_end_idx + config.ngram_size - 1 + 1;
         let suffix_end = suffix_start
             .saturating_add(window_size)
             .min(training_tokens.len());
-
-        // Extract prefix tokens
-        let prefix_token_set: HashSet<usize> = if prefix_start < prefix_end {
-            training_tokens[prefix_start..prefix_end]
-                .iter()
-                .copied()
-                .collect()
-        } else {
-            HashSet::new()
-        };
 
         // Extract suffix tokens
         let suffix_token_set: HashSet<usize> =
@@ -1505,20 +1374,14 @@ fn short_answer_tokens(
                 HashSet::new()
             };
 
-        // Find matching tokens separately
-        let prefix_matches: HashSet<usize> = answer_token_set
-            .iter()
-            .filter(|token| prefix_token_set.contains(token))
-            .copied()
-            .collect();
-
+        // Find matching tokens from suffix
         let suffix_matches: HashSet<usize> = answer_token_set
             .iter()
             .filter(|token| suffix_token_set.contains(token))
             .copied()
             .collect();
 
-        (prefix_matches, suffix_matches)
+        suffix_matches
     }
 }
 
