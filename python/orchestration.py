@@ -101,6 +101,17 @@ class ContaminationOrchestrator:
         self.logger = self._setup_logging()
         self.session = self._setup_session()
         self.s3_client = boto3.client('s3')
+        
+        # Create a hash of the input directory for workspace isolation
+        input_hash = hashlib.sha256(self.config.remote_file_input.encode()).hexdigest()[:12]
+        
+        # Append hash to work directory
+        base_work_dir = Path(self.config.local_work_dir)
+        self.config.local_work_dir = str(base_work_dir / f"input-{input_hash}")
+        
+        # Log the workspace being used
+        self.logger.info(f"Using workspace for input: {self.config.remote_file_input}")
+        self.logger.info(f"Workspace directory: {self.config.local_work_dir}")
 
         # Job tracking
         self.active_jobs: Dict[str, Job] = {}
@@ -195,7 +206,7 @@ class ContaminationOrchestrator:
 
                 # Check if the process is still running
                 if self._is_process_running(existing_pid):
-                    self.logger.error(f"Another orchestrator is already running (PID: {existing_pid})")
+                    self.logger.error(f"Another orchestrator is already running (PID: {existing_pid}) for input: {self.config.remote_file_input}")
                     self.logger.error(f"Lock file: {self.lock_file}")
                     self.logger.error("If you're sure no other instance is running, delete the lock file and try again.")
                     sys.exit(1)
