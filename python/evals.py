@@ -16,13 +16,13 @@ import gzip
 
 class ChunkedFileWriter:
     """Handles writing JSONL files in chunks to avoid creating very large files."""
-    
+
     CHUNK_SIZE_BYTES = 5 * 1024 * 1024  # 5MB
-    
+
     def __init__(self, base_path):
         """
         Initialize a chunked file writer.
-        
+
         Args:
             base_path: Path to the output file (without chunk number).
                        E.g., "output/eval_train.jsonl"
@@ -31,70 +31,70 @@ class ChunkedFileWriter:
         self.base_name = self.base_path.stem
         self.extension = ''.join(self.base_path.suffixes)
         self.output_dir = self.base_path.parent
-        
+
         self.chunk_number = 0
         self.current_chunk_size = 0
         self.writer = None
         self.buffer = []
         self.total_records = 0
         self.chunk_files = []
-        
+
     def write(self, record):
         """Write a record to the chunked file."""
         line = json.dumps(record) + '\n'
         line_bytes = len(line.encode('utf-8'))
-        
+
         # Check if we need to start a new chunk
         if self.current_chunk_size + line_bytes > self.CHUNK_SIZE_BYTES or self.writer is None:
             self._start_new_chunk()
-        
+
         self.buffer.append(line)
         self.current_chunk_size += line_bytes
         self.total_records += 1
-        
+
         # Flush buffer if it gets large
         if len(self.buffer) >= 1000:
             self._flush_buffer()
-    
+
     def _start_new_chunk(self):
         """Start writing to a new chunk file."""
         # Close current chunk if exists
         if self.writer is not None:
             self._flush_buffer()
             self.writer.close()
-        
+
         # Create new chunk file
         self.chunk_number += 1
         chunk_filename = f"{self.base_name}-{self.chunk_number}{self.extension}"
         chunk_path = self.output_dir / chunk_filename
         self.chunk_files.append(chunk_path)
-        
+
         # Open new file
         if self.extension.endswith('.gz'):
             self.writer = gzip.open(chunk_path, 'wt', encoding='utf-8')
         else:
             self.writer = open(chunk_path, 'w', encoding='utf-8')
-        
+
         self.current_chunk_size = 0
-    
+
     def _flush_buffer(self):
         """Write buffered lines to the current file."""
         if self.writer and self.buffer:
             for line in self.buffer:
                 self.writer.write(line)
             self.buffer = []
-    
+
     def close(self):
         """Close the writer and flush any remaining data."""
         if self.writer:
             self._flush_buffer()
             self.writer.close()
             self.writer = None
-    
+
     def get_chunk_files(self):
         """Get list of chunk files created."""
         return self.chunk_files
-    
+
     def get_total_records(self):
         """Get total number of records written."""
         return self.total_records
@@ -2782,7 +2782,7 @@ EVAL_CONFIG = {
         },
         "winogrande": {
             "hf_path": "allenai/winogrande",
-            "hf_config": "winogrande_l",
+            "hf_config": "winogrande_xl",
             "splits": [
                 "train",
                 "test",
@@ -2940,6 +2940,119 @@ def get_nested_field(obj, field_path):
     return value
 
 
+def transform_task_mapping(flat_mapping):
+    """Transform flat task mapping into nested structure for efficient lookups.
+
+    Args:
+        flat_mapping: Original flat dictionary mapping task keys to metadata
+
+    Returns:
+        Nested dict: {dataset_path: {split: {config: [task_keys]}}}
+        Also returns local_mapping for agi_eval datasets
+    """
+    hf_mapping = {}
+    local_mapping = {}
+
+    for task_key, task_info in flat_mapping.items():
+        dataset_path = task_info.get("dataset_path", "")
+        split = task_info.get("split", "")
+        dataset_name = task_info.get("dataset_name", "")
+
+        # Skip if missing required fields
+        if not dataset_path or not split:
+            continue
+
+        # Check if this is a local dataset (has file path format)
+        if "/" in dataset_path and dataset_path.startswith("/"):
+            # This is a local path - extract dataset name for agi_eval
+            # Store in local_mapping by dataset_name
+            if dataset_name:
+                if dataset_name not in local_mapping:
+                    local_mapping[dataset_name] = {}
+                if split not in local_mapping[dataset_name]:
+                    local_mapping[dataset_name][split] = []
+                local_mapping[dataset_name][split].append(task_key)
+        else:
+            # This is a HuggingFace dataset path
+            if dataset_path not in hf_mapping:
+                hf_mapping[dataset_path] = {}
+            if split not in hf_mapping[dataset_path]:
+                hf_mapping[dataset_path][split] = {}
+
+            # Use dataset_name as config
+            if dataset_name:
+                # Store all matching tasks for each path/split/config combo
+                if dataset_name not in hf_mapping[dataset_path][split]:
+                    hf_mapping[dataset_path][split][dataset_name] = []
+                hf_mapping[dataset_path][split][dataset_name].append(task_key)
+
+    return hf_mapping, local_mapping
+
+
+def find_oe_eval_task(hf_mapping, local_mapping, eval_name, hf_path, split, config, subject=None):
+    """Find matching oe-eval-task keys using efficient lookup.
+
+    Args:
+        hf_mapping: Nested dict for HF datasets {path: {split: {config: [task_keys]}}}
+        local_mapping: Nested dict for local datasets {name: {split: [task_keys]}}
+        eval_name: Name of the eval dataset (e.g., "ai2_arc_challenge")
+        hf_path: HuggingFace dataset path (e.g., "allenai/ai2_arc")
+        split: Dataset split (e.g., "train", "test", "validation")
+        config: HuggingFace config name (e.g., "ARC-Challenge")
+        subject: Optional subject field for MMLU datasets
+
+    Returns:
+        List of matching task keys or None if no match found
+    """
+    # For local datasets (agi_eval_*)
+    if eval_name.startswith("agi_eval_"):
+        local_dataset_name = eval_name.replace("agi_eval_", "").replace("_", "-")
+        if local_dataset_name in local_mapping:
+            if split in local_mapping[local_dataset_name]:
+                return local_mapping[local_dataset_name][split]
+        return None
+
+    # For HuggingFace datasets
+    if not hf_path:
+        return None
+
+    # Try direct path match first
+    paths_to_try = [hf_path]
+
+    # Also try just the dataset name part (e.g., "ai2_arc" from "allenai/ai2_arc")
+    if "/" in hf_path:
+        paths_to_try.append(hf_path.split("/")[-1])
+
+    for path in paths_to_try:
+        if path in hf_mapping:
+            if split in hf_mapping[path]:
+                # For MMLU with config="all", use subject field for matching
+                if eval_name == "mmlu" and config == "all" and subject:
+                    # Try exact subject match
+                    if subject in hf_mapping[path][split]:
+                        return hf_mapping[path][split][subject]
+                    
+                    # Try normalized subject match
+                    subject_normalized = subject.lower().replace("-", "").replace("_", "")
+                    for stored_config, task_keys in hf_mapping[path][split].items():
+                        stored_normalized = stored_config.lower().replace("-", "").replace("_", "")
+                        if subject_normalized == stored_normalized:
+                            return task_keys
+                
+                # Try exact config match first
+                if config and config in hf_mapping[path][split]:
+                    return hf_mapping[path][split][config]
+
+                # Try normalized config match
+                if config:
+                    config_normalized = config.lower().replace("-", "").replace("_", "")
+                    for stored_config, task_keys in hf_mapping[path][split].items():
+                        stored_normalized = stored_config.lower().replace("-", "").replace("_", "")
+                        if config_normalized == stored_normalized:
+                            return task_keys
+
+    return None
+
 def is_answer_empty(answer):
     """Check if an answer is considered empty (None, blank string, or '<unk>')"""
     if answer is None:
@@ -2986,7 +3099,7 @@ def transform_answer_label(label, transform_type):
     return label
 
 
-def download_and_transform_eval(eval_name, eval_config, global_config, document_id_counter, stats, datasets_without_answers):
+def download_and_transform_eval(eval_name, eval_config, global_config, document_id_counter, stats, datasets_without_answers, hf_mapping, local_mapping, subject_index_counters=None):
     """Download HF dataset and transform to our JSONL format with separate question, context, and answer fields"""
 
     if 'local_path' in eval_config:
@@ -3068,6 +3181,12 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                         "answer": answer,
                         "config": eval_config.get('hf_config')
                     }
+
+                    # Add oe-eval-task field
+                    hf_path = eval_config.get('hf_path')
+                    subject = record.get('subject')  # Get subject if it exists (e.g., for MMLU)
+                    oe_task = find_oe_eval_task(hf_mapping, local_mapping, eval_name, hf_path, split, eval_config.get('hf_config'), subject)
+                    record['oe-eval-task'] = oe_task
 
                     # Log missing fields
                     if question is None:
@@ -3151,6 +3270,12 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                                     "sub_index": q_idx,  # Track which Q&A pair within the example
                                     "config": eval_config.get('hf_config')
                                 }
+
+                                # Add oe-eval-task field
+                                hf_path = eval_config.get('hf_path')
+                                subject = record.get('subject')  # Get subject if it exists (e.g., for MMLU)
+                                oe_task = find_oe_eval_task(hf_mapping, local_mapping, eval_name, hf_path, split, eval_config.get('hf_config'), subject)
+                                record['oe-eval-task'] = oe_task
 
                                 # Add unique document ID
                                 record['doc_id'] = document_id_counter[0]
@@ -3368,6 +3493,24 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                             if field in example:
                                 record[field] = example[field]
 
+                    # For MMLU, use subject-specific index counters
+                    if eval_name == "mmlu" and subject_index_counters is not None:
+                        subject = record.get('subject')
+                        if subject:
+                            # Create key for this dataset+subject combination
+                            counter_key = f"{eval_name}:{subject}"
+                            if counter_key not in subject_index_counters:
+                                subject_index_counters[counter_key] = 0
+                            # Use and increment the subject-specific counter
+                            record[global_config['jsonl_format']['index_field']] = subject_index_counters[counter_key]
+                            subject_index_counters[counter_key] += 1
+
+                    # Add oe-eval-task field
+                    hf_path = eval_config.get('hf_path')
+                    subject = record.get('subject')  # Get subject if it exists (e.g., for MMLU)
+                    oe_task = find_oe_eval_task(hf_mapping, local_mapping, eval_name, hf_path, split, eval_config.get('hf_config'), subject)
+                    record['oe-eval-task'] = oe_task
+
                     # Log missing fields
                     if question is None:
                         missing_fields_count["question"] += 1
@@ -3535,8 +3678,24 @@ def download_all_evals():
     """Download all eval datasets"""
     print(f"Processing {len(EVAL_CONFIG['evals'])} eval datasets...")
 
-    # Clear output directory before starting
+    # Load task mapping
     project_root = Path(__file__).parent.parent
+    mapping_file = project_root / "fixtures/oe-eval-map/task_dataset_mapping.json"
+    hf_mapping = {}
+    local_mapping = {}
+    if mapping_file.exists():
+        print(f"Loading task mapping from {mapping_file}")
+        with open(mapping_file, 'r') as f:
+            flat_mapping = json.load(f)
+        print(f"Loaded {len(flat_mapping)} task mappings")
+
+        # Transform into efficient nested structure
+        hf_mapping, local_mapping = transform_task_mapping(flat_mapping)
+        print(f"Transformed into {len(hf_mapping)} HF paths and {len(local_mapping)} local datasets")
+    else:
+        print(f"Warning: Task mapping file not found at {mapping_file}")
+
+    # Clear output directory before starting
     output_dir = project_root / EVAL_CONFIG['output_dir']
 
     # Remove existing directory if it exists
@@ -3562,10 +3721,13 @@ def download_all_evals():
 
     # Track datasets that have no answers
     datasets_without_answers = {}
+    
+    # Initialize subject-specific index counters for MMLU
+    subject_index_counters = {}
 
     # Process each eval dataset
     for eval_name, eval_config in EVAL_CONFIG['evals'].items():
-        download_and_transform_eval(eval_name, eval_config, EVAL_CONFIG, document_id_counter, stats, datasets_without_answers)
+        download_and_transform_eval(eval_name, eval_config, EVAL_CONFIG, document_id_counter, stats, datasets_without_answers, hf_mapping, local_mapping, subject_index_counters)
 
     print(f"\n{'='*80}")
     print("FINAL STATISTICS")
