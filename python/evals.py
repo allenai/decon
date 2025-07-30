@@ -3065,7 +3065,8 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                         global_config['jsonl_format']['split_field']: split,
                         "question": question,
                         "context": None,  # Auto extraction doesn't extract context
-                        "answer": answer
+                        "answer": answer,
+                        "config": eval_config.get('hf_config')
                     }
 
                     # Log missing fields
@@ -3147,7 +3148,8 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                                     "question": question,
                                     "context": context,
                                     "answer": answer,
-                                    "sub_index": q_idx  # Track which Q&A pair within the example
+                                    "sub_index": q_idx,  # Track which Q&A pair within the example
+                                    "config": eval_config.get('hf_config')
                                 }
 
                                 # Add unique document ID
@@ -3356,7 +3358,8 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                         global_config['jsonl_format']['split_field']: split,
                         "question": question,
                         "context": context,
-                        "answer": answer
+                        "answer": answer,
+                        "config": eval_config.get('hf_config')
                     }
 
                     # Add any extra fields
