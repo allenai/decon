@@ -1176,7 +1176,8 @@ EVAL_CONFIG = {
                 "answer_field": "choices",
                 "extra_fields": [
                     "subject"
-                ]
+                ],
+                "dataset_name_field": "subject"
             }
         },
         "mmlu_pro": {
@@ -1192,7 +1193,8 @@ EVAL_CONFIG = {
                 "choices_field": "options",
                 "extra_fields": [
                     "category"
-                ]
+                ],
+                "dataset_name_field": "category"
             }
         },
         "mt_eval_refinement": {
@@ -2989,7 +2991,7 @@ def transform_task_mapping(flat_mapping):
     return hf_mapping, local_mapping
 
 
-def find_oe_eval_task(hf_mapping, local_mapping, eval_name, hf_path, split, config, subject=None):
+def find_oe_eval_task(hf_mapping, local_mapping, eval_name, hf_path, split, config, dataset_name=None):
     """Find matching oe-eval-task keys using efficient lookup.
 
     Args:
@@ -2999,7 +3001,7 @@ def find_oe_eval_task(hf_mapping, local_mapping, eval_name, hf_path, split, conf
         hf_path: HuggingFace dataset path (e.g., "allenai/ai2_arc")
         split: Dataset split (e.g., "train", "test", "validation")
         config: HuggingFace config name (e.g., "ARC-Challenge")
-        subject: Optional subject field for MMLU datasets
+        dataset_name: Optional dataset name field (e.g., subject for MMLU, category for MMLU Pro)
 
     Returns:
         List of matching task keys or None if no match found
@@ -3019,24 +3021,28 @@ def find_oe_eval_task(hf_mapping, local_mapping, eval_name, hf_path, split, conf
     # Try direct path match first
     paths_to_try = [hf_path]
 
-    # Also try just the dataset name part (e.g., "ai2_arc" from "allenai/ai2_arc")
-    if "/" in hf_path:
+    # For allenai/ prefix, try without the prefix
+    if hf_path.startswith("allenai/"):
+        without_prefix = hf_path[8:]  # Remove "allenai/" prefix
+        paths_to_try.append(without_prefix)
+    # For other paths with /, try just the dataset name part
+    elif "/" in hf_path:
         paths_to_try.append(hf_path.split("/")[-1])
 
     for path in paths_to_try:
         if path in hf_mapping:
             if split in hf_mapping[path]:
-                # For MMLU with config="all", use subject field for matching
-                if eval_name == "mmlu" and config == "all" and subject:
-                    # Try exact subject match
-                    if subject in hf_mapping[path][split]:
-                        return hf_mapping[path][split][subject]
+                # For datasets with dataset_name field, use it for matching when config is "all" or None
+                if dataset_name and (config == "all" or config is None):
+                    # Try exact dataset_name match
+                    if dataset_name in hf_mapping[path][split]:
+                        return hf_mapping[path][split][dataset_name]
                     
-                    # Try normalized subject match
-                    subject_normalized = subject.lower().replace("-", "").replace("_", "")
+                    # Try normalized dataset_name match
+                    dataset_name_normalized = dataset_name.lower().replace("-", "").replace("_", "")
                     for stored_config, task_keys in hf_mapping[path][split].items():
                         stored_normalized = stored_config.lower().replace("-", "").replace("_", "")
-                        if subject_normalized == stored_normalized:
+                        if dataset_name_normalized == stored_normalized:
                             return task_keys
                 
                 # Try exact config match first
@@ -3099,7 +3105,7 @@ def transform_answer_label(label, transform_type):
     return label
 
 
-def download_and_transform_eval(eval_name, eval_config, global_config, document_id_counter, stats, datasets_without_answers, hf_mapping, local_mapping, subject_index_counters=None):
+def download_and_transform_eval(eval_name, eval_config, global_config, document_id_counter, stats, datasets_without_answers, hf_mapping, local_mapping, dataset_name_index_counters=None):
     """Download HF dataset and transform to our JSONL format with separate question, context, and answer fields"""
 
     if 'local_path' in eval_config:
@@ -3184,8 +3190,12 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
 
                     # Add oe-eval-task field
                     hf_path = eval_config.get('hf_path')
-                    subject = record.get('subject')  # Get subject if it exists (e.g., for MMLU)
-                    oe_task = find_oe_eval_task(hf_mapping, local_mapping, eval_name, hf_path, split, eval_config.get('hf_config'), subject)
+                    # Get dataset name from configured field if it exists
+                    dataset_name = None
+                    dataset_name_field = eval_config.get('transform', {}).get('dataset_name_field')
+                    if dataset_name_field:
+                        dataset_name = record.get(dataset_name_field)
+                    oe_task = find_oe_eval_task(hf_mapping, local_mapping, eval_name, hf_path, split, eval_config.get('hf_config'), dataset_name)
                     record['oe-eval-task'] = oe_task
 
                     # Log missing fields
@@ -3273,8 +3283,12 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
 
                                 # Add oe-eval-task field
                                 hf_path = eval_config.get('hf_path')
-                                subject = record.get('subject')  # Get subject if it exists (e.g., for MMLU)
-                                oe_task = find_oe_eval_task(hf_mapping, local_mapping, eval_name, hf_path, split, eval_config.get('hf_config'), subject)
+                                # Get dataset name from configured field if it exists
+                                dataset_name = None
+                                dataset_name_field = eval_config.get('transform', {}).get('dataset_name_field')
+                                if dataset_name_field:
+                                    dataset_name = record.get(dataset_name_field)
+                                oe_task = find_oe_eval_task(hf_mapping, local_mapping, eval_name, hf_path, split, eval_config.get('hf_config'), dataset_name)
                                 record['oe-eval-task'] = oe_task
 
                                 # Add unique document ID
@@ -3493,22 +3507,27 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                             if field in example:
                                 record[field] = example[field]
 
-                    # For MMLU, use subject-specific index counters
-                    if eval_name == "mmlu" and subject_index_counters is not None:
-                        subject = record.get('subject')
-                        if subject:
-                            # Create key for this dataset+subject combination
-                            counter_key = f"{eval_name}:{subject}"
-                            if counter_key not in subject_index_counters:
-                                subject_index_counters[counter_key] = 0
-                            # Use and increment the subject-specific counter
-                            record[global_config['jsonl_format']['index_field']] = subject_index_counters[counter_key]
-                            subject_index_counters[counter_key] += 1
+                    # For datasets with dataset_name_field, use dataset-specific index counters
+                    dataset_name_field = eval_config.get('transform', {}).get('dataset_name_field')
+                    if dataset_name_field and dataset_name_index_counters is not None:
+                        dataset_name = record.get(dataset_name_field)
+                        if dataset_name:
+                            # Create key for this dataset+dataset_name combination
+                            counter_key = f"{eval_name}:{dataset_name}"
+                            if counter_key not in dataset_name_index_counters:
+                                dataset_name_index_counters[counter_key] = 0
+                            # Use and increment the dataset-specific counter
+                            record[global_config['jsonl_format']['index_field']] = dataset_name_index_counters[counter_key]
+                            dataset_name_index_counters[counter_key] += 1
 
                     # Add oe-eval-task field
                     hf_path = eval_config.get('hf_path')
-                    subject = record.get('subject')  # Get subject if it exists (e.g., for MMLU)
-                    oe_task = find_oe_eval_task(hf_mapping, local_mapping, eval_name, hf_path, split, eval_config.get('hf_config'), subject)
+                    # Get dataset name from configured field if it exists
+                    dataset_name = None
+                    dataset_name_field = eval_config.get('transform', {}).get('dataset_name_field')
+                    if dataset_name_field:
+                        dataset_name = record.get(dataset_name_field)
+                    oe_task = find_oe_eval_task(hf_mapping, local_mapping, eval_name, hf_path, split, eval_config.get('hf_config'), dataset_name)
                     record['oe-eval-task'] = oe_task
 
                     # Log missing fields
@@ -3722,12 +3741,12 @@ def download_all_evals():
     # Track datasets that have no answers
     datasets_without_answers = {}
     
-    # Initialize subject-specific index counters for MMLU
-    subject_index_counters = {}
+    # Initialize dataset-specific index counters
+    dataset_name_index_counters = {}
 
     # Process each eval dataset
     for eval_name, eval_config in EVAL_CONFIG['evals'].items():
-        download_and_transform_eval(eval_name, eval_config, EVAL_CONFIG, document_id_counter, stats, datasets_without_answers, hf_mapping, local_mapping, subject_index_counters)
+        download_and_transform_eval(eval_name, eval_config, EVAL_CONFIG, document_id_counter, stats, datasets_without_answers, hf_mapping, local_mapping, dataset_name_index_counters)
 
     print(f"\n{'='*80}")
     print("FINAL STATISTICS")
