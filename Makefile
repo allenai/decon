@@ -164,6 +164,17 @@ orchestrate-debug:
 poormanray-command-generator:
 	python python/deploy.py wizard
 
+generate-orchestrator-command:
+	@if [ -z "$(filter-out $@,$(MAKECMDGOALS))" ]; then \
+		echo "Error: S3 input path required. Usage: make generate-orchestrator-command s3://path/to/data"; \
+		exit 1; \
+	fi
+	@python python/generate_orchestrator_command.py $(filter-out $@,$(MAKECMDGOALS))
+
+# Prevent make from treating the S3 path as a target
+%:
+	@:
+
 deploy-status:
 	@if [ -z "$(NAME)" ]; then \
 		echo "Error: NAME parameter required. Usage: make deploy-status NAME=<cluster-name>"; \
