@@ -3070,6 +3070,25 @@ def find_oe_eval_task(hf_mapping, local_mapping, eval_name, hf_path, split, conf
                 if len(hf_mapping[path][split]) == 1:
                     # Return the tasks for the only available dataset_name/config
                     return list(hf_mapping[path][split].values())[0]
+    
+    # Special handling: If eval has single split, collect all tasks regardless of split name
+    # This helps with datasets like bigcodebench that use version numbers as splits
+    if eval_name in EVAL_CONFIG['evals']:
+        eval_splits = EVAL_CONFIG['evals'][eval_name].get('splits', [])
+        
+        # If eval has only one split configured
+        if len(eval_splits) == 1:
+            for path in paths_to_try:
+                if path in hf_mapping:
+                    # Collect all tasks across all splits for this path
+                    all_tasks = []
+                    for split_data in hf_mapping[path].values():
+                        for config_tasks in split_data.values():
+                            all_tasks.extend(config_tasks)
+                    
+                    if all_tasks:
+                        # Return unique tasks
+                        return list(dict.fromkeys(all_tasks))
 
     return None
 
