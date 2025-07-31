@@ -103,7 +103,7 @@ EVAL_CONFIG = {
     "output_dir": "fixtures/reference",
     "jsonl_format": {
         "eval_field": "eval_name",
-        "index_field": "index",
+        "index_field": "line_number",
         "split_field": "split"
     },
     "evals": {
@@ -3036,7 +3036,7 @@ def find_oe_eval_task(hf_mapping, local_mapping, eval_name, hf_path, split, conf
                     # Try exact dataset_name match
                     if dataset_name in hf_mapping[path][split]:
                         return hf_mapping[path][split][dataset_name]
-                    
+
                     # Try normalized dataset_name match
                     dataset_name_normalized = dataset_name.lower().replace("-", "").replace("_", "")
                     for stored_config, task_keys in hf_mapping[path][split].items():
@@ -3044,7 +3044,7 @@ def find_oe_eval_task(hf_mapping, local_mapping, eval_name, hf_path, split, conf
                             stored_normalized = stored_config.lower().replace("-", "").replace("_", "")
                             if dataset_name_normalized == stored_normalized:
                                 return task_keys
-                
+
                 # Try exact config match first
                 if config and config in hf_mapping[path][split]:
                     return hf_mapping[path][split][config]
@@ -3057,7 +3057,7 @@ def find_oe_eval_task(hf_mapping, local_mapping, eval_name, hf_path, split, conf
                             stored_normalized = stored_config.lower().replace("-", "").replace("_", "")
                             if config_normalized == stored_normalized:
                                 return task_keys
-                
+
                 # For datasets with no config and no dataset_name, check for "main" as default
                 if config is None and dataset_name is None:
                     if "main" in hf_mapping[path][split]:
@@ -3065,17 +3065,17 @@ def find_oe_eval_task(hf_mapping, local_mapping, eval_name, hf_path, split, conf
                     # Also check for None key explicitly
                     if None in hf_mapping[path][split]:
                         return hf_mapping[path][split][None]
-                
+
                 # If no matches found and there's only one entry for this path/split, use it as fallback
                 if len(hf_mapping[path][split]) == 1:
                     # Return the tasks for the only available dataset_name/config
                     return list(hf_mapping[path][split].values())[0]
-    
+
     # Special handling: If eval has single split, collect all tasks regardless of split name
     # This helps with datasets like bigcodebench that use version numbers as splits
     if eval_name in EVAL_CONFIG['evals']:
         eval_splits = EVAL_CONFIG['evals'][eval_name].get('splits', [])
-        
+
         # If eval has only one split configured
         if len(eval_splits) == 1:
             for path in paths_to_try:
@@ -3085,7 +3085,7 @@ def find_oe_eval_task(hf_mapping, local_mapping, eval_name, hf_path, split, conf
                     for split_data in hf_mapping[path].values():
                         for config_tasks in split_data.values():
                             all_tasks.extend(config_tasks)
-                    
+
                     if all_tasks:
                         # Return unique tasks
                         return list(dict.fromkeys(all_tasks))
@@ -3232,7 +3232,7 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                         dataset_name = record.get(dataset_name_field)
                     oe_task = find_oe_eval_task(hf_mapping, local_mapping, eval_name, hf_path, split, eval_config.get('hf_config'), dataset_name)
                     record['oe-eval-task'] = oe_task
-                    
+
                     # Track oe-eval-task association
                     if oe_task is not None:
                         dataset_stats["records_with_oe_task"] += 1
@@ -3331,7 +3331,7 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                                     dataset_name = record.get(dataset_name_field)
                                 oe_task = find_oe_eval_task(hf_mapping, local_mapping, eval_name, hf_path, split, eval_config.get('hf_config'), dataset_name)
                                 record['oe-eval-task'] = oe_task
-                                
+
                                 # Track oe-eval-task association
                                 if oe_task is not None:
                                     dataset_stats["records_with_oe_task"] += 1
@@ -3455,10 +3455,10 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                                             # Convert answer_key to string for comparison
                                             answer_key_str = str(answer_key)
                                             # Find matching index in lookup values
-                                            for idx, lookup_val in enumerate(lookup_values):
+                                            for a_idx, lookup_val in enumerate(lookup_values):
                                                 if str(lookup_val) == answer_key_str:
-                                                    if 0 <= idx < len(answer_value):
-                                                        answer = str(answer_value[idx])
+                                                    if 0 <= a_idx < len(answer_value):
+                                                        answer = str(answer_value[a_idx])
                                                         break
                                             else:
                                                 # No match found
@@ -3576,7 +3576,7 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                         dataset_name = record.get(dataset_name_field)
                     oe_task = find_oe_eval_task(hf_mapping, local_mapping, eval_name, hf_path, split, eval_config.get('hf_config'), dataset_name)
                     record['oe-eval-task'] = oe_task
-                    
+
                     # Track oe-eval-task association
                     if oe_task is not None:
                         dataset_stats["records_with_oe_task"] += 1
@@ -3634,7 +3634,7 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                                     choice_record["answer"] = choice_answer  # Use choice as answer
                                     choice_record['doc_id'] = document_id_counter[0]
                                     document_id_counter[0] += 1
-                                    
+
                                     # Track oe-eval-task association for choice (inherited from parent)
                                     if choice_record.get('oe-eval-task') is not None:
                                         dataset_stats["records_with_oe_task"] += 1
@@ -3667,7 +3667,7 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
                                     choice_record["answer"] = choice_answer  # Use choice as answer
                                     choice_record['doc_id'] = document_id_counter[0]
                                     document_id_counter[0] += 1
-                                    
+
                                     # Track oe-eval-task association for choice (inherited from parent)
                                     if choice_record.get('oe-eval-task') is not None:
                                         dataset_stats["records_with_oe_task"] += 1
@@ -3727,7 +3727,7 @@ def download_and_transform_eval(eval_name, eval_config, global_config, document_
         stats["datasets_processed"] += 1
         stats["total_records_with_oe_task"] += dataset_stats["records_with_oe_task"]
         stats["total_records_without_oe_task"] += dataset_stats["records_without_oe_task"]
-        
+
         # Track datasets without any oe-eval-task associations
         if dataset_stats["records"] > 0 and dataset_stats["records_with_oe_task"] == 0:
             stats["datasets_without_oe_task"][eval_name] = dataset_stats["records"]
@@ -3814,7 +3814,7 @@ def download_all_evals():
 
     # Track datasets that have no answers
     datasets_without_answers = {}
-    
+
     # Initialize dataset-specific index counters
     dataset_name_index_counters = {}
 
@@ -3856,7 +3856,7 @@ def download_all_evals():
         without_oe_percentage = stats['total_records_without_oe_task'] / stats['total_records'] * 100
         print(f"  - Records with oe-eval-task: {stats['total_records_with_oe_task']:,} ({with_oe_percentage:.1f}%)")
         print(f"  - Records without oe-eval-task: {stats['total_records_without_oe_task']:,} ({without_oe_percentage:.1f}%)")
-    
+
     # Show top 5 datasets without oe-eval-task
     if stats["datasets_without_oe_task"]:
         print(f"\nTop 5 datasets without oe-eval-task associations:")
