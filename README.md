@@ -24,7 +24,7 @@ cd decon
 make poormanray-command-generator
 ```
 
-See the [Configuration Guide](doc/configuration.md) for customizing detection parameters.
+See the [Deployment Guide](doc/deployment.md) for details on running lots of datasets through decon.
 
 ### Running with CLI
 
