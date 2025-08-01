@@ -269,6 +269,12 @@ enum Commands {
             help = "Sort results by n-gram match count in ascending order (lowest matches first)"
         )]
         sort_match_length_ascending: bool,
+
+        #[arg(
+            long,
+            help = "Display training dataset statistics showing unique removals per dataset"
+        )]
+        training_stats: bool,
     },
 
     #[command(about = "Run decon as an HTTP server for orchestrated pipelines")]
@@ -1430,11 +1436,13 @@ fn main() -> Result<(), Error> {
             top_eval_examples,
             sort_match_length_descending,
             sort_match_length_ascending,
+            training_stats,
         } => review::review_contamination(
             config.as_ref(),
             Some(dir),
-            !*stats && !*all && top_eval_examples.is_none(), // step is true when none of the display modes are set
+            !*stats && !*all && !*training_stats && top_eval_examples.is_none(), // step is true when none of the display modes are set
             *stats,
+            *training_stats,
             *all,
             *min_score,
             *min_length,

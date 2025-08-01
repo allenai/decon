@@ -81,11 +81,19 @@ pub enum ClassificationType {
     FalseNegative,
 }
 
+// Struct to hold contamination result with its source file path
+#[derive(Debug)]
+struct ContaminationResultWithSource {
+    result: ContaminationResult,
+    source_file: PathBuf,
+}
+
 pub fn review_contamination(
     _config: Option<&PathBuf>,
     dir: Option<&PathBuf>,
     step: bool,
     stats: bool,
+    training_stats: bool,
     all: bool,
     min_score: Option<f32>,
     min_length: Option<usize>,
@@ -110,6 +118,7 @@ pub fn review_contamination(
 
     // Load all result files from directory
     let mut all_results = load_contamination_results_from_directory(dir_path)?;
+    let all_results_with_source = load_contamination_results_from_directory_with_source(dir_path)?;
 
     if all_results.is_empty() {
         println!(
@@ -192,6 +201,12 @@ pub fn review_contamination(
         return Ok(());
     }
 
+    if training_stats {
+        // Display training dataset statistics with bar chart
+        display_training_dataset_stats(&all_results_with_source, dir_path)?;
+        return Ok(());
+    }
+
     if let Some(top_n) = top_eval_examples {
         // Display top N most commonly matched eval examples
         display_top_eval_examples(&all_results, top_n)?;
@@ -217,7 +232,7 @@ pub fn review_contamination(
     }
 
     // Default to step-by-step review if no specific flag is set (or if --step is explicitly set)
-    if step || (!stats && !all && top_eval_examples.is_none()) {
+    if step || (!stats && !training_stats && !all && top_eval_examples.is_none()) {
         println!("=== REVIEWING ALL CONTAMINATION CASES ===\n");
 
         // Review each contamination case
@@ -247,6 +262,69 @@ pub fn review_contamination(
     }
 
     // This should not be reached anymore since we default to step mode
+    Ok(())
+}
+
+// Helper function to extract dataset name from report file path
+fn extract_dataset_name_from_report_path(report_file: &PathBuf, base_dir: &PathBuf) -> String {
+    // Try to strip the base directory prefix
+    if let Ok(relative_path) = report_file.strip_prefix(base_dir) {
+        // Get the first component (top-level directory)
+        if let Some(first_component) = relative_path.components().next() {
+            if let Some(dataset_name) = first_component.as_os_str().to_str() {
+                return dataset_name.to_string();
+            }
+        }
+    }
+    
+    // Fallback: use "unknown" if we can't determine the dataset
+    "unknown".to_string()
+}
+
+fn display_training_dataset_stats(
+    contamination_results_with_source: &[ContaminationResultWithSource],
+    base_dir: &PathBuf,
+) -> Result<(), Error> {
+    // Track unique removals per dataset
+    // Key: dataset name, Value: set of (training_file, training_line) pairs
+    let mut dataset_removals: HashMap<String, HashSet<(String, usize)>> = HashMap::new();
+    
+    for result_with_source in contamination_results_with_source {
+        // Extract dataset name from the report file path
+        let dataset_name = extract_dataset_name_from_report_path(&result_with_source.source_file, base_dir);
+        
+        // Add this unique removal to the dataset's set
+        let removal_key = (
+            result_with_source.result.training_file.clone(), 
+            result_with_source.result.training_line
+        );
+        dataset_removals
+            .entry(dataset_name)
+            .or_insert_with(HashSet::new)
+            .insert(removal_key);
+    }
+    
+    // Convert to counts and sort by count (descending)
+    let mut sorted_counts: Vec<(String, usize)> = dataset_removals
+        .into_iter()
+        .map(|(dataset, removals)| (dataset, removals.len()))
+        .collect();
+    sorted_counts.sort_by(|a, b| b.1.cmp(&a.1));
+    
+    // Calculate total unique removals
+    let total_unique_removals: usize = sorted_counts.iter().map(|(_, count)| count).sum();
+    
+    println!("=== TRAINING DATASET STATISTICS ===");
+    println!();
+    println!("Total unique removals: {}", total_unique_removals);
+    println!("Unique datasets: {}", sorted_counts.len());
+    println!();
+    
+    // Display each dataset with count
+    for (dataset, count) in &sorted_counts {
+        println!("{}\t{}", count, dataset);
+    }
+    
     Ok(())
 }
 
@@ -432,6 +510,40 @@ fn load_contamination_results_from_directory(
         match load_contamination_results(&file_path) {
             Ok(results) => {
                 all_results.extend(results);
+            }
+            Err(e) => {
+                // Skip files that can't be parsed as contamination results
+                println!("  Skipping file (not a contamination results file): {}", e);
+            }
+        }
+    }
+
+    Ok(all_results)
+}
+
+fn load_contamination_results_from_directory_with_source(
+    dir_path: &PathBuf,
+) -> Result<Vec<ContaminationResultWithSource>, Error> {
+    let mut all_results = Vec::new();
+
+    // Find all .jsonl files in the directory
+    let jsonl_files = expand_dirs(vec![dir_path.clone()], Some(vec![".jsonl"].as_slice()))?;
+
+    println!(
+        "Processing {} JSONL files from directory...",
+        jsonl_files.len()
+    );
+
+    for file_path in jsonl_files {
+        match load_contamination_results(&file_path) {
+            Ok(results) => {
+                // Add each result with its source file
+                for result in results {
+                    all_results.push(ContaminationResultWithSource {
+                        result,
+                        source_file: file_path.clone(),
+                    });
+                }
             }
             Err(e) => {
                 // Skip files that can't be parsed as contamination results

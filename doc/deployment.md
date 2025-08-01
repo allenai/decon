@@ -164,3 +164,4 @@ The i4i.4xlarge is over-provisioned. This happens partly because the purificatio
 
 When processing many datasets, update the generate_orchestrator_command.py file with your cluster and output base options and run `make generate-orchestrator-command s3://new-input-prefix` to quickly generate orchestrator commands. This lacks polish, but manually updating a first orchestrator launch command generated from `make poormanray-command-generator` works fine.
 
+The generated and example command can write to log files for any debugging and tracking purposes.
