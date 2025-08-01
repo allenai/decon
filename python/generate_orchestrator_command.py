@@ -45,7 +45,7 @@ def generate_orchestrator_command(s3_input_path):
         dataset_name = dataset_name.rsplit('.', 1)[0]
 
     # Shorten the cluster name to avoid exceeding limits
-    cluster_name = 'decon-large'
+    cluster_name = 'decon'
 
     # Generate report output path with shortened name
     # First remove the common prefix if present
@@ -56,19 +56,26 @@ def generate_orchestrator_command(s3_input_path):
     variant = "low-precision-anr"
 
     report_name = shorten_name(report_name, max_length=80)
-    report_output_dir = f"s3://ai2-decon-reports/ian-variants/{variant}/{report_name}"
+    report_output_dir = f"s3://ai2-decon-reports/8-1/{report_name}"
 
     # Generate cleaned output path
     # Remove trailing slash from input path if present
     input_path_clean = s3_input_path.rstrip('/')
-    cleaned_output_dir = f"s3://robertb-decon-test-cleaned/ian-variants/{variant}/{report_name}-decon"
+    cleaned_output_dir = f"{input_path_clean}-decon-2"
+    
+    # Ensure remote-file-input has trailing slash
+    remote_file_input = s3_input_path.rstrip('/') + '/'
+    
+    # Ensure output directories don't have trailing slashes
+    report_output_dir = report_output_dir.rstrip('/')
+    cleaned_output_dir = cleaned_output_dir.rstrip('/')
 
     # Generate the poormanray command
     command = f"""poormanray run \\
   --name {cluster_name} \\
   --command "cd decon && nohup python python/orchestration.py \\
     --config config/orchestration.yaml \\
-    --remote-file-input {s3_input_path} \\
+    --remote-file-input {remote_file_input} \\
     --remote-report-output-dir {report_output_dir} \\
     --remote-cleaned-output-dir {cleaned_output_dir} \\
     --local-work-dir /mnt/decon-work \\
