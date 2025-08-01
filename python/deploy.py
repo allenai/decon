@@ -415,10 +415,21 @@ def wizard():
                 type=str
             )
             # Validate that it starts with s3://
-            if remote_cleaned_output_dir.startswith("s3://"):
-                break
-            else:
+            if not remote_cleaned_output_dir.startswith("s3://"):
                 print("❌ Error: Cleaned dataset destination must start with 's3://'. Please try again.")
+                continue
+            
+            # Validate that cleaned output dir is not the same as input dir
+            input_dir_normalized = remote_file_input.rstrip('/')
+            cleaned_dir_normalized = remote_cleaned_output_dir.rstrip('/')
+            
+            if input_dir_normalized == cleaned_dir_normalized:
+                print(f"❌ Error: Cleaned output directory cannot be the same as input directory!")
+                print(f"  This would overwrite your input data! Please choose a different location.")
+                continue
+                
+            # All validations passed
+            break
 
 
     # Validate that it starts with s3://

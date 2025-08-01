@@ -69,6 +69,18 @@ def generate_orchestrator_command(s3_input_path):
     # Ensure output directories don't have trailing slashes
     report_output_dir = report_output_dir.rstrip('/')
     cleaned_output_dir = cleaned_output_dir.rstrip('/')
+    
+    # Validate that cleaned output dir is not the same as input dir
+    # Compare without trailing slashes for accurate comparison
+    input_dir_normalized = s3_input_path.rstrip('/')
+    cleaned_dir_normalized = cleaned_output_dir.rstrip('/')
+    
+    if input_dir_normalized == cleaned_dir_normalized:
+        print(f"Error: Cleaned output directory cannot be the same as input directory!", file=sys.stderr)
+        print(f"  Input: {input_dir_normalized}", file=sys.stderr)
+        print(f"  Cleaned output: {cleaned_dir_normalized}", file=sys.stderr)
+        print(f"This would overwrite your input data! Please choose a different output location.", file=sys.stderr)
+        sys.exit(1)
 
     # Generate the poormanray command
     command = f"""poormanray run \\
