@@ -1,6 +1,6 @@
 use anyhow::{Error, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{self, BufRead};
 use std::path::PathBuf;
 
@@ -709,6 +709,61 @@ fn display_eval_dataset_stats(contamination_results: &[ContaminationResult]) -> 
         println!("  {:<45} {:>8} │{}{}│", suite, count, bar, empty);
     }
 
+    println!();
+    println!();
+
+    // Count unique eval instances
+    let mut unique_eval_counts: HashMap<String, HashSet<(String, usize)>> = HashMap::new();
+    
+    for result in contamination_results {
+        // Strip the split suffix to get the eval suite
+        let parts: Vec<&str> = result.eval_dataset.split('_').collect();
+        let eval_suite = if parts.len() > 1 {
+            parts[..parts.len() - 1].join("_")
+        } else {
+            result.eval_dataset.clone()
+        };
+        
+        // Track unique (eval_dataset, eval_line) pairs per suite
+        let unique_key = (result.eval_dataset.clone(), result.eval_line);
+        unique_eval_counts
+            .entry(eval_suite)
+            .or_insert_with(HashSet::new)
+            .insert(unique_key);
+    }
+    
+    // Convert to counts of unique instances per suite
+    let mut unique_sorted_counts: Vec<(String, usize)> = unique_eval_counts
+        .into_iter()
+        .map(|(suite, instances)| (suite, instances.len()))
+        .collect();
+    unique_sorted_counts.sort_by(|a, b| b.1.cmp(&a.1));
+    
+    println!("=== UNIQUE EVAL INSTANCES BY SUITE ===");
+    println!();
+    println!("Unique eval instances (counting each eval line only once per suite):");
+    println!();
+    
+    // Find the maximum count for scaling the bar chart
+    let max_unique_count = unique_sorted_counts.first().map(|(_, count)| *count).unwrap_or(0);
+    
+    // Display each eval suite with a horizontal bar chart
+    for (suite, count) in &unique_sorted_counts {
+        // Calculate bar length proportional to count
+        let bar_length = if max_unique_count > 0 {
+            ((*count as f64 / max_unique_count as f64) * bar_width as f64) as usize
+        } else {
+            0
+        };
+        
+        // Create the bar using Unicode block characters
+        let bar = "█".repeat(bar_length);
+        let empty = " ".repeat(bar_width - bar_length);
+        
+        // Format the output with aligned columns
+        println!("  {:<45} {:>8} │{}{}│", suite, count, bar, empty);
+    }
+    
     println!();
     println!();
 
