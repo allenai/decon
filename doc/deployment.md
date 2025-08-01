@@ -1,6 +1,8 @@
 # Decon Deployment Guide
 
-Deploy Decon on EC2 clusters using the poormanray (pmr) tool. This guide explains the architecture and provides tips for processing multiple datasets efficiently.
+Deploy Decon on EC2 clusters using the poormanray (pmr) tool.
+
+This guide explains the architecture and provides tips for processing multiple datasets efficiently.
 
 ## Prerequisites
 
@@ -148,17 +150,17 @@ Orchestrators produce their own scoped workspace and only process output files b
 
 ### Practical Tips
 
-A single i4i.4xlarge host processes 26B tokens/hour.
+A single i4i.4xlarge host processes ~ 26B tokens/hour.
 
 Work distributes by S3 file hash, so small datasets on large clusters may have uneven workloads.
 
 To check when work completes (TODO: improve this), check for orchestrator lock files. An orchestrator creates a lock file in /mnt/decon-work/<workspace-hash>, limiting one orchestrator per input source hash per host. The lock file deletes when work completes. Check all hosts with `poormanray run -n <your-cluster-name> -c "ls -R /mnt/decon-work | grep lock"` and observe no active lock files.
 
-Since launching a large cluster takes time, when processing datasets with different contamination parameters, restart the server with a new config. The server responds to SIGTERM by shutting down, so stop servers with `poormanray run -n <your-cluster-name> -c "pkill decon"`. Then run a new server launch command on the cluster with alternative configuration override options.
+Since launching a large cluster takes time, when processing datasets with different contamination parameters, restart the server with a new config after completing a batch of datasets against a specific decontamination parameter set. The server responds to SIGTERM by shutting down, so stop servers with `poormanray run -n <your-cluster-name> -c "pkill decon"`. Then run a new server launch command on the cluster with alternative configuration override options.
 
-The orchestrator polls when first launched in case the server still processes the eval index (takes ~1 minute), so launch orchestrators quickly after launching servers.
+The orchestrator polls when first launched in case the server is still processing the eval index (takes ~1 minute), so you can launch orchestrators quickly after launching servers.
 
-The i4i.4xlarge is over-provisioned. This happens partly because the purification step reads files directly into memory before writing clean versions. With datasets containing large files, if 10 7GB files purify simultaneously, that requires significant RAM. This needs optimization (TODO), but use instances with more CPU if you know your dataset's shape. Run many orchestrators simultaneously, e.g., processing a full training dataset at once.
+The i4i.4xlarge is over-provisioned. This happens partly because the purification step reads files directly into memory before writing clean versions. With datasets containing large files, e.g. 50 7GB files, it could reach the purification step at the same time, and would consume a lot of RAM. This needs optimization (TODO), but until then, the i4i.4xlarge is over provisioned for one size fits all simplicity. You can of course use instances with a larger CPU/RAM ratio if you know your dataset's shape. Over provisioning also allows for running many orchestrators simultaneously, e.g., processing a full training dataset at once.
 
 When processing many datasets, update the generate_orchestrator_command.py file with your cluster and output base options and run `make generate-orchestrator-command s3://new-input-prefix` to quickly generate orchestrator commands. This lacks polish, but manually updating a first orchestrator launch command generated from `make poormanray-command-generator` works fine.
 
