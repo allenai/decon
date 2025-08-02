@@ -418,16 +418,16 @@ def wizard():
             if not remote_cleaned_output_dir.startswith("s3://"):
                 print("❌ Error: Cleaned dataset destination must start with 's3://'. Please try again.")
                 continue
-            
+
             # Validate that cleaned output dir is not the same as input dir
             input_dir_normalized = remote_file_input.rstrip('/')
             cleaned_dir_normalized = remote_cleaned_output_dir.rstrip('/')
-            
+
             if input_dir_normalized == cleaned_dir_normalized:
                 print(f"❌ Error: Cleaned output directory cannot be the same as input directory!")
                 print(f"  This would overwrite your input data! Please choose a different location.")
                 continue
-                
+
             # All validations passed
             break
 
@@ -727,6 +727,76 @@ def terminate(name):
         manager = DeploymentManager(deploy_config)
         success = manager.terminate_cluster()
         sys.exit(0 if success else 1)
+    except PoorManRayError as e:
+        print(f"❌ {e}")
+        sys.exit(1)
+
+
+@cli.command("polling-auto-terminate")
+@click.option("--name", required=True, help="Cluster name")
+@click.option("--ssh-key", default="~/.ssh/id_rsa", help="Path to SSH private key")
+@click.option("--poll-interval", default=30, type=int, help="Polling interval in seconds")
+@click.option("--dry-run", is_flag=True, help="Check status once and exit without terminating")
+def polling_auto_terminate(name, ssh_key, poll_interval, dry_run):
+    """Monitor work directory for lock files and auto-terminate when no work remains"""
+    deploy_config = DeploymentConfig(
+        cluster_name=name,
+        ssh_key_path=ssh_key
+    )
+
+    try:
+        manager = DeploymentManager(deploy_config)
+
+        if not dry_run:
+            print(f"🔍 Monitoring cluster '{name}' for active work...")
+            print(f"   Polling every {poll_interval} seconds")
+            print(f"   Will terminate when no lock files are found in {deploy_config.local_work_dir}")
+
+        while True:
+            # Check for lock files in the work directory
+            check_cmd = f"ls -R {deploy_config.local_work_dir} | grep lock || echo 'NO_LOCKS_FOUND'"
+
+            command = [
+                "run",
+                "--name", deploy_config.cluster_name,
+                "--command", check_cmd,
+                "--ssh-key-path", deploy_config.ssh_key_path
+            ]
+
+            result = manager._run_pmr_command(command, check=False)
+
+            # Check if no lock files were found
+            if "NO_LOCKS_FOUND" in result.stdout:
+                if dry_run:
+                    print("Finished")
+                    sys.exit(0)
+                else:
+                    print(f"\n✅ No lock files found. All work appears to be complete.")
+                    print(f"🔴 Terminating cluster '{name}'...")
+
+                    if manager.terminate_cluster():
+                        print("✅ Cluster terminated successfully")
+                        sys.exit(0)
+                    else:
+                        print("❌ Failed to terminate cluster")
+                        sys.exit(1)
+            else:
+                if dry_run:
+                    print("Running")
+                    sys.exit(0)
+                else:
+                    # Lock files found, show status
+                    lock_count = result.stdout.count("lock")
+                    print(f"⏳ Found {lock_count} lock reference(s). Work still in progress...")
+
+            if dry_run:
+                break  # Exit after single check in dry-run mode
+
+            time.sleep(poll_interval)
+
+    except KeyboardInterrupt:
+        print("\n⚠️  Monitoring cancelled by user")
+        sys.exit(0)
     except PoorManRayError as e:
         print(f"❌ {e}")
         sys.exit(1)

@@ -154,7 +154,7 @@ A single i4i.4xlarge host processes ~ 26B tokens/hour.
 
 Work distributes by S3 file hash, so small datasets on large clusters may have uneven workloads.
 
-To check when work completes (TODO: improve this), check for orchestrator lock files. An orchestrator creates a lock file in /mnt/decon-work/<workspace-hash>, limiting one orchestrator per input source hash per host. The lock file deletes when work completes. Check all hosts with `poormanray run -n <your-cluster-name> -c "ls -R /mnt/decon-work | grep lock"` and observe no active lock files.
+There are two make targets to help with tracking the status of a cluster's work. An orchestrator creates a lock file in /mnt/decon-work/<workspace-hash>, limiting one orchestrator per input source hash per host. The lock file is deleted when an orchestrator's work completes. To check the status you can run `make polling-auto-status NAME=<your-cluster-name>` which will print out "Running" or "Finished". Alternatively, you can call `make polling-auto-terminate NAME=<your-cluster-name>` which will terminate the poormanray cluster when "Finished" state is detected.
 
 Since launching a large cluster takes time, when processing datasets with different contamination parameters, restart the server with a new config after completing a batch of datasets against a specific decontamination parameter set. The server responds to SIGTERM by shutting down, so stop servers with `poormanray run -n <your-cluster-name> -c "pkill decon"`. Then run a new server launch command on the cluster with alternative configuration override options.
 

@@ -53,28 +53,27 @@ def generate_orchestrator_command(s3_input_path):
     if report_name.startswith('ai2-llm-pretraining-data-sources-'):
         report_name = report_name[len('ai2-llm-pretraining-data-sources-'):]
 
-    variant = "low-precision-anr"
 
     report_name = shorten_name(report_name, max_length=80)
-    report_output_dir = f"s3://ai2-decon-reports/8-1/{report_name}"
+    report_output_dir = f"s3://ai2-decon-reports/ian-variants/high-precision/{report_name}"
 
     # Generate cleaned output path
     # Remove trailing slash from input path if present
     input_path_clean = s3_input_path.rstrip('/')
-    cleaned_output_dir = f"{input_path_clean}-decon-2"
-    
+    cleaned_output_dir = f"s3://robertb-decon-test-cleaned/ian-variants/high-precision/{report_name}-decon"
+
     # Ensure remote-file-input has trailing slash
     remote_file_input = s3_input_path.rstrip('/') + '/'
-    
+
     # Ensure output directories don't have trailing slashes
     report_output_dir = report_output_dir.rstrip('/')
     cleaned_output_dir = cleaned_output_dir.rstrip('/')
-    
+
     # Validate that cleaned output dir is not the same as input dir
     # Compare without trailing slashes for accurate comparison
     input_dir_normalized = s3_input_path.rstrip('/')
     cleaned_dir_normalized = cleaned_output_dir.rstrip('/')
-    
+
     if input_dir_normalized == cleaned_dir_normalized:
         print(f"Error: Cleaned output directory cannot be the same as input directory!", file=sys.stderr)
         print(f"  Input: {input_dir_normalized}", file=sys.stderr)

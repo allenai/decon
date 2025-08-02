@@ -34,6 +34,7 @@ help:
 	@echo "  deploy-logs       - View deployment logs (usage: make deploy-logs NAME=<cluster-name> [LOG=server|orchestrator])"
 	@echo "  deploy-terminate  - Terminate a deployment (usage: make deploy-terminate NAME=<cluster-name>)"
 	@echo "  polling-auto-terminate - Monitor orchestrator logs and auto-terminate when complete (usage: make polling-auto-terminate NAME=<cluster-name>)"
+	@echo "  polling-auto-status - Check if work is still running (prints 'Running' or 'Finished') (usage: make polling-auto-status NAME=<cluster-name>)"
 
 
 simple-word:
@@ -204,6 +205,13 @@ polling-auto-terminate:
 		exit 1; \
 	fi
 	@python python/deploy.py polling-auto-terminate --name $(NAME)
+
+polling-auto-status:
+	@if [ -z "$(NAME)" ]; then \
+		echo "Error: NAME parameter required. Usage: make polling-auto-status NAME=<cluster-name>"; \
+		exit 1; \
+	fi
+	@python python/deploy.py polling-auto-terminate --name $(NAME) --dry-run
 
 # This prevents make from treating the directory argument as a target when using 'make stats <directory>'
 %:
