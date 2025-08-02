@@ -21,3 +21,7 @@ fixtures/reference-best-available
 tests/output
 test_daemon.sh
 test_multi_thread.sh
+
+
+Cargo.lock
+target/

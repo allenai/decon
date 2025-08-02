@@ -834,7 +834,7 @@ pub fn write_purified_file_bytes(
     let file = File::open(input_path)?;
     let mut reader: Box<dyn BufRead> = match input_path.extension().and_then(|s| s.to_str()) {
         Some("gz") => Box::new(BufReader::new(GzDecoder::new(file))),
-        Some("zst") => Box::new(BufReader::new(ZstdDecoder::new(file)?)),
+        Some("zst") | Some("zstd") => Box::new(BufReader::new(ZstdDecoder::new(file)?)),
         _ => Box::new(BufReader::new(file)),
     };
 
@@ -890,7 +890,7 @@ pub fn write_purified_file_bytes_job_id(
     let file = File::open(input_path)?;
     let mut reader: Box<dyn BufRead> = match input_path.extension().and_then(|s| s.to_str()) {
         Some("gz") => Box::new(BufReader::new(GzDecoder::new(file))),
-        Some("zst") => Box::new(BufReader::new(ZstdDecoder::new(file)?)),
+        Some("zst") | Some("zstd") => Box::new(BufReader::new(ZstdDecoder::new(file)?)),
         _ => Box::new(BufReader::new(file)),
     };
 
@@ -946,7 +946,7 @@ pub fn write_purified_file_with_utf8_lossy_conversion(
     let file = File::open(input_path)?;
     let mut reader: Box<dyn BufRead> = match input_path.extension().and_then(|s| s.to_str()) {
         Some("gz") => Box::new(BufReader::new(GzDecoder::new(file))),
-        Some("zst") => Box::new(BufReader::new(ZstdDecoder::new(file)?)),
+        Some("zst") | Some("zstd") => Box::new(BufReader::new(ZstdDecoder::new(file)?)),
         _ => Box::new(BufReader::new(file)),
     };
 
@@ -1019,7 +1019,7 @@ pub fn write_purified_file_with_utf8_lossy_conversion_job_id(
     let file = File::open(input_path)?;
     let mut reader: Box<dyn BufRead> = match input_path.extension().and_then(|s| s.to_str()) {
         Some("gz") => Box::new(BufReader::new(GzDecoder::new(file))),
-        Some("zst") => Box::new(BufReader::new(ZstdDecoder::new(file)?)),
+        Some("zst") | Some("zstd") => Box::new(BufReader::new(ZstdDecoder::new(file)?)),
         _ => Box::new(BufReader::new(file)),
     };
 

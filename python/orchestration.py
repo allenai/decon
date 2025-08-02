@@ -101,14 +101,14 @@ class ContaminationOrchestrator:
         self.logger = self._setup_logging()
         self.session = self._setup_session()
         self.s3_client = boto3.client('s3')
-        
+
         # Create a hash of the input directory for workspace isolation
         input_hash = hashlib.sha256(self.config.remote_file_input.encode()).hexdigest()[:12]
-        
+
         # Append hash to work directory
         base_work_dir = Path(self.config.local_work_dir)
         self.config.local_work_dir = str(base_work_dir / f"input-{input_hash}")
-        
+
         # Log the workspace being used
         self.logger.info(f"Using workspace for input: {self.config.remote_file_input}")
         self.logger.info(f"Workspace directory: {self.config.local_work_dir}")
@@ -405,10 +405,10 @@ class ContaminationOrchestrator:
         """List all files in S3 location with given suffixes.
         Returns list of (key, size, relative_path) tuples."""
         if suffixes is None:
-            suffixes = ['.jsonl', '.jsonl.gz', '.jsonl.zst', '.jsonl.bz2', '.jsonl.xz']
+            suffixes = ['.jsonl', '.jsonl.gz', '.jsonl.zst', '.jsonl.zstd', '.jsonl.bz2', '.jsonl.xz']
 
         bucket, prefix = self._parse_s3_uri(s3_uri)
-        
+
         # Ensure prefix ends with '/' to avoid matching similar prefixes like 'data-decon'
         # when we're looking for 'data/'
         if prefix and not prefix.endswith('/'):
@@ -434,12 +434,12 @@ class ContaminationOrchestrator:
             for obj in page['Contents']:
                 key = obj['Key']
                 size = obj.get('Size', 0)
-                
+
                 # Calculate relative path from prefix
                 relative_path = key
                 if prefix and key.startswith(prefix):
                     relative_path = key[len(prefix):].lstrip('/')
-                
+
                 for suffix in suffixes:
                     if key.endswith(suffix):
                         files.append((key, size, relative_path))
@@ -482,7 +482,7 @@ class ContaminationOrchestrator:
         for clean_marker_path in clean_markers:
             # Add all possible variants of this file
             processed.add(f"{clean_marker_path}.jsonl")
-            for ext in ['.gz', '.zst', '.bz2', '.xz']:
+            for ext in ['.gz', '.zst', '.zstd', '.bz2', '.xz']:
                 processed.add(f"{clean_marker_path}.jsonl{ext}")
 
 
@@ -500,7 +500,7 @@ class ContaminationOrchestrator:
             if basename:
                 # Add all possible variants of this file
                 processed.add(f"{basename}.jsonl")
-                for ext in ['.gz', '.zst', '.bz2', '.xz']:
+                for ext in ['.gz', '.zst', '.zstd', '.bz2', '.xz']:
                     processed.add(f"{basename}.jsonl{ext}")
 
         # Already processed files checked
@@ -587,7 +587,7 @@ class ContaminationOrchestrator:
     def _download_batch(self, s3_keys_with_paths: List[Tuple[str, str]]) -> List[Tuple[str, str, str]]:
         """Download a batch of files using s5cmd with retry logic.
         Returns list of (local_path, s3_key, relative_path) tuples."""
-        
+
         for attempt in range(self.config.download_retry_attempts):
             command_file = Path(self.config.local_work_dir) / f"download_batch_{time.time()}.txt"
             self._create_s5cmd_file(s3_keys_with_paths, command_file)
@@ -991,14 +991,14 @@ class ContaminationOrchestrator:
         # Use relative path to preserve directory structure
         relative_path = job.relative_path
         relative_dir = os.path.dirname(relative_path) if os.path.dirname(relative_path) else ""
-        
+
         basename = os.path.basename(job.s3_key)
         basename_no_ext = basename
 
         # Collecting upload commands
 
         # Remove compression extensions to get base name
-        for ext in ['.gz', '.zst', '.bz2', '.xz']:
+        for ext in ['.gz', '.zst', '.zstd', '.bz2', '.xz']:
             if basename_no_ext.endswith('.jsonl' + ext):
                 basename_no_ext = basename_no_ext[:-len(ext)]
                 break
@@ -1027,14 +1027,14 @@ class ContaminationOrchestrator:
             if report_path:
                 # Server now uses job_id.report.jsonl, we need to reconstruct the original filename
                 # Expected format: {basename}-{mode}-{threshold}.jsonl
-                
+
                 # Get config values from server
                 mode = self.server_mode or "simple"
                 threshold = self.server_threshold or 0.50
-                
+
                 # Reconstruct the report filename
                 report_filename = f"{basename_no_ext}-{mode}-{threshold:.2f}.jsonl"
-                
+
                 if relative_dir:
                     report_key = f"{relative_dir}/{report_filename}"
                 else:
@@ -1047,7 +1047,7 @@ class ContaminationOrchestrator:
                 # No contamination found - mark for clean marker creation with relative path
                 clean_marker_path = relative_path[:-len('.jsonl')] if relative_path.endswith('.jsonl') else relative_path
                 # Remove compression extensions from clean marker path
-                for ext in ['.gz', '.zst', '.bz2', '.xz']:
+                for ext in ['.gz', '.zst', '.zstd', '.bz2', '.xz']:
                     if clean_marker_path.endswith(ext):
                         clean_marker_path = clean_marker_path[:-len(ext)]
                         break
@@ -1059,11 +1059,11 @@ class ContaminationOrchestrator:
                 # Server now uses job_id.jsonl.gz, we need to use the original filename
                 # Just use the original basename with the appropriate extension
                 original_filename = os.path.basename(job.relative_path)
-                
+
                 # Ensure it has .gz extension (server always outputs .gz)
                 if not original_filename.endswith('.gz'):
                     # If original wasn't gzipped, the cleaned version will be
-                    if original_filename.endswith(('.jsonl', '.jsonl.zst', '.jsonl.bz2', '.jsonl.xz')):
+                    if original_filename.endswith(('.jsonl', '.jsonl.zst', '.jsonl.zstd', '.jsonl.bz2', '.jsonl.xz')):
                         # Replace the extension with .jsonl.gz
                         base = original_filename.rsplit('.', 1)[0]
                         cleaned_filename = f"{base}.gz"
@@ -1071,7 +1071,7 @@ class ContaminationOrchestrator:
                         cleaned_filename = f"{original_filename}.gz"
                 else:
                     cleaned_filename = original_filename
-                
+
                 if relative_dir:
                     cleaned_key = f"{relative_dir}/{cleaned_filename}"
                 else:
@@ -1220,7 +1220,7 @@ def main():
 
     # Other settings
     parser.add_argument('--cleanup-delay', type=int, help='Cleanup delay in seconds (overrides config)')
-    
+
     # Retry settings
     parser.add_argument('--download-retry-attempts', type=int, help='Number of retry attempts for failed downloads (overrides config)')
     parser.add_argument('--download-retry-base-delay', type=int, help='Base delay in seconds for retries (overrides config)')

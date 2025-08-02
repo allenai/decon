@@ -30,7 +30,7 @@ fn read_compressed_file(path: &PathBuf) -> Result<Vec<u8>, Error> {
             let mut decoder = GzDecoder::new(file);
             decoder.read_to_end(&mut buffer)?;
         }
-        Some("zst") => {
+        Some("zst") | Some("zstd") => {
             let mut decoder = ZstdDecoder::new(file)?;
             decoder.read_to_end(&mut buffer)?;
         }
@@ -877,7 +877,7 @@ fn detect_simple_contamination(
                         // Track contaminated files and update total count
                         // Use the same filename extraction logic as in create_purified_files_streaming
                         let file_name = match file_path.extension().and_then(|s| s.to_str()) {
-                            Some("gz") | Some("zst") => file_path
+                            Some("gz") | Some("zst") | Some("zstd") => file_path
                                 .file_stem()
                                 .and_then(|s| s.to_str())
                                 .unwrap_or("unknown")
@@ -1412,7 +1412,7 @@ pub fn process_simple_training_file(
     let data = read_compressed_file(file_path)?;
 
     let file_name = match file_path.extension().and_then(|s| s.to_str()) {
-        Some("gz") | Some("zst") => file_path
+        Some("gz") | Some("zst") | Some("zstd") => file_path
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("unknown")
@@ -2184,7 +2184,7 @@ fn create_purified_files_streaming(
     training_files.par_iter().for_each(|file_path| {
         // Match the same logic used in process_training_file
         let file_name = match file_path.extension().and_then(|s| s.to_str()) {
-            Some("gz") | Some("zst") => file_path
+            Some("gz") | Some("zst") | Some("zstd") => file_path
                 .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("unknown")
