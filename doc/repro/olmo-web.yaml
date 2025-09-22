@@ -1,0 +1,49 @@
+# Many improvements have been made to decon including performance, usability, and accuracy
+# as time has progressed from the original decontamination work. In the interest of accessible
+# reproducibility, this configuration produces approximately the same outcomes as the decontamination
+# run against web data for olmo midtraining. You can expect 90% overlap for original contamination with
+# and 25% additional contamination discoveries due largely to improved reference set processing which
+# change the match targets as well as idf values which effect cases on decision boundary.
+# In general the standard default configuration results in meaningfully higher accuracy and
+# this serves an artifact of interest. Original decontaminated data files are available.
+
+content_key: text  # json key for content in the training files
+training_dir:  # Path to directory containing jsonl files with a content_key text field
+evals_dir: /tmp/full_reference_set  # All references files downloaded from evals command
+report_output_dir: /tmp/decon-olmo-web_88_25_50_20_ans  # Path to directory to place contamination reports
+cleaned_output_dir: /tmp/decon-olmo-web-cleaned  # Optional: separate directory for purified files
+
+# Tokenizer and ngram options
+tokenizer_str: cl100k
+ngram_size: 5  # Size of indexed n-grams scanned for question matches
+sample_every_m_tokens: 10
+
+# Matching options
+question_max_consecutive_misses: 11  # Recall that a mismatched token can poison n-gram spans
+
+# Combined score (main score used)
+contamination_score_threshold: 0.88
+perfect_match_decay_start: 25  # Require perfect match (score=1.0) for cumulative length (question+answer+passage) <= this length
+perfect_match_decay_end: 50  # Use contamination_score_threshold for cumulative length >= this, linear interpolation in between
+
+# Answer Matching (relevant for question match details)
+short_answer_token_threshold: 1  # Answers with <= this many tokens use exact matching
+short_answer_window_length: 20 # Window after question to look for short answers (<=3 tokens)
+
+answer_ngram_size: 2  # long answers use n-gram idf overlap ratios in the window, this is the n-gram size to use
+min_long_answer_window: 20  # Minimum window for long answers (>3 tokens), uses max(this, answer_length*2)
+
+# Passage matching
+min_passage_distance: 100
+passage_ngram_size: 4
+passage_max_consecutive_misses: 2  # Max consecutive misses before stopping passage expansion (tokens)
+
+# Reference preprocessing options
+eval_dedup: true  # Enable exact deduplication of reference entries
+eval_min_token_length: 20  # Minimum token count for reference entries (0 = disabled) Does not include pure whitespace tokens
+eval_min_unique_word_count: 4  # Minimum unique word count for reference entries (0 = disabled)
+index_passages: false  # If you have a reason to omit passages, you can.
+index_answers: true  # If you have a reason to omit answer consideration, you can.
+
+# Text cleaning
+punctuation_chars: "!’\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~”“‘’—"  # applied to evals and training data

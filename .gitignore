@@ -1,0 +1,7 @@
+*.ipynb
+*.pyc
+tests/output
+target/
+.swp
+.envrc
+.claude

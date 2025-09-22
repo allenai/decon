@@ -1,0 +1,43 @@
+# Example configuration file for decon. decon can be run with the --config option pointing to a config file
+# for convenience and brevity. Options submitted in addition to --config will override these values.
+
+content_key: text  # json key for content in the training files
+training_dir:  # Path to directory containing jsonl files with a content_key text field
+evals_dir: bundled-evals  # Path to directory containing eval reference files
+report_output_dir: /tmp/decon-report  # Path to directory to place contamination reports
+cleaned_output_dir: /tmp/decon-cleaned  # Optional: separate directory for purified files
+
+# Tokenizer and ngram options
+tokenizer_str: cl100k
+ngram_size: 5  # Size of indexed n-grams scanned for question matches
+sample_every_m_tokens: 10
+
+# Matching options
+question_max_consecutive_misses: 11  # Recall that a mismatched token can poison n-gram spans
+
+# Combined score (main score used)
+contamination_score_threshold: 0.8
+perfect_match_decay_start: 20  # Require perfect match (score=1.0) for cumulative length (question+answer+passage) <= this length
+perfect_match_decay_end: 50  # Use contamination_score_threshold for cumulative length >= this, linear interpolation in between
+
+# Answer Matching (relevant for question match details)
+short_answer_token_threshold: 3  # Answers with <= this many tokens use exact matching
+short_answer_window_length: 50 # Window after question to look for short answers (<=3 tokens)
+
+answer_ngram_size: 3  # long answers use n-gram idf overlap ratios in the window, this is the n-gram size to use
+min_long_answer_window: 100  # Minimum window for long answers (>3 tokens), uses max(this, answer_length*2)
+
+# Passage matching
+min_passage_distance: 100
+passage_ngram_size: 4
+passage_max_consecutive_misses: 2  # Max consecutive misses before stopping passage expansion (tokens)
+
+# Reference preprocessing options
+eval_dedup: true  # Enable exact deduplication of reference entries
+eval_min_token_length: 20  # Minimum token count for reference entries (0 = disabled) Does not include pure whitespace tokens
+eval_min_unique_word_count: 4  # Minimum unique word count for reference entries (0 = disabled)
+index_passages: true  # If you have a reason to omit passages, you can.
+index_answers: true  # If you have a reason to omit answer consideration, you can.
+
+# Text cleaning
+punctuation_chars: "!’\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~”“‘’—"  # applied to evals and training data

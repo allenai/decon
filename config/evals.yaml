@@ -1,0 +1,2263 @@
+# Evaluation Dataset Configuration
+# =================================
+#
+# This file defines how to extract prompts, passages, and answers from evaluation datasets.
+# Each dataset configuration supports the following fields:
+#
+# Required fields:
+#   - hf_path or local_path: Source of the dataset (HuggingFace or local file)
+#   - splits: List of dataset splits to process (e.g., train, test, validation)
+#   - prompt: Field(s) containing the question/instruction
+#
+# Optional fields:
+#   - hf_config: HuggingFace dataset configuration name
+#   - passage: Field containing supporting context/passage
+#   - answers: Field(s) containing the answer(s) - see below for options
+#   - no_answer_splits: Splits that don't have answers (e.g., some test splits) Optional for record keeping.
+#   - extra_fields: Additional fields to preserve in output
+#   - dataset_name_field: Field to use as dataset name (for multi-domain datasets)
+#
+# Answer Extraction Methods
+# ========================
+#
+# 1. Simple field reference (string):
+#    answers:
+#      - answer              # Direct field access
+#      - answer.text         # Nested field access
+#      - answers.text.0      # Array index access
+#
+# 2. expand_choices - Expand multiple choice options:
+#    answers:
+#      - expand_choices:
+#          field: choices          # Field containing choice array/dict
+#          correct_index: label    # Field with correct answer index/letter
+#    Creates one record per choice with is_correct field marking the right answer.
+#
+# 3. expand_prefix - Expand fields matching a prefix pattern:
+#    answers:
+#      - expand_prefix:
+#          prefix: answer          # Prefix to match (e.g., answerA, answerB)
+#          suffix_match_field: label  # Field containing correct suffix
+#          label_transform: <transform>  # Optional transformation
+#    Creates records for each field matching the prefix.
+#
+#    Label transforms:
+#      - numbers_to_letters: Convert 1->A, 2->B, etc.
+#      - add_one: Convert 0->1, 1->2 (0-based to 1-based)
+#      - index_to_letter: Convert 0->a, 1->b, 2->c, 3->d
+#
+# 4. indexed - Access field using an index from another field:
+#    answers:
+#      - indexed:
+#          prefix: sol             # Prefix for field names
+#          key_field: label        # Field containing the index
+#          label_transform: <transform>  # Optional transformation
+#    OR
+#      - indexed:
+#          field: options          # Array field
+#          key_field: answer_idx   # Field with array index
+#
+# 5. array - Parallel arrays for prompts and answers:
+#    prompts:
+#      array: questions.text
+#    answers:
+#      - array: answers.text
+#    Creates one record per array element.
+#
+# Multiple answer configurations can be specified as a list.
+# Each configuration will be tried in order until a non-null answer is found.
+#
+evals:
+  agi_eval_aqua_rat:
+    local_path: fixtures/reference-static/aqua-rat.jsonl
+    splits:
+    - train
+    prompt: question
+    passage: passage
+    answers:
+    - expand_choices:
+        field: options
+        correct_index: label
+    - other.solution
+  agi_eval_gaokao_english:
+    local_path: fixtures/reference-static/gaokao-english.jsonl
+    splits:
+    - train
+    prompt: question
+    passage: passage
+    answers:
+    - expand_choices:
+        field: options
+        correct_index: label
+  agi_eval_logiqa_en:
+    local_path: fixtures/reference-static/logiqa-en.jsonl
+    splits:
+    - train
+    prompt: question
+    passage: passage
+    answers:
+    - expand_choices:
+        field: options
+        correct_index: label
+  agi_eval_lsat_ar:
+    local_path: fixtures/reference-static/lsat-ar.jsonl
+    splits:
+    - train
+    prompt: question
+    passage: passage
+    answers:
+    - expand_choices:
+        field: options
+        correct_index: null
+  agi_eval_lsat_lr:
+    local_path: fixtures/reference-static/lsat-lr.jsonl
+    splits:
+    - train
+    prompt: question
+    passage: passage
+    answers:
+    - expand_choices:
+        field: options
+        correct_index: null
+  agi_eval_lsat_rc:
+    local_path: fixtures/reference-static/lsat-rc.jsonl
+    splits:
+    - train
+    prompt: question
+    passage: passage
+    answers:
+    - expand_choices:
+        field: options
+        correct_index: null
+  agi_eval_math:
+    local_path: fixtures/reference-static/math.jsonl
+    splits:
+    - train
+    prompt: question
+    answers:
+    - answer
+    - other.solution
+  agi_eval_sat_en:
+    local_path: fixtures/reference-static/sat-en.jsonl
+    splits:
+    - train
+    prompt: question
+    passage: passage
+    answers:
+    - other.solution
+  agi_eval_sat_en_without_passage:
+    local_path: fixtures/reference-static/sat-en-without-passage.jsonl
+    splits:
+    - train
+    prompt: question
+    answers:
+    - other.solution
+  agi_eval_sat_math:
+    local_path: fixtures/reference-static/sat-math.jsonl
+    splits:
+    - train
+    prompt: question
+    passage: passage
+    answers:
+    - expand_choices:
+        field: options
+        correct_index: label
+    - other.solution
+  ai2_arc_challenge:
+    hf_path: allenai/ai2_arc
+    hf_config: ARC-Challenge
+    splits:
+    - train
+    - test
+    - validation
+    prompt: question
+    answers:
+    - expand_choices:
+        field: choices.text
+        correct_index: answerKey
+  ai2_arc_easy:
+    hf_path: allenai/ai2_arc
+    hf_config: ARC-Easy
+    splits:
+    - train
+    - test
+    - validation
+    prompt: question
+    answers:
+    - expand_choices:
+        field: choices.text
+        correct_index: answerKey
+  aime_2025_i:
+    hf_path: opencompass/AIME2025
+    hf_config: AIME2025-I
+    splits:
+    - test
+    prompt: question
+    answers:
+    - answer
+  aime_2025_ii:
+    hf_path: opencompass/AIME2025
+    hf_config: AIME2025-II
+    splits:
+    - test
+    prompt: question
+    answers:
+    - answer
+  alpaca:
+    hf_path: tatsu-lab/alpaca
+    splits:
+    - train
+    prompt: instruction
+    answers:
+    - output
+  alpaca-multiturn_add_constraint:
+    hf_path: VGraf/TurnWise
+    hf_config: add_constraint
+    splits:
+    - eval
+    prompt: instruction
+    answers:
+    - output
+  alpaca-multiturn_assistant_dependent:
+    hf_path: VGraf/TurnWise
+    hf_config: assistant_dependent
+    splits:
+    - eval
+    prompt: instruction
+    answers:
+    - output
+  alpaca-multiturn_context_switch:
+    hf_path: VGraf/TurnWise
+    hf_config: context_switch
+    splits:
+    - eval
+    prompt: instruction
+    answers:
+    - output
+  alpaca-multiturn_just_constraint:
+    hf_path: VGraf/TurnWise
+    hf_config: just_constraint
+    splits:
+    - eval
+    prompt: instruction
+    answers:
+    - output
+  alpaca-multiturn_paraphrase:
+    hf_path: VGraf/TurnWise
+    hf_config: paraphrase
+    splits:
+    - eval
+    prompt: instruction
+    answers:
+    - output
+  alpaca-multiturn_related_context:
+    hf_path: VGraf/TurnWise
+    hf_config: related_context
+    splits:
+    - eval
+    prompt: instruction
+    answers:
+    - output
+  alpaca-multiturn_repeated:
+    hf_path: VGraf/TurnWise
+    hf_config: repeated
+    splits:
+    - eval
+    prompt: instruction
+    answers:
+    - output
+  alpaca-multiturn_self_compare_add_constraint:
+    hf_path: VGraf/TurnWise
+    hf_config: self_compare_add_constraint
+    splits:
+    - eval
+    prompt: instruction
+    answers:
+    - output
+  alpaca-multiturn_self_compare_assistant_dependent:   # Fixed - concatenates message history
+    hf_path: VGraf/TurnWise
+    hf_config: self_compare_assistant_dependent
+    splits:
+    - eval
+    prompt:
+      concat_messages:
+        field: messages
+        content_field: content
+      append_field: instruction
+    answers:
+    - output
+  alpaca-multiturn_self_compare_context_switch:
+    hf_path: VGraf/TurnWise
+    hf_config: self_compare_context_switch
+    splits:
+    - eval
+    prompt: instruction
+    answers:
+    - output
+  alpaca-multiturn_self_compare_just_constraint:
+    hf_path: VGraf/TurnWise
+    hf_config: self_compare_just_constraint
+    splits:
+    - eval
+    prompt: instruction
+    answers:
+    - output
+  alpaca-multiturn_self_compare_paraphrase:
+    hf_path: VGraf/TurnWise
+    hf_config: self_compare_paraphrase
+    splits:
+    - eval
+    prompt: instruction
+    answers:
+    - output
+  alpaca-multiturn_self_compare_related_context:
+    hf_path: VGraf/TurnWise
+    hf_config: self_compare_related_context
+    splits:
+    - eval
+    prompt: instruction
+    answers:
+    - output
+  alpaca-multiturn_self_compare_repeated:
+    hf_path: VGraf/TurnWise
+    hf_config: self_compare_repeated
+    splits:
+    - eval
+    prompt: instruction
+    answers:
+    - output
+  alpaca-multiturn_self_compare_split_prompts:
+    hf_path: VGraf/TurnWise
+    hf_config: self_compare_split_prompts
+    splits:
+    - eval
+    prompt: instruction
+    answers:
+    - output
+  alpaca-multiturn_single_turn_add_constraint:
+    hf_path: VGraf/TurnWise
+    hf_config: single_turn_add_constraint
+    splits:
+    - eval
+    prompt: instruction
+    answers:
+    - output
+  alpaca-multiturn_single_turn_assistant_dependent:
+    hf_path: VGraf/TurnWise
+    hf_config: single_turn_assistant_dependent
+    splits:
+    - eval
+    prompt: instruction
+    answers:
+    - output
+  alpaca-multiturn_single_turn_just_constraint:
+    hf_path: VGraf/TurnWise
+    hf_config: single_turn_just_constraint
+    splits:
+    - eval
+    prompt: instruction
+    answers:
+    - output
+  alpaca-multiturn_single_turn_split_prompts:
+    hf_path: VGraf/TurnWise
+    hf_config: single_turn_split_prompts
+    splits:
+    - eval
+    prompt: instruction
+    answers:
+    - output
+  alpaca-multiturn_single_turn_user_dependent:
+    hf_path: VGraf/TurnWise
+    hf_config: single_turn_user_dependent
+    splits:
+    - eval
+    prompt: instruction
+    answers:
+    - output
+  alpaca-multiturn_split_prompts:
+    hf_path: VGraf/TurnWise
+    hf_config: split_prompts
+    splits:
+    - eval
+    prompt: instruction
+    answers:
+    - output
+  alpaca-multiturn_user_dependent:
+    hf_path: VGraf/TurnWise
+    hf_config: user_dependent
+    splits:
+    - eval
+    prompt: instruction
+    answers:
+    - output
+  alpaca-multiturn_weak_context_add_constraint:
+    hf_path: VGraf/TurnWise
+    hf_config: weak_context_add_constraint
+    splits:
+    - eval
+    prompt: instruction
+    answers:
+    - output
+  alpaca-multiturn_weak_context_just_constraint:
+    hf_path: VGraf/TurnWise
+    hf_config: weak_context_just_constraint
+    splits:
+    - eval
+    prompt: instruction
+    answers:
+    - output
+  alpaca-multiturn_weak_context_paraphrase:
+    hf_path: VGraf/TurnWise
+    hf_config: weak_context_paraphrase
+    splits:
+    - eval
+    prompt: instruction
+    answers:
+    - output
+  alpaca-multiturn_weak_context_repeated:
+    hf_path: VGraf/TurnWise
+    hf_config: weak_context_repeated
+    splits:
+    - eval
+    prompt: instruction
+    answers:
+    - output
+  aimo_validation:
+    hf_path: AI-MO/aimo-validation-aime
+    splits:
+    - train
+    prompt: problem
+    answers:
+    - answer
+  basic_skills_arithmetic:
+    hf_path: allenai/basic-skills
+    hf_config: arithmetic
+    splits:
+    - validation
+    prompt: question
+    answers:
+    - answer
+  basic_skills_coding:
+    hf_path: allenai/basic-skills
+    hf_config: coding
+    splits:
+    - validation
+    prompt: question
+    answers:
+    - answer
+  basic_skills_common_knowledge:
+    hf_path: allenai/basic-skills
+    hf_config: common_knowledge
+    splits:
+    - validation
+    prompt: question
+    answers:
+    - answer
+  basic_skills_logical_reasoning:
+    hf_path: allenai/basic-skills
+    hf_config: logical_reasoning
+    splits:
+    - validation
+    prompt: question
+    answers:
+    - answer
+  basic_skills_pattern:
+    hf_path: allenai/basic-skills
+    hf_config: pattern
+    splits:
+    - validation
+    prompt: question
+    answers:
+    - answer
+  basic_skills_string_operations:
+    hf_path: allenai/basic-skills
+    hf_config: string_operations
+    splits:
+    - validation
+    prompt: question
+    answers:
+    - answer
+  bbeh:
+    hf_path: hubert233/BigBenchExtraHard
+    splits:
+    - boardgame_qa
+    - boolean_expressions
+    - buggy_tables
+    - causal_understanding
+    - disambiguation_qa
+    - dyck_languages
+    - geometric_shapes
+    - hyperbaton
+    - linguini
+    - movie_recommendation
+    - multistep_arithmetic
+    - nycc
+    - object_counting
+    - object_properties
+    - sarc_triples
+    - shuffled_objects
+    - spatial_reasoning
+    - sportqa
+    - temporal_sequence
+    - time_arithmetic
+    - web_of_lies
+    - word_sorting
+    - zebra_puzzles
+    prompt: input
+    answers:
+    - target
+  bbh_boolean_expressions:
+    hf_path: lukaemon/bbh
+    hf_config: boolean_expressions
+    splits:
+    - test
+    prompt: input
+    answers:
+    - target
+  bbh_causal_judgement:
+    hf_path: lukaemon/bbh
+    hf_config: causal_judgement
+    splits:
+    - test
+    prompt: input
+    answers:
+    - target
+  bbh_date_understanding:
+    hf_path: lukaemon/bbh
+    hf_config: date_understanding
+    splits:
+    - test
+    prompt: input
+    answers:
+    - target
+  bbh_disambiguation_qa:
+    hf_path: lukaemon/bbh
+    hf_config: disambiguation_qa
+    splits:
+    - test
+    prompt: input
+    answers:
+    - target
+  bbh_formal_fallacies:
+    hf_path: lukaemon/bbh
+    hf_config: formal_fallacies
+    splits:
+    - test
+    prompt: input
+    answers:
+    - target
+  bbh_logical_deduction_three_objects:
+    hf_path: lukaemon/bbh
+    hf_config: logical_deduction_three_objects
+    splits:
+    - test
+    prompt: input
+    answers:
+    - target
+  bigcodebench:
+    hf_path: bigcode/bigcodebench
+    splits:
+    - v0.1.4
+    prompt: complete_prompt
+    answers:
+    - canonical_solution
+  bigcodebench_hard:
+    hf_path: bigcode/bigcodebench-hard
+    splits:
+    - v0.1.4
+    prompt: complete_prompt
+    answers:
+    - canonical_solution
+  codeforces:
+    hf_path: open-r1/codeforces
+    splits:
+    - test
+    no_answer_splits:
+    - test
+    prompt: description
+    passage: title
+    extra_fields:
+    - contest_name
+    - rating
+    - tags
+  commonsense_qa:
+    hf_path: commonsense_qa
+    splits:
+    - train
+    - validation
+    - test
+    no_answer_splits:
+    - test
+    prompt: question
+    answers:
+    - expand_choices:
+        field: choices
+        correct_index: answerKey
+  coqa:
+    hf_path: EleutherAI/coqa
+    splits:
+    - train
+    - validation
+    passage: story
+    answers:
+    - array: answers.input_text
+    prompts:
+      array: questions.input_text
+  coqa_mc:
+    hf_path: allenai/coqa_mc
+    splits:
+    - validation
+    prompt: query_original
+    answers:
+    - expand_choices:
+        field: choices.text
+        correct_index: answerKey
+  cruxeval:
+    hf_path: cruxeval-org/cruxeval
+    splits:
+    - test
+    prompt: code
+    answers:
+    - output
+  deepseek_leetcode:
+    hf_path: davidheineman/deepseek-leetcode
+    splits:
+    - test
+    no_answer_splits:
+    - test
+    prompt: prompt
+  drop:
+    hf_path: EleutherAI/drop
+    splits:
+    - train
+    - validation
+    prompt: question
+    passage: passage
+    answers:
+      - answer.spans.0
+      - answer.number
+      - answer.date
+  drop_mc:
+    hf_path: allenai/drop_mc
+    splits:
+    - validation
+    prompt: question_original
+    passage: passage_original
+    answers:
+      - expand_choices:
+          field: choices.text
+          correct_index: answerKey
+  ds_1000:
+    hf_path: xlangai/DS-1000
+    splits:
+    - test
+    prompt: prompt
+    answers:
+    - reference_code
+  gpqa_main:
+    hf_path: Idavidrein/gpqa
+    hf_config: gpqa_main
+    splits:
+    - train
+    prompt: Question
+    answers:
+    - Correct Answer
+  gpqa_diamond:
+    hf_path: Idavidrein/gpqa
+    hf_config: gpqa_diamond
+    splits:
+    - train
+    prompt: Question
+    answers:
+    - Correct Answer
+  gpqa_experts:  # Uses expert metadata as Q/A pairs for contamination detection
+    hf_path: Idavidrein/gpqa
+    hf_config: gpqa_experts
+    splits:
+    - train
+    prompt: Description of Expertise
+    answers:
+      - Qualifications  # Already a string, looks like "['PhD']"
+  gpqa_extended:
+    hf_path: Idavidrein/gpqa
+    hf_config: gpqa_extended
+    splits:
+    - train
+    prompt: Question
+    answers:
+    - Correct Answer
+  gsm8k:
+    hf_path: openai/gsm8k
+    hf_config: main
+    splits:
+    - train
+    - test
+    prompt: question
+    answers:
+    - answer
+  gsm_plus:
+    hf_path: qintongli/GSM-Plus
+    splits:
+    - test
+    - testmini
+    prompt: question
+    extra_fields:
+    - perturbation_type
+    answers:
+    - solution
+  gsm_symbolic:
+    hf_path: apple/GSM-Symbolic
+    hf_config: p2
+    splits:
+    - test
+    prompt: question
+    answers:
+    - answer
+  harmbench_contextual:
+    hf_path: walledai/HarmBench
+    hf_config: contextual
+    splits:
+    - train
+    no_answer_splits:
+    - train
+    prompt: prompt
+    passage: passage
+    extra_fields:
+    - category
+  harmbench_copyright:
+    hf_path: walledai/HarmBench
+    hf_config: copyright
+    splits:
+    - train
+    no_answer_splits:
+    - train
+    prompt: prompt
+    extra_fields:
+    - tags
+  harmbench_standard:
+    hf_path: walledai/HarmBench
+    hf_config: standard
+    splits:
+    - train
+    no_answer_splits:
+    - train
+    prompt: prompt
+    extra_fields:
+    - category
+  hellaswag:
+    hf_path: hellaswag
+    splits:
+    - train
+    - test
+    - validation
+    no_answer_splits:
+    - test
+    prompt: ctx
+    answers:
+    - expand_choices:
+        field: endings
+        correct_index: label
+  hendrycks_math_algebra:
+    hf_path: EleutherAI/hendrycks_math
+    hf_config: algebra
+    splits:
+    - train
+    - test
+    prompt: problem
+    answers:
+    - solution
+  hendrycks_math_counting_and_probability:
+    hf_path: EleutherAI/hendrycks_math
+    hf_config: counting_and_probability
+    splits:
+    - train
+    - test
+    prompt: problem
+    answers:
+    - solution
+  hendrycks_math_geometry:
+    hf_path: EleutherAI/hendrycks_math
+    hf_config: geometry
+    splits:
+    - train
+    - test
+    prompt: problem
+    answers:
+    - solution
+  hendrycks_math_intermediate_algebra:
+    hf_path: EleutherAI/hendrycks_math
+    hf_config: intermediate_algebra
+    splits:
+    - train
+    - test
+    prompt: problem
+    answers:
+    - solution
+  hendrycks_math_number_theory:
+    hf_path: EleutherAI/hendrycks_math
+    hf_config: number_theory
+    splits:
+    - train
+    - test
+    prompt: problem
+    answers:
+    - solution
+  hendrycks_math_prealgebra:
+    hf_path: EleutherAI/hendrycks_math
+    hf_config: prealgebra
+    splits:
+    - train
+    - test
+    prompt: problem
+    answers:
+    - solution
+  hendrycks_math_precalculus:
+    hf_path: EleutherAI/hendrycks_math
+    hf_config: precalculus
+    splits:
+    - train
+    - test
+    prompt: problem
+    answers:
+    - solution
+  humaneval_infilling_multiline:
+    hf_path: loubnabnl/humaneval_infilling
+    hf_config: HumanEval-MultiLineInfilling
+    splits:
+    - test
+    prompt: prompt
+    answers:
+    - canonical_solution
+  humaneval_infilling_randomspan:
+    hf_path: loubnabnl/humaneval_infilling
+    hf_config: HumanEval-RandomSpanInfilling
+    splits:
+    - test
+    prompt: prompt
+    answers:
+    - canonical_solution
+  humaneval_infilling_singleline:
+    hf_path: loubnabnl/humaneval_infilling
+    hf_config: HumanEval-SingleLineInfilling
+    splits:
+    - test
+    prompt: prompt
+    answers:
+    - canonical_solution
+  humaneval_plus:
+    hf_path: evalplus/humanevalplus
+    splits:
+    - test
+    prompt: prompt
+    answers:
+    - canonical_solution
+  humaneval_pro:
+    hf_path: CodeEval-Pro/humaneval-pro
+    splits:
+    - train
+    prompt: new_problem
+    answers:
+    - new_solution
+  ifbench_multiturn_constraints:
+    hf_path: allenai/IFBench_multi-turn
+    hf_config: ifbench_constraints
+    splits:
+    - test
+    prompt: prompt
+  ifbench_multiturn_ifeval:
+    hf_path: allenai/IFBench_multi-turn
+    hf_config: ifeval_constraints
+    splits:
+    - test
+    no_answer_splits:
+    - test
+    prompt: prompt
+  ifeval:
+    hf_path: HuggingFaceH4/ifeval
+    splits:
+    - train
+    no_answer_splits:
+    - train
+    prompt: prompt
+  if_ood:
+    hf_path: valpy/ifeval_ood3
+    splits:
+    - train
+    no_answer_splits:
+    - train
+    prompt: prompt
+  jeopardy:
+    hf_path: soldni/jeopardy
+    hf_config: all_questions
+    splits:
+    - train
+    prompt: question
+    answers:
+    - continuation
+  jeopardy_mc:
+    hf_path: allenai/jeopardy_mc
+    splits:
+    - test
+    prompt: context_original
+    answers:
+    - expand_choices:
+        field: choices.text
+        correct_index: answerKey
+  lab_bench_dbqa:
+    hf_path: futurehouse/lab-bench
+    hf_config: DbQA
+    splits:
+    - train
+    prompt: question
+    answers:
+    - ideal
+    - expand_choices:
+        field: distractors
+        correct_index: null
+  lab_bench_protocolqa:
+    hf_path: futurehouse/lab-bench
+    hf_config: ProtocolQA
+    splits:
+    - train
+    prompt: question
+    answers:
+    - expand_choices:
+        field: distractors
+        correct_index: null
+  lambada_openai:
+    hf_path: EleutherAI/lambada_openai
+    splits:
+    - test
+    no_answer_splits:
+    - test
+    prompt: text
+  lbpp:
+    hf_path: CohereLabs/lbpp
+    splits:
+    - test
+    prompt: instruction
+    answers:
+    - completion
+  livecodebench:
+    hf_path: livecodebench/code_generation_lite
+    splits:
+    - test
+    no_answer_splits:
+    - test
+    prompt: question_content
+  logiqa:
+    hf_path: lucasmccabe/logiqa
+    splits:
+    - train
+    - validation
+    - test
+    prompt: query
+    passage: context
+    answers:
+    - expand_choices:
+        field: options
+        correct_index: correct_option
+  math_500:
+    hf_path: HuggingFaceH4/MATH-500
+    splits:
+    - test
+    prompt: problem
+    answers:
+    - solution
+  mbpp:
+    hf_path: google-research-datasets/mbpp
+    splits:
+    - train
+    - test
+    - validation
+    prompt: text
+    answers:
+    - code
+  mbpp_plus:
+    hf_path: evalplus/mbppplus
+    splits:
+    - test
+    prompt: prompt
+    answers:
+    - code
+  mbpp_pro:
+    hf_path: CodeEval-Pro/mbpp-pro
+    splits:
+    - train
+    prompt: new_problem
+    answers:
+    - new_solution
+  medmcqa:
+    hf_path: openlifescienceai/medmcqa
+    splits:
+    - train
+    - test
+    - validation
+    no_answer_splits:
+    - test
+    prompt: question
+    answers:
+    - expand_prefix:
+        prefix: op
+        suffix_match_field: cop
+        label_transform: index_to_letter
+  medqa_en:
+    hf_path: davidheineman/medqa-en
+    splits:
+    - train
+    - test
+    - dev
+    prompt: question
+    answers:
+    - answer
+  mmlu:
+    hf_path: cais/mmlu
+    hf_config: all
+    splits:
+    - test
+    - validation
+    - dev
+    prompt: question
+    extra_fields:
+    - subject
+    dataset_name_field: subject
+    answers:
+    - expand_choices:
+        field: choices
+        correct_index: answer
+  mmlu_pro:
+    hf_path: TIGER-Lab/MMLU-Pro
+    splits:
+    - test
+    - validation
+    prompt: question
+    extra_fields:
+    - category
+    dataset_name_field: category
+    answers:
+    - expand_choices:
+        field: options
+        correct_index: answer_index
+  mt_eval_refinement:
+    hf_path: wckwan/MT-Eval
+    hf_config: refinement_single
+    splits:
+    - test
+    no_answer_splits:
+    - test
+    prompt: conv.0.user
+  multilingual_mbpp_cpp:
+    hf_path: allenai/multilingual_mbpp
+    hf_config: cpp
+    splits:
+    - test
+    - train
+    - validation
+    prompt: text
+    answers:
+    - code
+  multilingual_mbpp_c:
+    hf_path: allenai/multilingual_mbpp
+    hf_config: c
+    splits:
+    - test
+    - train
+    - validation
+    prompt: text
+    answers:
+    - code
+  multilingual_mbpp_javascript:
+    hf_path: allenai/multilingual_mbpp
+    hf_config: javascript
+    splits:
+    - test
+    - train
+    - validation
+    prompt: text
+    answers:
+    - code
+  multilingual_mbpp_java:
+    hf_path: allenai/multilingual_mbpp
+    hf_config: java
+    splits:
+    - test
+    - train
+    - validation
+    prompt: text
+    answers:
+    - code
+  multilingual_mbpp_python:
+    hf_path: allenai/multilingual_mbpp
+    hf_config: python
+    splits:
+    - test
+    - train
+    - validation
+    prompt: text
+    answers:
+    - code
+  multilingual_mbpp_php:
+    hf_path: allenai/multilingual_mbpp
+    hf_config: php
+    splits:
+    - test
+    - train
+    - validation
+    prompt: text
+    answers:
+    - code
+  multilingual_mbpp_csharp:
+    hf_path: allenai/multilingual_mbpp
+    hf_config: csharp
+    splits:
+    - test
+    - train
+    - validation
+    prompt: text
+    answers:
+    - code
+  multilingual_mbpp_typescript:
+    hf_path: allenai/multilingual_mbpp
+    hf_config: typescript
+    splits:
+    - test
+    - train
+    - validation
+    prompt: text
+    answers:
+    - code
+  multilingual_mbpp_bash:
+    hf_path: allenai/multilingual_mbpp
+    hf_config: bash
+    splits:
+    - test
+    - train
+    - validation
+    prompt: text
+    answers:
+    - code
+  multilingual_mbpp_swift:
+    hf_path: allenai/multilingual_mbpp
+    hf_config: swift
+    splits:
+    - test
+    - train
+    - validation
+    prompt: text
+    answers:
+    - code
+  multilingual_mbpp_go:
+    hf_path: allenai/multilingual_mbpp
+    hf_config: go
+    splits:
+    - test
+    - train
+    - validation
+    prompt: text
+    answers:
+    - code
+  multilingual_mbpp_rust:
+    hf_path: allenai/multilingual_mbpp
+    hf_config: rust
+    splits:
+    - test
+    - train
+    - validation
+    prompt: text
+    answers:
+    - code
+  multilingual_mbpp_ruby:
+    hf_path: allenai/multilingual_mbpp
+    hf_config: ruby
+    splits:
+    - test
+    - train
+    - validation
+    prompt: text
+    answers:
+    - code
+  multilingual_mbpp_r:
+    hf_path: allenai/multilingual_mbpp
+    hf_config: r
+    splits:
+    - test
+    - train
+    - validation
+    prompt: text
+    answers:
+    - code
+  multilingual_mbpp_matlab:
+    hf_path: allenai/multilingual_mbpp
+    hf_config: matlab
+    splits:
+    - test
+    - train
+    - validation
+    prompt: text
+    answers:
+    - code
+  multilingual_mbpp_scala:
+    hf_path: allenai/multilingual_mbpp
+    hf_config: scala
+    splits:
+    - test
+    - train
+    - validation
+    prompt: text
+    answers:
+    - code
+  multilingual_mbpp_haskell:
+    hf_path: allenai/multilingual_mbpp
+    hf_config: haskell
+    splits:
+    - test
+    - train
+    - validation
+    prompt: text
+    answers:
+    - code
+  multipl_e_humaneval_cpp:
+    hf_path: nuprl/MultiPL-E
+    hf_config: humaneval-cpp
+    splits:
+    - test
+    no_answer_splits:
+    - test
+    prompt: prompt
+  multipl_e_humaneval_go:
+    hf_path: nuprl/MultiPL-E
+    hf_config: humaneval-go
+    splits:
+    - test
+    no_answer_splits:
+    - test
+    prompt: prompt
+  multipl_e_humaneval_java:
+    hf_path: nuprl/MultiPL-E
+    hf_config: humaneval-java
+    splits:
+    - test
+    no_answer_splits:
+    - test
+    prompt: prompt
+  multipl_e_humaneval_js:
+    hf_path: nuprl/MultiPL-E
+    hf_config: humaneval-js
+    splits:
+    - test
+    no_answer_splits:
+    - test
+    prompt: prompt
+  nq_open:
+    hf_path: google-research-datasets/nq_open
+    splits:
+    - train
+    - validation
+    prompt: question
+    answers:
+    - answer
+  nq_open_mc:
+    hf_path: allenai/nq_open_mc
+    splits:
+    - validation
+    prompt: question
+    answers:
+    - expand_choices:
+        field: choices.text
+        correct_index: answerKey
+  omega_compositional_polynomial_gcd:
+    hf_path: allenai/omega-compositional
+    hf_config: comp_polynomial_gcd
+    splits:
+    - train
+    - test
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_compositional_n_gon:
+    hf_path: allenai/omega-compositional
+    hf_config: comp_n_gon
+    splits:
+    - train
+    - test
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_compositional_circles_algebra:
+    hf_path: allenai/omega-compositional
+    hf_config: comp_circles_algebra
+    splits:
+    - train
+    - test
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_compositional_parametric_intersection:
+    hf_path: allenai/omega-compositional
+    hf_config: comp_parametric_intersection
+    splits:
+    - train
+    - test
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_compositional_matrix_rank:
+    hf_path: allenai/omega-compositional
+    hf_config: comp_matrix_rank
+    splits:
+    - train
+    - test
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_compositional_vertex_color:
+    hf_path: allenai/omega-compositional
+    hf_config: comp_vertex_color
+    splits:
+    - train
+    - test
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_compositional_grid_chips:
+    hf_path: allenai/omega-compositional
+    hf_config: comp_grid_chips
+    splits:
+    - train
+    - test
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_algebra_func_area:
+    hf_path: allenai/omega-explorative
+    hf_config: algebra_func_area
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_algebra_func_derivative_sign:
+    hf_path: allenai/omega-explorative
+    hf_config: algebra_func_derivative_sign
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_algebra_func_extrema:
+    hf_path: allenai/omega-explorative
+    hf_config: algebra_func_extrema
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_algebra_func_extrema_coords:
+    hf_path: allenai/omega-explorative
+    hf_config: algebra_func_extrema_coords
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_algebra_func_intersection:
+    hf_path: allenai/omega-explorative
+    hf_config: algebra_func_intersection
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_algebra_func_intersection_coords:
+    hf_path: allenai/omega-explorative
+    hf_config: algebra_func_intersection_coords
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_algebra_func_zeros:
+    hf_path: allenai/omega-explorative
+    hf_config: algebra_func_zeros
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_algebra_linear_equation:
+    hf_path: allenai/omega-explorative
+    hf_config: algebra_linear_equation
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_algebra_polynomial_roots:
+    hf_path: allenai/omega-explorative
+    hf_config: algebra_polynomial_roots
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_arithmetic_gcd:
+    hf_path: allenai/omega-explorative
+    hf_config: arithmetic_gcd
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_arithmetic_list_prime_factors:
+    hf_path: allenai/omega-explorative
+    hf_config: arithmetic_list_prime_factors
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_arithmetic_mixed:
+    hf_path: allenai/omega-explorative
+    hf_config: arithmetic_mixed
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_arithmetic_matrix_determinant:
+    hf_path: allenai/omega-explorative
+    hf_config: arithmetic_matrix_determinant
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_arithmetic_matrix_eigenvalues:
+    hf_path: allenai/omega-explorative
+    hf_config: arithmetic_matrix_eigenvalues
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_arithmetic_matrix_inverse:
+    hf_path: allenai/omega-explorative
+    hf_config: arithmetic_matrix_inverse
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_arithmetic_matrix_multiplication:
+    hf_path: allenai/omega-explorative
+    hf_config: arithmetic_matrix_multiplication
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_arithmetic_matrix_power:
+    hf_path: allenai/omega-explorative
+    hf_config: arithmetic_matrix_power
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_arithmetic_matrix_rank:
+    hf_path: allenai/omega-explorative
+    hf_config: arithmetic_matrix_rank
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_arithmetic_matrix_svd:
+    hf_path: allenai/omega-explorative
+    hf_config: arithmetic_matrix_svd
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_combinatory_distribution:
+    hf_path: allenai/omega-explorative
+    hf_config: combinatory_distribution
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_combinatory_pattern_matching:
+    hf_path: allenai/omega-explorative
+    hf_config: combinatory_pattern_matching
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_combinatory_probability_at_least_n_specific_fixed:
+    hf_path: allenai/omega-explorative
+    hf_config: combinatory_probability_at_least_n_specific_fixed
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_combinatory_probability_exactly_n_specific_fixed:
+    hf_path: allenai/omega-explorative
+    hf_config: combinatory_probability_exactly_n_specific_fixed
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_combinatory_probability_no_fixed_points:
+    hf_path: allenai/omega-explorative
+    hf_config: combinatory_probability_no_fixed_points
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_combinatory_probability_no_specific_letter_fixed:
+    hf_path: allenai/omega-explorative
+    hf_config: combinatory_probability_no_specific_letter_fixed
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_geometry_basic:
+    hf_path: allenai/omega-explorative
+    hf_config: geometry_basic
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_geometry_circle:
+    hf_path: allenai/omega-explorative
+    hf_config: geometry_circle
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_geometry_perpendicular_intersection:
+    hf_path: allenai/omega-explorative
+    hf_config: geometry_perpendicular_intersection
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_geometry_polygon:
+    hf_path: allenai/omega-explorative
+    hf_config: geometry_polygon
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_geometry_polygon_rotation:
+    hf_path: allenai/omega-explorative
+    hf_config: geometry_polygon_rotation
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_geometry_triangle:
+    hf_path: allenai/omega-explorative
+    hf_config: geometry_triangle
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_geometry_polygon_chords:
+    hf_path: allenai/omega-explorative
+    hf_config: geometry_polygon_chords
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_geometry_polygon_color:
+    hf_path: allenai/omega-explorative
+    hf_config: geometry_polygon_color
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_logic_gridworld_blocked:
+    hf_path: allenai/omega-explorative
+    hf_config: logic_gridworld_blocked
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_logic_gridworld_knight_move:
+    hf_path: allenai/omega-explorative
+    hf_config: logic_gridworld_knight_move
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_logic_gridworld_rookmove:
+    hf_path: allenai/omega-explorative
+    hf_config: logic_gridworld_rookmove
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_logic_zebralogic:
+    hf_path: allenai/omega-explorative
+    hf_config: logic_zebralogic
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_logic_puzzles_grid_chip:
+    hf_path: allenai/omega-explorative
+    hf_config: logic_puzzles_grid_chip
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_numbertheory_lte_qr:
+    hf_path: allenai/omega-explorative
+    hf_config: numbertheory_lte_qr
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_numbertheory_ordered_lte:
+    hf_path: allenai/omega-explorative
+    hf_config: numbertheory_ordered_lte
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_explorative_numbertheory_qr_sum:
+    hf_path: allenai/omega-explorative
+    hf_config: numbertheory_qr_sum
+    splits:
+    - train
+    - test_in
+    - test_out
+    prompt: messages.0.content
+    extra_fields:
+    - setting_name
+    - dataset
+    answers:
+    - ground_truth
+  omega_transformative_matrix_rank:
+    hf_path: allenai/omega-transformative
+    hf_config: trans_matrix_rank
+    splits:
+    - train
+    - test
+    prompt: messages.0.content
+    answers:
+    - ground_truth
+  omega_transformative_func_intersection:
+    hf_path: allenai/omega-transformative
+    hf_config: trans_func_intersection
+    splits:
+    - train
+    - test
+    prompt: messages.0.content
+    answers:
+    - ground_truth
+  omega_transformative_de_moivre:
+    hf_path: allenai/omega-transformative
+    hf_config: trans_de_moivre
+    splits:
+    - train
+    - test
+    prompt: messages.0.content
+    answers:
+    - ground_truth
+  omega_transformative_prob_letter:
+    hf_path: allenai/omega-transformative
+    hf_config: trans_prob_letter
+    splits:
+    - train
+    - test
+    prompt: messages.0.content
+    answers:
+    - ground_truth
+  omega_transformative_integrations:
+    hf_path: allenai/omega-transformative
+    hf_config: trans_integrations
+    splits:
+    - train
+    - test
+    prompt: messages.0.content
+    answers:
+    - ground_truth
+  omega_transformative_gridworld:
+    hf_path: allenai/omega-transformative
+    hf_config: trans_gridworld
+    splits:
+    - train
+    - test
+    prompt: messages.0.content
+    answers:
+    - ground_truth
+  omega_transformative_circles:
+    hf_path: allenai/omega-transformative
+    hf_config: trans_circles
+    splits:
+    - train
+    - test
+    prompt: messages.0.content
+    answers:
+    - ground_truth
+  openbookqa:
+    hf_path: allenai/openbookqa
+    splits:
+    - train
+    - validation
+    - test
+    prompt: question_stem
+    answers:
+    - expand_choices:
+        field: choices.text
+        correct_index: answerKey
+  piqa:
+    hf_path: piqa
+    splits:
+    - train
+    - test
+    - validation
+    prompt: goal
+    answers:
+    - expand_prefix:
+        prefix: sol
+        suffix_match_field: label
+        label_transform: add_one
+  popqa:
+    hf_path: akariasai/PopQA
+    splits:
+    - test
+    prompt: question
+    answers:
+    - possible_answers
+  qasper_yesno:
+    hf_path: allenai/qasper-yesno
+    splits:
+    - train
+    - validation
+    - test
+    prompt: question
+    passage:
+      last_paragraph: full_text.paragraphs
+      min_words: 10
+    answers:
+    - answer
+  repobench_python_cross_file_first:
+    hf_path: tianyang/repobench_python_v1.1
+    splits:
+    - cross_file_first
+    prompt: cropped_code
+    extra_fields:
+    - repo_name
+    - file_path
+    - level
+    answers:
+    - next_line
+  repobench_python_cross_file_random:
+    hf_path: tianyang/repobench_python_v1.1
+    splits:
+    - cross_file_random
+    prompt: cropped_code
+    extra_fields:
+    - repo_name
+    - file_path
+    - level
+    answers:
+    - next_line
+  repobench_python_in_file:
+    hf_path: tianyang/repobench_python_v1.1
+    splits:
+    - in_file
+    prompt: cropped_code
+    extra_fields:
+    - repo_name
+    - file_path
+    - level
+    answers:
+    - next_line
+  sciq:
+    hf_path: allenai/sciq
+    splits:
+    - train
+    - validation
+    - test
+    prompt: question
+    # passage: support  # This got set as a passage, but it's more of a general description than anything.
+    answers:
+    - correct_answer
+  sciriff_yesno:
+    hf_path: allenai/sciriff-yesno
+    splits:
+    - train
+    - validation
+    - test
+    prompt: question
+    passage: passage
+    answers:
+    - answer
+  simple_qa:
+    hf_path: lighteval/SimpleQA
+    splits:
+    - test
+    prompt: problem
+    answers:
+    - answer
+  simple_tom_mental_state:  # Fixed - use expand_choices to get text answers
+    hf_path: allenai/SimpleToM
+    hf_config: mental-state-qa
+    splits:
+    - test
+    prompt: question
+    passage: story
+    answers:
+    - expand_choices:
+        field: choices.text
+        correct_index: answerKey
+  social_i_qa:
+    hf_path: allenai/social_i_qa
+    splits:
+    - train
+    - validation
+    prompt: question
+    passage: passage
+    answers:
+      - expand_prefix:
+          prefix: answer
+          suffix_match_field: label
+          label_transform: numbers_to_letters
+  squad:
+    hf_path: squad
+    splits:
+    - train
+    - validation
+    prompt: question
+    passage: context
+    answers:
+    - answers.text.0
+  squad_mc:
+    hf_path: allenai/squad_mc
+    splits:
+    - validation
+    prompt: question_original
+    passage: passage_original
+    answers:
+    - expand_choices:
+        field: choices.text
+        correct_index: answerKey
+  squad_v2:
+    hf_path: squad_v2
+    splits:
+    - train
+    - validation
+    prompt: question
+    passage: context
+    answers:
+    - answers.text.0
+  super_glue_boolq:
+    hf_path: aps/super_glue
+    hf_config: boolq
+    splits:
+    - train
+    - validation
+    - test
+    no_answer_splits:
+    - test
+    prompt: question
+    passage: passage
+    answers:
+    - label
+  super_glue_rte:
+    hf_path: aps/super_glue
+    hf_config: rte
+    splits:
+    - train
+    - validation
+    - test
+    no_answer_splits:
+    - test
+    prompt: hypothesis
+    passage: premise
+    answers:
+    - label
+  super_gpqa:
+    hf_path: m-a-p/SuperGPQA
+    splits:
+    - train
+    prompt: question
+    extra_fields:
+    - discipline
+    - field
+    - subfield
+    answers:
+    - expand_choices:
+        field: options
+        correct_index: null
+  trivia_qa:
+    hf_path: mandarjoshi/trivia_qa
+    hf_config: rc
+    splits:
+    - train
+    - validation
+    - test
+    no_answer_splits:
+    - test
+    prompt: question
+    answers:
+    - answer.value
+  truthful_qa:
+    hf_path: truthfulqa/truthful_qa
+    hf_config: generation
+    splits:
+    - validation
+    prompt: question
+    answers:
+    - best_answer
+  tulu3_do_anything_now:
+    hf_path: allenai/tulu-3-do-anything-now-eval
+    splits:
+    - test
+    no_answer_splits:
+    - test
+    prompt: adversarial
+    extra_fields:
+    - vanilla
+    - jailbreak
+    - platform
+    - source
+  tulu3_trustllm_jailbreak:
+    hf_path: allenai/tulu-3-trustllm-jailbreaktrigger-eval
+    splits:
+    - test
+    no_answer_splits:
+    - test
+    prompt: prompt
+    extra_fields:
+    - label
+    - source
+  wildguardtest:
+    hf_path: walledai/WildGuardTest
+    splits:
+    - train
+    prompt: prompt
+    extra_fields:
+    - adversarial
+    answers:
+    - label
+  wildjailbreak_eval:
+    hf_path: allenai/wildjailbreak
+    hf_config: eval
+    splits:
+    - train
+    no_answer_splits:
+    - train
+    prompt: adversarial
+    extra_fields:
+    - label
+    - data_type
+  wildjailbreak_train:
+    hf_path: allenai/wildjailbreak
+    hf_config: train
+    splits:
+    - train
+    prompt: vanilla
+    extra_fields:
+    - data_type
+  winogrande:
+    hf_path: allenai/winogrande
+    hf_config: winogrande_xl
+    splits:
+    - train
+    - test
+    - validation
+    no_answer_splits:
+    - test
+    prompt: sentence
+    answers:
+      - expand_prefix:
+          prefix: option
+          suffix_match_field: answer
+  xstest:
+    hf_path: walledai/XSTest
+    splits:
+    - test
+    prompt: prompt
+    extra_fields:
+    - focus
+    - type
+    answers:
+    - label
+  zebra_logic_grid:
+    hf_path: allenai/ZebraLogicBench-private
+    hf_config: grid_mode
+    splits:
+    - test
+    prompt: puzzle
+    answers:
+    - solution
+  zebra_logic_mc:
+    hf_path: allenai/ZebraLogicBench-private
+    hf_config: mc_mode
+    splits:
+    - test
+    prompt: question
+    passage: puzzle
+    answers:
+    - expand_choices:
+        field: choices
+        correct_index: null  # We'll match against the answer field
+  zero_scrolls_qasper:
+    hf_path: tau/zero_scrolls
+    hf_config: qasper
+    splits:
+    - validation
+    - test
+    no_answer_splits:
+    - test
+    prompt: input
+    answers:
+    - output

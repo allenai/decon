@@ -1,0 +1,18 @@
+# Orchestration example configuration for distributed contamination detection
+
+# S3 locations
+remote_file_input: s3://my-pretraining-data/sources/my-data
+remote_report_output_dir: s3://my-decon-test-reports        # Contamination reports go here
+remote_cleaned_output_dir: s3://my-decon-test-cleaned  # Cleaned files go here (when purify=true)
+
+# Server configuration
+server_url: http://localhost:8080
+
+# Local working directory
+local_work_dir: /tmp/decon-work
+
+# Orchestration settings
+poll_interval: 5  # Seconds between status polls
+s5cmd_workers: 50  # Number of parallel S3 operations
+cleanup_delay: 10  # Seconds to wait before cleaning up completed job files
+# max_concurrent_jobs: 10  # Maximum number of concurrent server jobs. Defaults to server's worker_threads * 4 (queried from /health endpoint)

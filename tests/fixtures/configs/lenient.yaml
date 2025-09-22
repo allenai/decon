@@ -1,0 +1,6 @@
+mode: simple
+content_key: text
+tokenizer_str: cl100k
+ngram_size: 5
+answer_threshold: 0.5
+passage_threshold: 0.5
