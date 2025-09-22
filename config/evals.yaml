@@ -68,101 +68,13 @@
 # Each configuration will be tried in order until a non-null answer is found.
 #
 evals:
-  agi_eval_aqua_rat:
-    local_path: fixtures/reference-static/aqua-rat.jsonl
+  agi_eval:
+    local_path: bundled_evals/agi_eval_
     splits:
     - train
-    prompt: question
-    passage: passage
-    answers:
-    - expand_choices:
-        field: options
-        correct_index: label
-    - other.solution
-  agi_eval_gaokao_english:
-    local_path: fixtures/reference-static/gaokao-english.jsonl
-    splits:
-    - train
-    prompt: question
-    passage: passage
-    answers:
-    - expand_choices:
-        field: options
-        correct_index: label
-  agi_eval_logiqa_en:
-    local_path: fixtures/reference-static/logiqa-en.jsonl
-    splits:
-    - train
-    prompt: question
-    passage: passage
-    answers:
-    - expand_choices:
-        field: options
-        correct_index: label
-  agi_eval_lsat_ar:
-    local_path: fixtures/reference-static/lsat-ar.jsonl
-    splits:
-    - train
-    prompt: question
-    passage: passage
-    answers:
-    - expand_choices:
-        field: options
-        correct_index: null
-  agi_eval_lsat_lr:
-    local_path: fixtures/reference-static/lsat-lr.jsonl
-    splits:
-    - train
-    prompt: question
-    passage: passage
-    answers:
-    - expand_choices:
-        field: options
-        correct_index: null
-  agi_eval_lsat_rc:
-    local_path: fixtures/reference-static/lsat-rc.jsonl
-    splits:
-    - train
-    prompt: question
-    passage: passage
-    answers:
-    - expand_choices:
-        field: options
-        correct_index: null
-  agi_eval_math:
-    local_path: fixtures/reference-static/math.jsonl
-    splits:
-    - train
-    prompt: question
-    answers:
-    - answer
-    - other.solution
-  agi_eval_sat_en:
-    local_path: fixtures/reference-static/sat-en.jsonl
-    splits:
-    - train
-    prompt: question
-    passage: passage
-    answers:
-    - other.solution
-  agi_eval_sat_en_without_passage:
-    local_path: fixtures/reference-static/sat-en-without-passage.jsonl
-    splits:
-    - train
-    prompt: question
-    answers:
-    - other.solution
-  agi_eval_sat_math:
-    local_path: fixtures/reference-static/sat-math.jsonl
-    splits:
-    - train
-    prompt: question
-    passage: passage
-    answers:
-    - expand_choices:
-        field: options
-        correct_index: label
-    - other.solution
+    # Note: This uses pre-processed bundled files that are copied directly.
+    # The individual AGI-Eval datasets (aqua_rat, gaokao_english, logiqa_en, etc.)
+    # are all included in the bundled files with appropriate processing already applied.
   ai2_arc_challenge:
     hf_path: allenai/ai2_arc
     hf_config: ARC-Challenge

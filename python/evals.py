@@ -706,28 +706,93 @@ def extract_answer(example, config, answer_info=None):
 
 
 def process_eval_dataset(eval_name, eval_config, output_dir, document_id_counter):
-    """Process a single evaluation dataset."""
+    """Process a single evaluation dataset. Returns True if successful, False if failed."""
 
     if 'local_path' in eval_config:
-        print(f"Loading {eval_name} from local file: {eval_config['local_path']}...")
-    else:
-        print(f"Loading {eval_name} from {eval_config['hf_path']}...")
+        local_path = eval_config['local_path']
 
-    # Load dataset
-    try:
-        if 'local_path' in eval_config:
-            local_file = Path(eval_config['local_path'])
+        # Check if this is a bundled prefix pattern (e.g., bundled_evals/agi_eval_)
+        if local_path.startswith('bundled_evals/') and local_path.endswith('_'):
+            # Handle bundled files by copying them directly
+            print(f"Copying bundled files for {eval_name} with prefix: {local_path}...")
+
+            # Find the bundled-evals directory relative to the script
+            script_dir = Path(__file__).parent.parent
+            bundled_dir = script_dir / 'bundled-evals'
+
+            if not bundled_dir.exists():
+                print(f"Error: Bundled directory not found: {bundled_dir}")
+                return False
+
+            # Extract the prefix pattern (e.g., 'agi_eval_' from 'bundled_evals/agi_eval_')
+            prefix = local_path.split('/')[-1]
+
+            # Find all matching files
+            pattern = f"{prefix}*.jsonl.gz"
+            matching_files = list(bundled_dir.glob(pattern))
+
+            if not matching_files:
+                print(f"Warning: No bundled files found matching pattern: {pattern}")
+                return False
+
+            # Ensure output directory exists
+            output_dir = Path(output_dir)
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            # Copy all matching files to output directory
+            files_copied = 0
+            for src_file in matching_files:
+                # For agi_eval, just copy with the same name since the files already have the full dataset names
+                # For other datasets, replace the prefix with eval_name in the destination filename
+                if eval_name == 'agi_eval':
+                    dest_filename = src_file.name
+                else:
+                    # e.g., some_prefix_train-1.jsonl.gz -> some_dataset_train-1.jsonl.gz
+                    dest_filename = src_file.name.replace(prefix, f"{eval_name}_", 1)
+                dest_file = output_dir / dest_filename
+
+                shutil.copy2(src_file, dest_file)
+                files_copied += 1
+                print(f"  Copied {src_file.name} -> {dest_filename}")
+
+            print(f"  Total files copied: {files_copied}")
+            return True
+        else:
+            # Handle regular local file
+            print(f"Loading {eval_name} from local file: {local_path}...")
+            local_file = Path(local_path)
             if not local_file.exists():
                 print(f"Error: Local file not found: {local_file}")
-                return
+                return False
             dataset = {'train': load_local_jsonl(local_file)}
-        elif 'hf_config' in eval_config:
-            dataset = load_dataset(eval_config['hf_path'], eval_config['hf_config'])
-        else:
-            dataset = load_dataset(eval_config['hf_path'])
-    except Exception as e:
-        print(f"Error loading {eval_name}: {e}")
-        return
+    else:
+        print(f"Loading {eval_name} from {eval_config['hf_path']}...")
+        # Load dataset from HuggingFace
+        try:
+            if 'hf_config' in eval_config:
+                dataset = load_dataset(eval_config['hf_path'], eval_config['hf_config'])
+            else:
+                dataset = load_dataset(eval_config['hf_path'])
+        except Exception as e:
+            print(f"ERROR: Failed to load {eval_name}: {e}")
+            return False
+
+    # If we handled bundled files, we're done
+    if 'local_path' in eval_config and eval_config['local_path'].startswith('bundled_evals/') and eval_config['local_path'].endswith('_'):
+        return True
+
+    # For non-bundled datasets, continue with normal processing
+    if 'dataset' not in locals():
+        try:
+            if 'local_path' in eval_config:
+                # Already loaded above
+                pass
+            elif 'hf_path' in eval_config:
+                # Already loaded above
+                pass
+        except Exception as e:
+            print(f"Error loading {eval_name}: {e}")
+            return False
 
     # Ensure output directory exists
     output_dir = Path(output_dir)
@@ -811,6 +876,8 @@ def process_eval_dataset(eval_name, eval_config, output_dir, document_id_counter
             for chunk_file in chunk_files:
                 print(f"      - {chunk_file.name}")
 
+    return True
+
 
 def main():
     """Main function with CLI."""
@@ -888,10 +955,25 @@ def main():
         print("Created fresh output directory")
 
         # Process all datasets
-        for eval_name, eval_config in EVAL_CONFIG['evals'].items():
-            process_eval_dataset(eval_name, eval_config, output_dir, document_id_counter)
+        failed_datasets = []
+        successful_datasets = []
 
-        print(f"\nProcessing complete! Total documents: {document_id_counter[0] - 1}")
+        for eval_name, eval_config in EVAL_CONFIG['evals'].items():
+            success = process_eval_dataset(eval_name, eval_config, output_dir, document_id_counter)
+            if success:
+                successful_datasets.append(eval_name)
+            else:
+                failed_datasets.append(eval_name)
+
+        print(f"\nProcessing complete!")
+        print(f"  Total documents: {document_id_counter[0] - 1}")
+        print(f"  Successful datasets: {len(successful_datasets)}")
+        print(f"  Failed datasets: {len(failed_datasets)}")
+
+        if failed_datasets:
+            print(f"\nFailed to process the following datasets:")
+            for dataset in sorted(failed_datasets):
+                print(f"  - {dataset}")
 
     elif args.eval:
         if args.eval not in EVAL_CONFIG['evals']:
