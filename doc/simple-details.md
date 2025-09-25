@@ -15,8 +15,6 @@ We note that $|T| >> |E|$ and generally $C$ is very sparse within $T$, as $|C| <
 
 Our goal is to call whether any training sequence $t$ is derived directly from an eval sequence $e$. This involves distinguishing direct derivation of $t$ to $e$ from both noise and any source material for $e$.
 
-The probability of a non-contamination match decreases with larger $|t|$ and $|e|$.
-
 ### Contamination Examples
 
 There is great diversity in the format and purpose of evaluation suites.
