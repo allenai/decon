@@ -1,6 +1,6 @@
 # Sampled Index Match with Progressive Length Extension
 
-SIMPLE detects contamination between training and evaluation datasets using sampled n-gram matching with bidirectional cluster expansion and set overlap tests.
+SIMPLE detects contamination between training and evaluation datasets using sampled n-gram matching with bidirectional cluster expansion and set overlap tests. For a more complete discussion of the background and approach see [details document.](simple-details.md)
 
 ## Core Approach
 
@@ -34,21 +34,14 @@ Upon finding a match:
 ## Scoring System
 
 ### IDF-Weighted Overlap
-Contamination scoring uses inverse document frequency (IDF) weighting:
-
-```math
-\frac{\sum_{x \in U_t \cap U_e} \text{idf}(x)}{\sum_{y \in U_e} \text{idf}(y)}
-```
-
-where U<sub>t</sub> is the set of unique n-grams in the training document segment and U<sub>e</sub> is the set of unique n-grams in the evaluation document.
-
+Contamination scoring uses inverse document frequency (IDF) weighted overlap score.
 
 ### Component Weighting
 Scores combine question, answer, and passage overlaps with adaptive weights:
-- **QAP** (all components): 0.7 question, 0.2 answer, 0.1 passage
-- **QA** (no passage): 0.75 question, 0.25 answer
-- **QP** (no answer): 0.85 question, 0.15 passage
-- **Q** (question only): 1.0 question
+- **QAP** (all components)
+- **QA** (no passage)
+- **QP** (no answer)
+- **Q** (question only)
 
 Weights adjust based on component confidence (e.g., short questions redistribute weight to answers/passages).
 
