@@ -168,10 +168,16 @@ pub fn display_detection_results(
 }
 
 /// Display completion message with instructions for reviewing results
-pub fn display_completion_message(config: &crate::common::Config) {
+pub fn display_completion_message(config: &crate::common::Config, total_contaminations: usize) {
     println!();
-    println!("To review results:");
-    println!("  decon review {}", config.report_output_dir.display());
+
+    if total_contaminations == 0 {
+        println!("No contamination detected!");
+    } else {
+        println!("To review results:");
+        println!("  decon review {}", config.report_output_dir.display());
+    }
+
     println!();
 }
 

@@ -106,7 +106,7 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
         display_timing_stats(&aggregated_stats);
     }
 
-    super::display::display_completion_message(config);
+    super::display::display_completion_message(config, total_contaminations);
 
     Ok(())
 }
