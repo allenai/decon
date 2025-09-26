@@ -69,7 +69,6 @@ cd decon
 cargo run --release -- --help
 
 # List current eval datasets in reference (small default set initially).
-# See advanced section below for instructions to curate your own reference set.
 cargo run --release -- evals
 
 # Run contamination detection.
@@ -82,7 +81,7 @@ cargo run --release -- detect --training-dir tests/fixtures/training/ --purify
 cargo run --release -- review /tmp/decon-output-directory
 ```
 
-Sensible defaults are provided for [decon parameters](config/default.yaml), with a single `contamination_score_threshold` that can be adjusted to desired sensitivity. Experimenting with these parameters on your own dataset and eval set is recommended.
+Sensible defaults are provided for [decon parameters](config/default.yaml), with a single `contamination_score_threshold` that can be adjusted to desired sensitivity. Experimenting with these parameters on your own dataset and eval reference set is recommended.
 
 ## Advanced Usage
 
@@ -92,17 +91,17 @@ Sensible defaults are provided for [decon parameters](config/default.yaml), with
 
 Decon operates on a directory containing jsonl files.
 
-Each JSON object in the files must contain a single field with a string value representing a training document [[example]](tests/fixtures/training/contaminated_mixed.jsonl).
+Each JSON object in the files must contain a field with a string value representing a training document [[example]](tests/fixtures/training/contaminated_mixed.jsonl).
 
 #### Eval Suites
 
 Decon runs against a reference set of eval suites that is also expected be a directory containing jsonl files [[example](bundled-evals/)].
 
-Decon eval reference files have a simple normalized format with passage, question, answer keys which can be generated from hf datasets with included tooling. A small reference set is included by default to get started.
+Decon eval reference files have a normalized format including passage, question, answer keys as well as metadata for reporting. Decon includes tooling to generate reference files from hf datasets.
 
 #### Eval Reference Set Curation
 
-Three eval suites are included in the reference dataset by default, gsm8k, mmlu, and agi_eval.
+Three eval suites are included in the eval reference dataset by default, gsm8k, mmlu, and agi_eval.
 
 It's likely you will want to build your own reference set with your evals of interest.
 
@@ -112,7 +111,7 @@ To download all the pre-configured evals included in the configuration file, run
 
 ```
 # Review current set of evals in reference
-cargo run --release -- evals --download
+cargo run --release -- evals
 
 # Download and normalize all evals configured in a config file
 cargo run --release -- evals --download --config config/evals.yaml
