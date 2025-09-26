@@ -9,8 +9,8 @@
 content_key: text  # json key for content in the training files
 training_dir:  # Path to directory containing jsonl files with a content_key text field
 evals_dir: bundled-evals  # Path to directory containing eval reference files
-report_output_dir: /tmp/decon-report-synth  # Path to directory to place contamination reports
-cleaned_output_dir: /tmp/decon-cleaned  # Optional: separate directory for purified files
+report_output_dir: /tmp/decon-olmo-synth  # Path to directory to place contamination reports
+cleaned_output_dir: /tmp/decon-olmo-synth-cleaned  # Optional: separate directory for purified files
 
 # Tokenizer and ngram options
 tokenizer_str: cl100k

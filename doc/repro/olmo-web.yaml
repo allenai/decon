@@ -10,7 +10,7 @@
 content_key: text  # json key for content in the training files
 training_dir:  # Path to directory containing jsonl files with a content_key text field
 evals_dir: /tmp/full_reference_set  # All references files downloaded from evals command
-report_output_dir: /tmp/decon-olmo-web_88_25_50_20_ans  # Path to directory to place contamination reports
+report_output_dir: /tmp/decon-olmo-web  # Path to directory to place contamination reports
 cleaned_output_dir: /tmp/decon-olmo-web-cleaned  # Optional: separate directory for purified files
 
 # Tokenizer and ngram options
