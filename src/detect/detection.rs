@@ -326,6 +326,10 @@ pub fn process_simple_training_file(file_path: &PathBuf, config: &Config, index:
     for (line_num, line) in data.lines().enumerate() {
         let line = line?;
 
+        // Track contamination entries to avoid duplicates within the same training document line
+        // Key: (eval_key, eval_instance_index, question_start_idx)
+        let mut processed_contaminations: HashSet<(String, usize, usize)> = HashSet::new();
+
         // Prepare line: parse JSON, extract text, clean (strip punctuation), and tokenize
         let (cleaned_text, training_tokens) = match prepare_line_for_processing(&line, line_num, file_path, config, &index.tokenizer) {
             Some(result) => result,
@@ -340,6 +344,11 @@ pub fn process_simple_training_file(file_path: &PathBuf, config: &Config, index:
         lines_processed += 1;
 
         let clusters = identify_contamination_clusters(&training_tokens, config, index, stats)?;
+
+        // TODO: Consider optimization - call contamination inline with detection and set a boundary
+        // for left expansion to prevent duplicate detection of the same contaminated content.
+        // This would involve restructuring to process clusters one at a time and updating
+        // a contamination boundary that constrains future left traversals.
 
         // Convert clusters to scored contamination entries
         for cluster in clusters {
@@ -379,7 +388,18 @@ pub fn process_simple_training_file(file_path: &PathBuf, config: &Config, index:
                     &final_context,
                 );
 
-                cluster_results.push(finalized_entry);
+                // Check for duplicate contamination based on eval_key, eval_instance_index, and question_start_idx
+                let contamination_key = (
+                    finalized_entry.eval_key.clone(),
+                    finalized_entry.eval_instance_index,
+                    finalized_entry.contamination_start_idx.unwrap_or(0),
+                );
+
+                if processed_contaminations.insert(contamination_key) {
+                    // This is a new contamination, add it
+                    cluster_results.push(finalized_entry);
+                }
+                // If insert returned false, this is a duplicate and we skip it
             }
 
             if !cluster_results.is_empty() {
