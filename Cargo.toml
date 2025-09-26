@@ -2,6 +2,7 @@
 name = "decon"
 version = "0.3.0"
 edition = "2024"
+rust-version = "1.88.0"
 description = "Contamination detection for text training data"
 license = "Apache-2.0"
 repository = "https://github.com/allenai/decon"
