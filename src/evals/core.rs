@@ -55,7 +55,7 @@ pub fn execute_evals(args: &EvalsArgs) -> Result<(), Error> {
             }
         };
 
-        collect_eval_stats(&evals_dir, args.stats)
+        collect_eval_stats(&evals_dir, args.stats, args.output.as_deref())
     }
 }
 
@@ -170,7 +170,7 @@ fn download_evals(eval_name: Option<String>, output_dir: Option<&Path>, config_p
     Ok(())
 }
 
-pub fn collect_eval_stats(stats_dir: &Path, show_stats: bool) -> Result<(), Error> {
+pub fn collect_eval_stats(stats_dir: &Path, show_stats: bool, output_path: Option<&Path>) -> Result<(), Error> {
     if !stats_dir.exists() {
         eprintln!("Error: Directory not found: {}", stats_dir.display());
         return Err(anyhow::anyhow!("Directory not found: {}", stats_dir.display()));
@@ -202,8 +202,13 @@ pub fn collect_eval_stats(stats_dir: &Path, show_stats: bool) -> Result<(), Erro
         }
     }
 
-    // Display the stats in table format
-    display_stats_table(&eval_stats, total_skipped_records, show_stats);
+    // Either write to CSV or display as table
+    if let Some(output_file) = output_path {
+        write_stats_csv(&eval_stats, output_file, show_stats)?;
+        println!("Statistics written to: {}", output_file.display());
+    } else {
+        display_stats_table(&eval_stats, total_skipped_records, show_stats);
+    }
 
     Ok(())
 }
@@ -272,6 +277,88 @@ fn process_file_for_stats(file_path: &PathBuf, eval_stats: &mut HashMap<String, 
     }
 
     Ok(skipped_records)
+}
+
+fn write_stats_csv(eval_stats: &HashMap<String, EvalStats>, output_path: &Path, show_stats: bool) -> Result<(), Error> {
+    use std::io::Write;
+    
+    let mut file = File::create(output_path)?;
+    
+    // Write CSV header
+    if show_stats {
+        writeln!(file, "eval_name,questions,answers,passages,min_q_len,avg_q_len,max_q_len,min_a_len,avg_a_len,max_a_len,min_p_len,avg_p_len,max_p_len")?;
+    } else {
+        writeln!(file, "eval_name,questions,answers,passages")?;
+    }
+    
+    // Sort alphabetically by eval name
+    let mut sorted_evals: Vec<(&String, &EvalStats)> = eval_stats.iter().collect();
+    sorted_evals.sort_by(|a, b| a.0.cmp(b.0));
+    
+    // Write each eval's stats
+    for (eval_name, stats) in sorted_evals {
+        if show_stats {
+            // Calculate statistics
+            let (min_q, avg_q, max_q) = if !stats.question_lengths.is_empty() {
+                let min = *stats.question_lengths.iter().min().unwrap();
+                let avg = stats.question_lengths.iter().sum::<usize>() as f64
+                    / stats.question_lengths.len() as f64;
+                let max = *stats.question_lengths.iter().max().unwrap();
+                (min.to_string(), format!("{:.0}", avg), max.to_string())
+            } else {
+                ("".to_string(), "".to_string(), "".to_string())
+            };
+
+            let (min_a, avg_a, max_a) = if !stats.answer_lengths.is_empty() {
+                let min = *stats.answer_lengths.iter().min().unwrap();
+                let avg = stats.answer_lengths.iter().sum::<usize>() as f64
+                    / stats.answer_lengths.len() as f64;
+                let max = *stats.answer_lengths.iter().max().unwrap();
+                (min.to_string(), format!("{:.0}", avg), max.to_string())
+            } else {
+                ("".to_string(), "".to_string(), "".to_string())
+            };
+
+            let (min_p, avg_p, max_p) = if !stats.passage_lengths.is_empty() {
+                let min = *stats.passage_lengths.iter().min().unwrap();
+                let avg = stats.passage_lengths.iter().sum::<usize>() as f64
+                    / stats.passage_lengths.len() as f64;
+                let max = *stats.passage_lengths.iter().max().unwrap();
+                (min.to_string(), format!("{:.0}", avg), max.to_string())
+            } else {
+                ("".to_string(), "".to_string(), "".to_string())
+            };
+
+            writeln!(
+                file,
+                "{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                eval_name,
+                stats.question_count,
+                stats.answer_count,
+                stats.passage_count,
+                min_q,
+                avg_q,
+                max_q,
+                min_a,
+                avg_a,
+                max_a,
+                min_p,
+                avg_p,
+                max_p
+            )?;
+        } else {
+            writeln!(
+                file,
+                "{},{},{},{}",
+                eval_name,
+                stats.question_count,
+                stats.answer_count,
+                stats.passage_count
+            )?;
+        }
+    }
+    
+    Ok(())
 }
 
 fn display_stats_table(eval_stats: &HashMap<String, EvalStats>, skipped_records: usize, show_stats: bool) {
@@ -634,14 +721,14 @@ mod tests {
     #[test]
     fn test_collect_eval_stats_nonexistent_dir() {
         let nonexistent = PathBuf::from("/path/that/does/not/exist");
-        let result = collect_eval_stats(&nonexistent, false);
+        let result = collect_eval_stats(&nonexistent, false, None);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_collect_eval_stats_empty_dir() {
         let dir = tempdir().unwrap();
-        let result = collect_eval_stats(dir.path(), false);
+        let result = collect_eval_stats(dir.path(), false, None);
         assert!(result.is_ok()); // Should succeed but find no files
     }
 
@@ -660,7 +747,7 @@ mod tests {
         writeln!(f2, r#"{{"eval_key": "dataset2", "question": "Q2", "answer": "A2", "passage": "P2"}}"#).unwrap();
 
         // This should process both files without errors
-        let result = collect_eval_stats(dir.path(), false);
+        let result = collect_eval_stats(dir.path(), false, None);
         assert!(result.is_ok());
     }
 

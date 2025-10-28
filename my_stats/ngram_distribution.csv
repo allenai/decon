@@ -1,0 +1,15 @@
+statistic,value
+min_matches,1
+max_matches,12442
+median_matches,12
+avg_matches,24.0
+
+match_range,contamination_instances
+1-5,184855
+6-10,517583
+11-20,460863
+21-50,336295
+51-100,103200
+101-200,12525
+201-500,7522
+500+,3298

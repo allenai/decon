@@ -129,7 +129,7 @@ pub fn review_contamination(args: &ReviewArgs) -> Result<(), Error> {
     println!();
 
     if stats {
-        display_eval_dataset_stats(&all_results)?;
+        display_eval_dataset_stats(&all_results, args.output_dir.as_deref())?;
         return Ok(());
     }
 

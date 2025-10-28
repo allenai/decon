@@ -24,6 +24,15 @@ pub struct EvalsArgs {
     )]
     pub stats: bool,
 
+    /// Output statistics to a CSV file
+    #[arg(
+        long,
+        help = "Write statistics to a CSV file instead of displaying as a table",
+        value_name = "FILE",
+        help_heading = "Listing Options"
+    )]
+    pub output: Option<PathBuf>,
+
     /// Download all evaluation datasets
     #[arg(
         long,

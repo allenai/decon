@@ -99,4 +99,13 @@ pub struct ReviewArgs {
         help_heading = "Output"
     )]
     pub verbose: bool,
+
+    #[arg(
+        long,
+        help = "Export statistics to CSV files in the specified directory (only with --stats)",
+        value_name = "DIR",
+        display_order = 41,
+        help_heading = "Output"
+    )]
+    pub output_dir: Option<PathBuf>,
 }

@@ -1,0 +1,4 @@
+metric,value
+training_docs_contaminated,600601
+total_contamination_instances,1626141
+unique_eval_instances,350487
