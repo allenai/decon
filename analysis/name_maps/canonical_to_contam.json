@@ -17,6 +17,7 @@
   "lambada": ["lambada_openai"],
   "arc:mc::xlarge": ["ai2_arc_easy", "ai2_arc_challenge"],
   "sciq:mc::xlarge": ["sciq"],
+  "socialiqa:mc::xlarge": ["social_i_qa"],
   "medmcqa:mc::none": ["medmcqa"],
   "medqa_en:mc::none": ["medqa_en"],
   "mmlu:mc": ["mmlu"],

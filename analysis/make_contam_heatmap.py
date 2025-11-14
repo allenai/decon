@@ -718,46 +718,53 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             writer.writerow(row)
     logging.info("Wrote %s", matrix_csv)
 
-    # Percent unique eval contaminated per canonical using union-capped per-suite sums
+    # Percent unique eval contaminated per canonical
+    # Numerator: unique counts from decon_stats_{split}/eval_instances_by_suite.csv
+    # Denominator: total questions from eval_stats/{split}.csv
     unique_eval_numerators: Dict[str, float] = {}
     for c in sorted_canonicals:
         split = maps.canonical_to_eval_splits.get(c, "")
-        if split not in ("test", "validation", "train"):
-            unique_eval_numerators[c] = 0.0
-            continue
         suites = list(maps.canonical_to_contam.get(c, []))
-        # Add family-based suites if needed
-        split_uniques = suite_unique_by_split.get(split, {})
-        if "minerva" in c:
-            suites += [s for s in split_uniques.keys() if s.startswith("hendrycks_math_")]
-        if "codex_humaneval" in c:
-            suites += [s for s in split_uniques.keys() if "humaneval" in s]
-        if "multipl-e-humaneval" in c:
-            suites += [s for s in split_uniques.keys() if s.startswith("multipl_e_humaneval_")]
-        # Deduplicate
-        suites = list(dict.fromkeys(suites))
-        num_sum = 0.0
-        for suite in suites:
-            per_suite_sum = float(split_uniques.get(suite, 0.0))
-            suite_denom = float(suite_questions_by_split.get(split, {}).get(suite, 0.0))
-            if suite_denom <= 0:
-                # family-based denom fallback
-                if "minerva" in c and suite.startswith("hendrycks_math_"):
-                    suite_denom = float(suite_questions_by_split.get(split, {}).get(suite, 0.0))
-                if "codex_humaneval" in c and "humaneval" in suite:
-                    suite_denom = float(suite_questions_by_split.get(split, {}).get(suite, 0.0))
-                if "multipl-e-humaneval" in c and suite.startswith("multipl_e_humaneval_"):
-                    suite_denom = float(suite_questions_by_split.get(split, {}).get(suite, 0.0))
-            if suite_denom > 0:
-                num_sum += min(per_suite_sum, suite_denom)
-        unique_eval_numerators[c] = num_sum
+        
+        if split in ("test", "validation", "train"):
+            # For specific splits: use unique counts from that split's decon_stats
+            split_uniques = overall_suite_uniques.get(split, {})
+            # Add family-based suites if needed
+            if "minerva" in c:
+                suites += [s for s in split_uniques.keys() if s.startswith("hendrycks_math_")]
+            if "codex_humaneval" in c:
+                suites += [s for s in split_uniques.keys() if "humaneval" in s]
+            if "multipl-e-humaneval" in c:
+                suites += [s for s in split_uniques.keys() if s.startswith("multipl_e_humaneval_")]
+            # Deduplicate
+            suites = list(dict.fromkeys(suites))
+            num_sum = 0.0
+            for suite in suites:
+                # Use unique count directly from decon_stats for this split
+                num_sum += float(split_uniques.get(suite, 0.0))
+            unique_eval_numerators[c] = num_sum
+        elif split == "all":
+            # For "all" splits: use unique counts from decon_stats_all
+            all_uniques = overall_suite_uniques.get("all", {})
+            num_sum = 0.0
+            for suite in suites:
+                # Use unique count directly from decon_stats_all
+                num_sum += float(all_uniques.get(suite, 0.0))
+            unique_eval_numerators[c] = num_sum
+        else:
+            unique_eval_numerators[c] = 0.0
 
     percent_unique: Dict[str, Optional[float]] = {}
     for c in sorted_canonicals:
         split = maps.canonical_to_eval_splits.get(c, "")
         suites = maps.canonical_to_contam.get(c, [])
-        # Compute denominator dynamically, supporting 'all' by summing across splits
+        
+        # Get numerator (already computed above)
+        num = unique_eval_numerators.get(c, 0.0)
+        
+        # Compute denominator: total questions from eval_stats
         if split in ("test", "validation", "train"):
+            # For specific splits: sum questions from that split's eval_stats
             denom = sum(float(suite_questions_by_split.get(split, {}).get(s, 0.0)) for s in suites)
             # family-based fallback when denom is zero
             if denom == 0.0:
@@ -768,23 +775,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     denom = sum(float(rows.get(name, 0.0)) for name in rows.keys() if "humaneval" in name)
                 if "multipl-e-humaneval" in c and denom == 0.0:
                     denom = sum(float(rows.get(name, 0.0)) for name in rows.keys() if name.startswith("multipl_e_humaneval_"))
-            num = unique_eval_numerators.get(c, 0.0)
         elif split == "all":
+            # For "all" splits: sum questions across test, validation, train from eval_stats
             denom = 0.0
-            num = 0.0
             for s in suites:
                 s_denom = sum(float(suite_questions_by_split.get(sp, {}).get(s, 0.0)) for sp in ("test", "validation", "train"))
-                # numerator for 'all' was computed above by summing per-suite capped values across splits via unique_eval_numerators?
-                # recompute union-capped across splits:
-                s_num = 0.0
-                for sp in ("test", "validation", "train"):
-                    s_num += float(suite_unique_by_split.get(sp, {}).get(s, 0.0))
-                if s_denom > 0.0:
-                    num += min(s_num, s_denom)
                 denom += s_denom
         else:
             denom = 0.0
-            num = 0.0
+        
+        # Calculate percentage: unique / total * 100
         if denom > 0:
             pct = (num / denom) * 100.0
             percent_unique[c] = min(max(pct, 0.0), 100.0)
@@ -950,7 +950,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     bottom_arr = col_totals_plot.reshape(1, -1)
     bottom_cond = (~np.isfinite(bottom_arr)) | (bottom_arr <= 0)
     masked_bottom = np.ma.masked_where(bottom_cond, bottom_arr)
-    cmap = plt.get_cmap("viridis").copy()
+    # Use white-to-hot-pink colormap (white at zero, hot pink at high values)
+    from matplotlib.colors import LinearSegmentedColormap
+    colors = ['white', '#FF1493']  # white to hot pink/deep pink
+    n_bins = 256
+    cmap = LinearSegmentedColormap.from_list('white_to_pink', colors, N=n_bins)
     cmap.set_bad(color="white", alpha=0.0)
 
     # Determine color norm for main and left (instance counts). Marginal rows may use separate norms.
@@ -966,9 +970,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         vmin, vmax = float(np.min(data_for_range)), float(np.max(data_for_range))
         vmin = max(vmin, 1e-6)
 
-    # Grid layout: left totals column, main heatmap, and 4 marginal rows:
-    # total across sources, non-eval totals, % unique eval contaminated, performance drop
-    gs = fig.add_gridspec(2, 2, width_ratios=[1, n_cols], height_ratios=[n_rows, 4])
+    # Grid layout: left totals column, main heatmap, and 2 marginal rows
+    # Use gridspec with spacing to create gaps for manual positioning
+    gs = fig.add_gridspec(2, 2, width_ratios=[1, n_cols], height_ratios=[n_rows, 4], 
+                          wspace=0.1, hspace=0.1)
     ax_left = fig.add_subplot(gs[0, 0])
     ax_main = fig.add_subplot(gs[0, 1], sharey=ax_left)
     ax_bottom = fig.add_subplot(gs[1, 1], sharex=ax_main)
@@ -982,16 +987,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if use_log and LogNorm is not None:
         norm = LogNorm(vmin=vmin, vmax=max(vmax, vmin * 10))
         im_main = ax_main.imshow(masked_main, aspect="equal", cmap=cmap, norm=norm, extent=main_extent)
+        # Use aspect="equal" for left margin to maintain square cells
         im_left = ax_left.imshow(masked_left, aspect="equal", cmap=cmap, norm=norm, extent=left_extent)
         im_total = None
     else:
         norm = None
         im_main = ax_main.imshow(masked_main, aspect="equal", cmap=cmap, extent=main_extent)
+        # Use aspect="equal" for left margin to maintain square cells
         im_left = ax_left.imshow(masked_left, aspect="equal", cmap=cmap, extent=left_extent)
         im_total = None
 
     # Ensure exact x alignment between main and bottom strips
     ax_main.set_xlim(-0.5, n_cols - 0.5)
+    ax_main.set_ylim(n_rows - 0.5, -0.5)  # Match imshow extent (top > bottom)
     # Ticks and labels
     ax_main.set_xticks(range(n_cols))
     ax_main.set_xticklabels([], rotation=45, ha="right", fontsize=9)
@@ -1003,44 +1011,77 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ax_main.tick_params(axis="x", which="both", labelbottom=False, bottom=False, top=False, length=0)
     ax_main.set_xlabel("")
     ax_main.set_ylabel("")
-    ax_main.set_title(f"Contamination heatmap ({args.value})")
+    # No plot title - title is on colorbar instead
 
     ax_left.set_xticks([])
     ax_left.set_xlabel("Total", fontsize=9)
     ax_left.set_yticks(range(n_rows))
     ax_left.set_yticklabels(y_labels, fontsize=9)
+    ax_left.set_ylabel("Midtraining Data Sources", fontsize=10)
+    # CRITICAL: Set y-limits to match main heatmap exactly for same cell size
+    ax_left.set_ylim(n_rows - 0.5, -0.5)  # Match main heatmap y-limits exactly
+    ax_left.set_xlim(-0.5, 0.5)  # Match left extent
     # Thicker separator line on the right edge of totals column
     for spine in ("right",):
         ax_left.spines[spine].set_linewidth(2.0)
-
-    # Adjust bottom axis position and size to match main cell size
-    # Force a draw to get accurate positions
+    
+    # Ensure all sections have the same cell size and are properly aligned
+    # CRITICAL: Set limits FIRST before positioning to ensure aspect="equal" calculates correctly
+    ax_left.set_ylim(n_rows - 0.5, -0.5)  # Must match main exactly
+    ax_left.set_xlim(-0.5, 0.5)
+    
+    # Draw to get positions after limits are set
     fig.canvas.draw()
-    pos_m = ax_main.get_position()
-    pos_b = ax_bottom.get_position()
-    main_cell_h = pos_m.height / n_rows
-    bot_rows = 6  # Total, Non-eval, % unique, Perf Δ, Perf (contam), Perf (decon)
-    new_bot_h = main_cell_h * bot_rows
-    # Set initial position - will be fine-tuned after drawing
-    ax_bottom.set_position([pos_m.x0, pos_b.y0, pos_m.width, new_bot_h])
-    # Ensure x limits match exactly
+    pos_main = ax_main.get_position()
+    pos_left_initial = ax_left.get_position()
+    pos_bottom_initial = ax_bottom.get_position()
+    
+    # <-- ADJUST SPACING HERE: Change these values to tighten/loosen gaps
+    # Left margin spacing: increase to move left column further right (more gap)
+    # Bottom margin spacing: increase to move bottom rows further up (more gap)
+    fig_width_inches = fig.get_figwidth()
+    fig_height_inches = fig.get_figheight()
+    left_spacing_cm = 1.0  # <-- ADJUST THIS: spacing between left margin and main (in cm)
+    bottom_spacing_cm = 1.0  # <-- ADJUST THIS: spacing between main and bottom (in cm)
+    
+    left_spacing = (left_spacing_cm * 0.3937) / fig_width_inches  # Convert cm to figure coords
+    bottom_spacing = (bottom_spacing_cm * 0.3937) / fig_height_inches  # Convert cm to figure coords
+    
+    # Position left margin: use EXACT same height and y-position as main heatmap
+    # Move right by spacing amount, but keep exact height match
+    ax_left.set_position([pos_left_initial.x0 + left_spacing, pos_main.y0, pos_left_initial.width, pos_main.height])
+    # Re-apply limits to ensure they're maintained
+    ax_left.set_ylim(n_rows - 0.5, -0.5)
+    ax_left.set_xlim(-0.5, 0.5)
+    
+    # Force a final draw and re-check/force alignment
+    fig.canvas.draw()
+    pos_main_final = ax_main.get_position()
+    pos_left_final = ax_left.get_position()
+    
+    # Calculate the correct width for left margin to maintain square cells
+    # With aspect="equal", width should be: height * (x_extent / y_extent)
+    # Left extent: x from -0.5 to 0.5 (width=1), y from n_rows-0.5 to -0.5 (height=n_rows)
+    # So width should be: height * (1 / n_rows)
+    left_target_height = pos_main_final.height
+    left_target_width = left_target_height * (1.0 / n_rows)  # Maintain square cells
+    
+    # Force left margin to match main height exactly and calculate correct width
+    ax_left.set_position([pos_left_final.x0, pos_main_final.y0, left_target_width, left_target_height])
+    ax_left.set_ylim(n_rows - 0.5, -0.5)  # Re-apply limits
+    ax_left.set_xlim(-0.5, 0.5)
+    
+    # Position bottom margin: use EXACT same width and x-position as main heatmap
+    bot_rows = 2  # Only % contam and Perf Δ
+    main_cell_height = pos_main.height / n_rows
+    bottom_height = main_cell_height * bot_rows  # Height for 2 rows
+    bottom_y0 = pos_bottom_initial.y0 + bottom_spacing
+    ax_bottom.set_position([pos_main.x0, bottom_y0, pos_main.width, bottom_height])
+    # Ensure limits match exactly
     ax_bottom.set_xlim(-0.5, n_cols - 0.5)
+    ax_bottom.set_ylim(-0.5, bot_rows - 0.5)
 
-    # Non-eval totals row (all − eval)
-    noneval_vec = np.array([float(non_eval_by_canonical.get(c, 0.0)) for c in plot_canonicals], dtype=float)
-    noneval_arr = noneval_vec.reshape(1, -1)
-    noneval_cond = (~np.isfinite(noneval_arr)) | (noneval_arr <= 0)
-    masked_noneval = np.ma.masked_where(noneval_cond, noneval_arr)
-    # Independent norm for non-eval totals (log if dynamic range is large)
-    noneval_pos = noneval_vec[noneval_vec > 0]
-    if noneval_pos.size > 0:
-        nvmin = float(np.min(noneval_pos))
-        nvmax = float(np.max(noneval_pos))
-        nvmin = max(nvmin, 1e-6)
-        use_log_ne = (nvmax / max(nvmin, 1e-12)) >= 100.0 and LogNorm is not None
-    else:
-        nvmin, nvmax, use_log_ne = 1e-6, 1.0, False
-    # (Note: we won't draw this row separately; values will be normalized and stacked in composite)
+    # Non-eval data no longer displayed in bottom rows (simplified figure)
 
     # Percent unique (0..100) row
     percent_vec = np.array(
@@ -1118,76 +1159,34 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     masked_drop = np.ma.masked_where(drop_cond, drop_arr)
     # (Will draw as part of composite bottom)
 
-    # Build composite bottom heatmap with stacked rows:
-    # Total, Non-eval, % unique, Perf Δ, Perf (contam), Perf (decon)
-    # For 'unique' metric, the Total row should reflect the numerator used for % unique (union-capped overall uniques)
-    if args.value == "unique":
-        totals_row = np.array([[unique_eval_numerators.get(c, 0.0) for c in plot_canonicals]], dtype=float)
-    else:
-        totals_row = col_totals_plot.reshape(1, -1)
-    def normalize_counts_row(arr: np.ndarray) -> np.ndarray:
-        data = arr.astype(float)
-        pos = data[data > 0]
-        if pos.size == 0:
-            return np.zeros_like(data)
-        logv = np.log1p(np.maximum(data, 0))
-        mn, mx = float(np.min(logv)), float(np.max(logv))
-        if mx <= mn:
-            return np.zeros_like(data)
-        return (logv - mn) / (mx - mn)
-    def normalize_linear_row(arr: np.ndarray, vmax_val: float) -> np.ndarray:
-        data = np.clip(arr.astype(float), 0, vmax_val)
-        return data / (vmax_val if vmax_val > 0 else 1.0)
-    def normalize_drop_row(arr: np.ndarray) -> np.ndarray:
-        data = np.maximum(arr.astype(float), 0.0)
-        mx = float(np.nanmax(data)) if np.isfinite(data).any() else 1.0
-        return data / (mx if mx > 0 else 1.0)
-    # Build perf vectors aligned to plot_canonicals
-    base_vec = np.array([float(perf_metrics.get(c, (np.nan, np.nan, np.nan))[0]) for c in plot_canonicals], dtype=float)
-    decon_vec = np.array([float(perf_metrics.get(c, (np.nan, np.nan, np.nan))[1]) for c in plot_canonicals], dtype=float)
-    # Normalization helpers for perf (min-max over observed finite values)
-    def normalize_minmax_row(arr: np.ndarray) -> np.ndarray:
-        data = arr.astype(float)
-        finite = data[np.isfinite(data)]
-        if finite.size == 0:
-            return np.zeros_like(data)
-        mn, mx = float(np.min(finite)), float(np.max(finite))
-        if mx <= mn:
-            return np.zeros_like(data)
-        out = (data - mn) / (mx - mn)
-        out[~np.isfinite(out)] = 0.0
-        return out
-
-    bottom_stack = np.vstack([
-        normalize_counts_row(totals_row),
-        normalize_counts_row(noneval_arr),
-        normalize_linear_row(percent_arr, 100.0),
-        normalize_drop_row(drop_arr),
-        normalize_minmax_row(base_vec.reshape(1, -1)),
-        normalize_minmax_row(decon_vec.reshape(1, -1)),
+    # Build bottom rows: only % unique and Perf Δ (no heatmap coloring)
+    # Row 0: % unique, Row 1: Perf Δ
+    bottom_data = np.vstack([
+        percent_arr,  # % unique (row 0)
+        drop_arr,      # Perf Δ (row 1)
     ])
-    # Do not blank out cells; fill NaNs with 0 so values are always shown
-    bottom_stack = np.nan_to_num(bottom_stack, nan=0.0, posinf=1.0, neginf=0.0)
     # Use explicit extent matching main heatmap x-extent exactly
-    # y-extent: [-0.5, 5.5] so row 0 is at bottom (closer to main), row 5 at top
+    # y-extent: [-0.5, 1.5] so row 0 is at bottom (closer to main), row 1 at top
     bottom_extent = [-0.5, n_cols - 0.5, -0.5, bot_rows - 0.5]  # [left, right, bottom, top]
-    im_bottom = ax_bottom.imshow(bottom_stack, aspect="equal", cmap=cmap, vmin=0.0, vmax=1.0, extent=bottom_extent, origin='lower')
+    # Draw bottom rows with a light gray background (no heatmap coloring)
+    ax_bottom.imshow(np.ones_like(bottom_data), aspect="equal", cmap='gray', vmin=0.9, vmax=1.0, extent=bottom_extent, origin='lower', alpha=0.1)
     ax_bottom.set_xlim(-0.5, n_cols - 0.5)
     ax_bottom.set_ylim(-0.5, bot_rows - 0.5)
     
-    # Final alignment adjustment after drawing - fine-tune x position
+    # Final alignment check - ensure bottom matches main exactly
     fig.canvas.draw()
     pos_m_final = ax_main.get_position()
-    # <-- ADJUST THIS VALUE to align bottom marginal rows with main heatmap:
-    #     Increase value to move bottom rows LEFT, decrease to move RIGHT
-    #     Try values like: 0.01, 0.02, 0.03, 0.05, 0.08, etc. until aligned
-    x_offset_final = 0.025  # Slightly decreased from 0.03 - was a tiny bit too far left
-    pos_b_current = ax_bottom.get_position()
-    ax_bottom.set_position([pos_m_final.x0 - x_offset_final, pos_b_current.y0, pos_m_final.width, pos_b_current.height])
+    pos_b_final = ax_bottom.get_position()
+    # Fine-tune x alignment if needed (should already be aligned, but check)
+    # <-- FINE-TUNE X ALIGNMENT HERE if bottom rows are slightly off:
+    x_fine_tune = -0.02  # <-- ADJUST THIS: positive moves right, negative moves left (in figure coords)
+    y_fine_tune = 0.03  # <-- ADJUST THIS: positive moves up, negative moves down (in figure coords)
+    ax_bottom.set_position([pos_m_final.x0 + x_fine_tune, pos_b_final.y0 + y_fine_tune, pos_m_final.width, pos_b_final.height])
     # Redraw after position change
     fig.canvas.draw()
-    ax_bottom.set_yticks([0, 1, 2, 3, 4, 5])
-    ax_bottom.set_yticklabels(["Total", "Non-eval", "% unique", "Perf Δ", "Perf (contam)", "Perf (decon)"], fontsize=9)
+    ax_bottom.set_yticks([0, 1])
+    ax_bottom.set_yticklabels(["% contam", "Perf Δ"], fontsize=9)
+    ax_bottom.set_xlabel("Benchmark (metric) [split]", fontsize=10)
     # Keep y labels on the left; ensure they do not overflow by slightly reducing font size
     ax_bottom.tick_params(axis="y", labelleft=True, labelright=False, labelsize=8, pad=2)
     ax_bottom.set_xticks(range(n_cols))
@@ -1198,7 +1197,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     # Colorbar referencing main image
     cbar = plt.colorbar(im_main, ax=[ax_main, ax_left], fraction=0.046, pad=0.04)
-    cbar.set_label(args.value)
+    cbar.set_label("Occurrences of benchmark contamination")
 
     # Optionally annotate cells for small matrices
     def _format_val(v: float) -> str:
@@ -1220,15 +1219,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return "white"
 
     if (n_rows) <= 30 and (n_cols) <= 40:
-        # Main matrix annotations
+        # Main matrix annotations - show all values including zeros
         for i in range(n_rows):
             for j in range(n_cols):
                 val = values_2d[i, j]
-                if np.isfinite(val) and val > 0:
+                if np.isfinite(val):
+                    # Show zero values as "0", positive values as formatted
+                    if val == 0:
+                        text_val = "0"
+                    else:
+                        text_val = _format_val(val)
                     ax_main.text(
                         j,
                         i,
-                        _format_val(val),
+                        text_val,
                         ha="center",
                         va="center",
                         color=_contrast_color(val, norm if use_log else (lambda x: (x - vmin) / (max(vmax - vmin, 1e-12))), cmap),
@@ -1249,87 +1253,38 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     fontsize=7,
                     clip_on=True,
                 )
-        # Bottom totals annotations
-        for j in range(n_cols):
-            val = col_totals_plot[j]
-            if np.isfinite(val):
-                ax_bottom.text(
-                    j,
-                    0,
-                    _format_val(val),
-                    ha="center",
-                    va="center",
-                    color=("black" if (0.2126 * cmap(bottom_stack[0, j])[0] + 0.7152 * cmap(bottom_stack[0, j])[1] + 0.0722 * cmap(bottom_stack[0, j])[2]) > 0.6 else "white"),
-                    fontsize=7,
-                    clip_on=True,
-                )
-        # Non-eval annotations
-        for j in range(n_cols):
-            val = noneval_vec[j]
-            if np.isfinite(val):
-                ax_bottom.text(
-                    j,
-                    1,
-                    _format_val(val),
-                    ha="center",
-                    va="center",
-                    color=("black" if (0.2126 * cmap(bottom_stack[1, j])[0] + 0.7152 * cmap(bottom_stack[1, j])[1] + 0.0722 * cmap(bottom_stack[1, j])[2]) > 0.6 else "white"),
-                    fontsize=7,
-                    clip_on=True,
-                )
-        # Percent annotations
+        # Bottom row annotations: only % contam and Perf Δ
+        # Row 0: % contam - use dark pink for values > 10%
+        dark_pink = '#8B008B'  # Dark magenta/pink color
         for j in range(n_cols):
             val = percent_vec[j]
             if np.isfinite(val):
+                # Use dark pink for values > 10%, black otherwise
+                text_color = dark_pink if val > 10.0 else "black"
                 ax_bottom.text(
                     j,
-                    2,
+                    0,
                     f"{val:.1f}%",
                     ha="center",
                     va="center",
-                    color=("black" if (0.2126 * cmap(bottom_stack[2, j])[0] + 0.7152 * cmap(bottom_stack[2, j])[1] + 0.0722 * cmap(bottom_stack[2, j])[2]) > 0.6 else "white"),
+                    color=text_color,
                     fontsize=7,
                     clip_on=True,
                 )
-        # Perf drop annotations (show delta)
+        # Row 1: Perf Δ - use dark pink for values > 1.0
         for j, c in enumerate(plot_canonicals):
             base_v, decon_v, _ = perf_metrics.get(c, (np.nan, np.nan, np.nan))
             if np.isfinite(base_v) and np.isfinite(decon_v):
+                perf_delta = base_v - decon_v
+                # Use dark pink for values > 1.0, black otherwise
+                text_color = dark_pink if perf_delta > 1.0 else "black"
                 ax_bottom.text(
                     j,
-                    3,
-                    f"{(base_v - decon_v):.2f}",
+                    1,
+                    f"{perf_delta:.2f}",
                     ha="center",
                     va="center",
-                    color=("black" if (0.2126 * cmap(bottom_stack[3, j])[0] + 0.7152 * cmap(bottom_stack[3, j])[1] + 0.0722 * cmap(bottom_stack[3, j])[2]) > 0.6 else "white"),
-                    fontsize=7,
-                    clip_on=True,
-                )
-        # Perf contam annotations
-        for j, c in enumerate(plot_canonicals):
-            base_v, _, _ = perf_metrics.get(c, (np.nan, np.nan, np.nan))
-            if np.isfinite(base_v):
-                ax_bottom.text(
-                    j,
-                    4,
-                    f"{base_v:.1f}",
-                    ha="center",
-                    va="center",
-                    color=("black" if (0.2126 * cmap(bottom_stack[4, j])[0] + 0.7152 * cmap(bottom_stack[4, j])[1] + 0.0722 * cmap(bottom_stack[4, j])[2]) > 0.6 else "white"),
-                    fontsize=7,
-                    clip_on=True,
-                )
-        # Perf decon annotations
-        for j, c in enumerate(plot_canonicals):
-            _, decon_v, _ = perf_metrics.get(c, (np.nan, np.nan, np.nan))
-            if np.isfinite(decon_v):
-                ax_bottom.text(
-                    j,
-                    5,
-                    f"{decon_v:.1f}",
-                    ha="center",
-                    va="center",
-                    color=("black" if (0.2126 * cmap(bottom_stack[5, j])[0] + 0.7152 * cmap(bottom_stack[5, j])[1] + 0.0722 * cmap(bottom_stack[5, j])[2]) > 0.6 else "white"),
+                    color=text_color,
                     fontsize=7,
                     clip_on=True,
                 )
