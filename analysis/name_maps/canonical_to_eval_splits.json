@@ -1,0 +1,37 @@
+{
+  "arc:mc::xlarge": "all",
+  "csqa:mc::xlarge": "all",
+  "piqa:mc::xlarge": "all",
+  "sciq:mc::xlarge": "all",
+  "socialiqa:mc::xlarge": "all",
+  "hellaswag:rc::xlarge": "all",
+  "winogrande:rc::xlarge": "all",
+  "coqa::xlarge": "all",
+
+  "drop::xlarge": "validation",
+  "drop:mc::gen2mc": "validation",
+  "naturalqs::xlarge": "validation",
+  "naturalqs:mc::gen2mc": "validation",
+  "squad::xlarge": "validation",
+  "squad:mc::gen2mc": "validation",
+  "coqa:mc::gen2mc": "validation",
+  "basic:rc": "validation",
+  "medmcqa:mc::none": "validation",
+
+  "mmlu:mc": "test",
+  "gsm8k::olmo3:n8:v2": "test",
+  "gsm-symb:n8:v2": "test",
+  "minerva:n4:v2": "test",
+  "medqa_en:mc::none": "test",
+  "lambada": "test",
+  "ds1000:3shot::olmo3:v2": "test",
+  "codex_humaneval:3shot::olmo3:n32:v2:pass_at_16": "test",
+  "deepseek_leetcode::olmo3:n32:v2:pass_at_16": "test",
+  "mbpp:3shot::olmo3:n32:v2:pass_at_16": "test",
+  "multipl-e-humaneval:n32:v2:pass_at_16": "test",
+  "multipl-e-mbpp:n32:v2": "test",
+  "jeopardy:mc::gen2mc": "test",
+
+  "jeopardy::xlarge": "all"
+}
+
