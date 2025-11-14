@@ -6,3 +6,10 @@ target/
 .envrc
 .claude
 data/
+analysis/depricated/
+analysis/old/
+analysis/per_source_stats/
+analysis/reports/
+analysis/decon_*
+analysis/figures/
+analysis/midtraining-reasoning-flat_dolmino_math

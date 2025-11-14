@@ -700,9 +700,24 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         c: safe_sum(source_by_canonical[s][c] for s in sources) for c in included_canonicals
     }
 
-    # Sorting
+    # Sorting: sources by row totals
     sorted_sources = sorted(sources, key=lambda s: (row_totals.get(s, 0.0), s), reverse=True)
-    sorted_canonicals = sorted(included_canonicals, key=lambda c: (col_totals.get(c, 0.0), c), reverse=True)
+    
+    # Sorting: canonicals grouped by eval split (val/test first, then all), then by column totals
+    def canonical_sort_key(c: str) -> tuple:
+        split = maps.canonical_to_eval_splits.get(c, "")
+        # Primary sort: val/test come first (group 0), all comes second (group 1)
+        if split in ("validation", "test"):
+            group = 0
+        elif split == "all":
+            group = 1
+        else:
+            group = 2  # Other splits go last
+        # Secondary sort: by column total (descending)
+        total = col_totals.get(c, 0.0)
+        return (group, -total, c)  # Negative total for descending order
+    
+    sorted_canonicals = sorted(included_canonicals, key=canonical_sort_key)
     if args.topk_rows is not None:
         sorted_sources = sorted_sources[: args.topk_rows]
     if args.topk_cols is not None:
@@ -917,6 +932,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     values_2d = values_2d[row_mask][:, col_mask]
     plot_sources = [s for s, keep in zip(sorted_sources, row_mask) if keep]
     plot_canonicals = [c for c, keep in zip(sorted_canonicals, col_mask) if keep]
+    
+    # Find the split point between val/test and all groups
+    # Count how many val/test benchmarks are in the filtered list
+    val_test_count = 0
+    for c in plot_canonicals:
+        split = maps.canonical_to_eval_splits.get(c, "")
+        if split in ("validation", "test"):
+            val_test_count += 1
+        elif split == "all":
+            break  # Once we hit "all", we're done counting val/test
+    # val_test_count is the index where "all" group starts (0-indexed)
 
     # Build display labels (filtered)
     source_display = build_source_display_names(args.per_source_stats_dir, args.midtrain_csv)
@@ -1195,6 +1221,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     for spine in ("top",):
         ax_bottom.spines[spine].set_linewidth(2.0)
 
+    # Draw vertical separator line between val/test and all groups
+    if val_test_count > 0 and val_test_count < n_cols:
+        # Draw line at the boundary between groups (between last val/test and first all)
+        # x position is at val_test_count - 0.5 (between columns)
+        split_x = val_test_count - 0.5
+        # Draw on main heatmap (full height)
+        ax_main.axvline(x=split_x, color='black', linewidth=3, linestyle='-', zorder=10)
+        # Draw on bottom marginal rows (full height of bottom section)
+        ax_bottom.axvline(x=split_x, color='black', linewidth=3, linestyle='-', zorder=10)
+    
     # Colorbar referencing main image
     cbar = plt.colorbar(im_main, ax=[ax_main, ax_left], fraction=0.046, pad=0.04)
     cbar.set_label("Occurrences of benchmark contamination")
