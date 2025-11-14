@@ -1,0 +1,57 @@
+{
+    "Dolmino1 Math": [
+      "ai2-llm/preprocessed/midtraining-reasoning/flat_dolmino_math-decon-sparkle-motion/allenai/dolma2-tokenizer/*.npy"
+    ],
+    "TinyMATH-PoT": [
+      "ai2-llm/preprocessed/midtraining-reasoning/tinyMATH/PoT/processed_data/processed-decon-sparkle-motion/allenai/dolma2-tokenizer/*.npy"
+    ],
+    "TinyMATH-MIND": [
+      "ai2-llm/preprocessed/midtraining-reasoning/tinyMATH/MIND/data/processed-decon-sparkle-motion/allenai/dolma2-tokenizer/*.npy"
+    ],
+    "CraneMath": [
+      "ai2-llm/preprocessed/tokyotech-llm/swallowmath/beaker_outputs-decon-sparkle-motion-withids/allenai/dolma2-tokenizer/*.npy"
+    ],
+    "MegaMatt": [
+      "ai2-llm/preprocessed/megamath_web_pro_max/beaker_rewrites-decon-sparkle-motion/**/allenai/dolma2-tokenizer/*.npy"
+    ],
+    "Stack-Edu (FIM)": [
+      "ai2-llm/preprocessed/stack-edu/sample-fim-weighted-pl-edu-score-decon/**/**/*.npy"
+    ],
+    "CraneCode": [
+      "ai2-llm/preprocessed/tokyotech-llm/swallowcode/scor_final_data-decon-sparkle-motion/allenai/dolma2-tokenizer/*.npy"
+    ],
+    "Nemotron": [
+      "ai2-llm/preprocessed/Nemotron-CC/v0/quality=high/kind=synthetic/kind2=diverse_qa_pairs-decon-sparkle-motion/allenai/dolma2-tokenizer/*.npy"
+    ],
+    "Reddit-to-Flashcards": [
+      "ai2-llm/preprocessed/reddit-rewrites/densesub_highthresh_microanneal_4omini_rewrite/documents-decon-sparkle-motion/allenai/dolma2-tokenizer/*.npy",
+      "ai2-llm/preprocessed/reddit-rewrites/densesub_lowthresh_4omini_rewrite/documents-decon-sparkle-motion/allenai/dolma2-tokenizer/*.npy"
+    ],
+    "Wiki-to-RCQA": [
+      "ai2-llm/preprocessed/wiki_psgqa_rewrites/psgqa_rewrites_v1-decon-sparkle-motion/allenai/dolma2-tokenizer/*.npy"
+    ],
+    "SFT data": [
+      "ai2-llm/preprocessed/ai2-llm/preprocessed/tulu-3-sft-for-olmo-3-midtraining/partitioned/v0-data-simple-concat-with-double-new-line-with-generation-prompt-decon-sparkle-motion/allenai/dolma2-tokenizer/*.npy"
+    ],
+    "Flan dataset": [
+      "ai2-llm/preprocessed/tulu_flan/v1-FULLDECON-HARD-TRAIN-60M-shots_all-upweight_1-dialog_false-sep_rulebased/documents-decon-sparkle-motion/allenai/dolma2-tokenizer/*.npy"
+    ],
+    "Meta-Reasoning": [
+      "ai2-llm/preprocessed/midtraining-reasoning/math-meta-reasoning-cleaned-latex-delim-randomly-cleaned-with-id-decon-sparkle-motion/allenai/dolma2-tokenizer/*.npy",
+      "ai2-llm/preprocessed/midtraining-reasoning/code-meta-reasoning-cleaned-latex-delim-randomly-cleaned-with-id-decon-sparkle-motion/allenai/dolma2-tokenizer/*.npy"
+    ],
+    "Program-Verifiable Data": [
+      "ai2-llm/preprocessed/midtraining-reasoning/verifiable/gpt-41/cleaned-documents-decon-2-decon-sparkle-motion/allenai/dolma2-tokenizer/*.npy",
+      "ai2-llm/preprocessed/midtraining-reasoning/verifiable/o4-mini-high-decon-sparkle-motion/allenai/dolma2-tokenizer/*.npy"
+    ],
+    "OMR Rewrite Full thoughts": [
+      "ai2-llm/preprocessed/midtraining-reasoning/OpenMathReasoning/OpenMathReasoning-rewrite-full-thoughts/jsonls-decon-sparkle-motion/allenai/dolma2-tokenizer/*.npy"
+    ],
+    "Existing Thinking Traces": [
+      "ai2-llm/preprocessed/thinking-data/big-reasoning-traces-reformatted-keyword-filter-datecutoff-chinese-ngram-no-special-tokens-decon-sparkle-motion/allenai/dolma2-tokenizer/*.npy",
+      "ai2-llm/preprocessed/thinking-data/qwq-redo-reformatted-ngram-no-special-tokens-decon-sparkle-motion/allenai/dolma2-tokenizer/*.npy",
+      "ai2-llm/preprocessed/thinking-data/gemini-redo-reformatted-ngram-no-special-tokens-decon-sparkle-motion/allenai/dolma2-tokenizer/*.npy",
+      "ai2-llm/preprocessed/thinking-data/llama-nemotron-processed-chinese-filtered-ngram-filtered-with-token-counts-decon-sparkle-motion/allenai/dolma2-tokenizer/*.npy",
+      "ai2-llm/preprocessed/thinking-data/openthoughts2-filtered-chinese-filtered-ngram-filtered-with-token-counts-stripped-decon-sparkle-motion/allenai/dolma2-tokenizer/*.npy"
+    ]
+  }

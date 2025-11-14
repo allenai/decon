@@ -33,6 +33,15 @@ pub struct EvalsArgs {
     )]
     pub output: Option<PathBuf>,
 
+    /// Filter by eval split name (e.g., train, validation, test) when listing stats
+    #[arg(
+        long,
+        help = "Only include records from a specific split (e.g., train, validation, test)",
+        value_name = "SPLIT",
+        help_heading = "Listing Options"
+    )]
+    pub split: Option<String>,
+
     /// Download all evaluation datasets
     #[arg(
         long,

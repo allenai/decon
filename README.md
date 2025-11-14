@@ -71,6 +71,9 @@ cargo run --release -- --help
 # List current eval datasets in reference (small default set initially).
 cargo run --release -- evals
 
+# List eval reference stats for a specific split only
+cargo run --release -- evals --stats --split test
+
 # Run contamination detection.
 cargo run --release -- detect --training-dir tests/fixtures/training/
 
@@ -142,6 +145,9 @@ cargo run --release -- review /my-results-directory
 
 # To see statistics
 cargo run --release -- review --stats /my-results-directory
+
+# To restrict by eval split (e.g., only test split)
+cargo run --release -- review --stats --split test /my-results-directory
 
 # To review with filters, e.g. specific eval with minimum score
 cargo run --release -- review /my-results-directory --eval mmlu --min-score 0.9

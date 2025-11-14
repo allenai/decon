@@ -73,6 +73,15 @@ pub struct ReviewArgs {
     )]
     pub eval: Option<String>,
 
+    #[arg(
+        long,
+        help = "Filter by eval split name (e.g., train, validation, test)",
+        value_name = "SPLIT",
+        display_order = 23,
+        help_heading = "Filtering"
+    )]
+    pub split: Option<String>,
+
     // Sorting
     #[arg(
         long,

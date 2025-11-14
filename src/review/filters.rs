@@ -1,10 +1,29 @@
 use crate::review::ContaminationResult;
 
 /// Filter contamination results by various thresholds and criteria
-pub fn filter_contamination_results_by_thresholds(results: Vec<ContaminationResult>, min_score: Option<f32>, min_length: Option<usize>, eval_filter: Option<&str>) -> Vec<ContaminationResult> {
+pub fn filter_contamination_results_by_thresholds(
+    results: Vec<ContaminationResult>,
+    min_score: Option<f32>,
+    min_length: Option<usize>,
+    eval_filter: Option<&str>,
+    split_filter: Option<&str>,
+) -> Vec<ContaminationResult> {
     results
         .into_iter()
         .filter(|result| {
+            // Split filter (e.g., only 'test' split)
+            if let Some(split_name) = split_filter {
+                // compare case-insensitively to be forgiving
+                let matches = result
+                    .split
+                    .as_ref()
+                    .map(|s| s.eq_ignore_ascii_case(split_name))
+                    .unwrap_or(false);
+                if !matches {
+                    return false;
+                }
+            }
+
             // Check eval dataset filter using eval_key if available
             if let Some(eval_name) = eval_filter {
                 // Use eval_key if available (clean dataset identifier)
@@ -55,6 +74,7 @@ mod tests {
         ngram_count: Option<usize>,
         eval_dataset: &str,
         eval_key: Option<String>,
+        split: Option<&str>,
     ) -> ContaminationResult {
         ContaminationResult {
             training_file: "test.txt".to_string(),
@@ -63,7 +83,7 @@ mod tests {
             eval_key,
             eval_line: 1,
             eval_instance_index: None,
-            split: None,
+            split: split.map(|s| s.to_string()),
             method: None,
             contamination_start_idx: None,
             contamination_end_idx: None,
@@ -101,15 +121,16 @@ mod tests {
     #[test]
     fn test_filter_by_min_score() {
         let results = vec![
-            create_test_result(Some(0.5), None, "dataset1", None),
-            create_test_result(Some(0.8), None, "dataset1", None),
-            create_test_result(Some(0.9), None, "dataset1", None),
-            create_test_result(None, None, "dataset1", None),
+            create_test_result(Some(0.5), None, "dataset1", None, None),
+            create_test_result(Some(0.8), None, "dataset1", None, None),
+            create_test_result(Some(0.9), None, "dataset1", None, None),
+            create_test_result(None, None, "dataset1", None, None),
         ];
 
         let filtered = filter_contamination_results_by_thresholds(
             results,
             Some(0.7),
+            None,
             None,
             None,
         );
@@ -122,16 +143,17 @@ mod tests {
     #[test]
     fn test_filter_by_min_length() {
         let results = vec![
-            create_test_result(None, Some(5), "dataset1", None),
-            create_test_result(None, Some(10), "dataset1", None),
-            create_test_result(None, Some(15), "dataset1", None),
-            create_test_result(None, None, "dataset1", None),
+            create_test_result(None, Some(5), "dataset1", None, None),
+            create_test_result(None, Some(10), "dataset1", None, None),
+            create_test_result(None, Some(15), "dataset1", None, None),
+            create_test_result(None, None, "dataset1", None, None),
         ];
 
         let filtered = filter_contamination_results_by_thresholds(
             results,
             None,
             Some(8),
+            None,
             None,
         );
 
@@ -143,10 +165,10 @@ mod tests {
     #[test]
     fn test_filter_by_eval_dataset() {
         let results = vec![
-            create_test_result(None, None, "mmlu", None),
-            create_test_result(None, None, "gsm8k", None),
-            create_test_result(None, None, "mmlu", Some("mmlu_pro".to_string())),
-            create_test_result(None, None, "gsm8k", None),
+            create_test_result(None, None, "mmlu", None, None),
+            create_test_result(None, None, "gsm8k", None, None),
+            create_test_result(None, None, "mmlu", Some("mmlu_pro".to_string()), None),
+            create_test_result(None, None, "gsm8k", None, None),
         ];
 
         let filtered = filter_contamination_results_by_thresholds(
@@ -154,6 +176,7 @@ mod tests {
             None,
             None,
             Some("mmlu"),
+            None,
         );
 
         assert_eq!(filtered.len(), 1);
@@ -164,9 +187,9 @@ mod tests {
     #[test]
     fn test_filter_by_eval_key_when_available() {
         let results = vec![
-            create_test_result(None, None, "mmlu_full", Some("mmlu".to_string())),
-            create_test_result(None, None, "gsm8k_full", Some("gsm8k".to_string())),
-            create_test_result(None, None, "mmlu_full", Some("mmlu".to_string())),
+            create_test_result(None, None, "mmlu_full", Some("mmlu".to_string()), None),
+            create_test_result(None, None, "gsm8k_full", Some("gsm8k".to_string()), None),
+            create_test_result(None, None, "mmlu_full", Some("mmlu".to_string()), None),
         ];
 
         let filtered = filter_contamination_results_by_thresholds(
@@ -174,6 +197,7 @@ mod tests {
             None,
             None,
             Some("mmlu"),
+            None,
         );
 
         assert_eq!(filtered.len(), 2);
@@ -184,10 +208,10 @@ mod tests {
     #[test]
     fn test_combined_filters() {
         let results = vec![
-            create_test_result(Some(0.9), Some(20), "mmlu", None),
-            create_test_result(Some(0.5), Some(30), "mmlu", None),
-            create_test_result(Some(0.9), Some(5), "mmlu", None),
-            create_test_result(Some(0.9), Some(20), "gsm8k", None),
+            create_test_result(Some(0.9), Some(20), "mmlu", None, Some("test")),
+            create_test_result(Some(0.5), Some(30), "mmlu", None, Some("test")),
+            create_test_result(Some(0.9), Some(5), "mmlu", None, Some("train")),
+            create_test_result(Some(0.9), Some(20), "gsm8k", None, Some("test")),
         ];
 
         let filtered = filter_contamination_results_by_thresholds(
@@ -195,6 +219,7 @@ mod tests {
             Some(0.8),
             Some(10),
             Some("mmlu"),
+            Some("test"),
         );
 
         assert_eq!(filtered.len(), 1);
@@ -206,13 +231,14 @@ mod tests {
     #[test]
     fn test_no_filters_returns_all() {
         let results = vec![
-            create_test_result(Some(0.1), Some(1), "dataset1", None),
-            create_test_result(None, None, "dataset2", None),
-            create_test_result(Some(0.9), Some(100), "dataset3", None),
+            create_test_result(Some(0.1), Some(1), "dataset1", None, None),
+            create_test_result(None, None, "dataset2", None, None),
+            create_test_result(Some(0.9), Some(100), "dataset3", None, None),
         ];
 
         let filtered = filter_contamination_results_by_thresholds(
             results.clone(),
+            None,
             None,
             None,
             None,
@@ -230,8 +256,27 @@ mod tests {
             Some(0.5),
             Some(10),
             Some("mmlu"),
+            None,
         );
 
         assert_eq!(filtered.len(), 0);
+    }
+
+    #[test]
+    fn test_filter_by_split_case_insensitive_and_missing() {
+        let results = vec![
+            create_test_result(Some(0.9), Some(20), "mmlu", None, Some("Test")),
+            create_test_result(Some(0.9), Some(20), "mmlu", None, Some("validation")),
+            create_test_result(Some(0.9), Some(20), "mmlu", None, None),
+        ];
+        let filtered = filter_contamination_results_by_thresholds(
+            results,
+            None,
+            None,
+            None,
+            Some("test"),
+        );
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].split.as_deref(), Some("Test"));
     }
 }

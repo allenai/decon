@@ -55,7 +55,7 @@ pub fn execute_evals(args: &EvalsArgs) -> Result<(), Error> {
             }
         };
 
-        collect_eval_stats(&evals_dir, args.stats, args.output.as_deref())
+        collect_eval_stats(&evals_dir, args.stats, args.output.as_deref(), args.split.as_deref())
     }
 }
 
@@ -170,7 +170,7 @@ fn download_evals(eval_name: Option<String>, output_dir: Option<&Path>, config_p
     Ok(())
 }
 
-pub fn collect_eval_stats(stats_dir: &Path, show_stats: bool, output_path: Option<&Path>) -> Result<(), Error> {
+pub fn collect_eval_stats(stats_dir: &Path, show_stats: bool, output_path: Option<&Path>, split_filter: Option<&str>) -> Result<(), Error> {
     if !stats_dir.exists() {
         eprintln!("Error: Directory not found: {}", stats_dir.display());
         return Err(anyhow::anyhow!("Directory not found: {}", stats_dir.display()));
@@ -192,7 +192,7 @@ pub fn collect_eval_stats(stats_dir: &Path, show_stats: bool, output_path: Optio
     let mut total_skipped_records = 0usize;
 
     for file_path in &eval_files {
-        match process_file_for_stats(file_path, &mut eval_stats) {
+        match process_file_for_stats(file_path, &mut eval_stats, split_filter) {
             Ok(skipped_count) => {
                 total_skipped_records += skipped_count;
             }
@@ -223,7 +223,7 @@ struct EvalStats {
     passage_lengths: Vec<usize>,
 }
 
-fn process_file_for_stats(file_path: &PathBuf, eval_stats: &mut HashMap<String, EvalStats>) -> Result<usize, Error> {
+fn process_file_for_stats(file_path: &PathBuf, eval_stats: &mut HashMap<String, EvalStats>, split_filter: Option<&str>) -> Result<usize, Error> {
     let file = File::open(file_path)?;
     let reader: Box<dyn BufRead> = if file_path.extension().and_then(|s| s.to_str()) == Some("gz") {
         Box::new(BufReader::new(GzDecoder::new(file)))
@@ -244,6 +244,17 @@ fn process_file_for_stats(file_path: &PathBuf, eval_stats: &mut HashMap<String, 
             Ok(obj) => obj,
             Err(_) => continue, // Skip invalid JSON
         };
+
+        // If a split filter was provided, enforce it (case-insensitive)
+        if let Some(target_split) = split_filter {
+            let record_split = json_obj.get("split").and_then(|v| v.as_str());
+            let matches = record_split
+                .map(|s| s.eq_ignore_ascii_case(target_split))
+                .unwrap_or(false);
+            if !matches {
+                continue; // Skip records not in the requested split
+            }
+        }
 
         let eval_key = match json_obj.get("eval_key").and_then(|v| v.as_str()) {
             Some(key) if !key.trim().is_empty() => key.to_string(),
@@ -606,7 +617,7 @@ mod tests {
         writeln!(file, r#"{{"question": "Missing eval_key", "answer": "Should be skipped"}}"#).unwrap(); // Should be skipped
 
         let mut eval_stats = HashMap::new();
-        let skipped = process_file_for_stats(&file_path, &mut eval_stats).unwrap();
+        let skipped = process_file_for_stats(&file_path, &mut eval_stats, None).unwrap();
 
         assert_eq!(eval_stats.len(), 1);
         assert_eq!(skipped, 1); // One record without eval_key
@@ -634,7 +645,7 @@ mod tests {
         writeln!(file, r#"{{"eval_key": "test_eval", "question": "Another valid", "answer": "line"}}"#).unwrap();
 
         let mut eval_stats = HashMap::new();
-        let skipped = process_file_for_stats(&file_path, &mut eval_stats).unwrap();
+        let skipped = process_file_for_stats(&file_path, &mut eval_stats, None).unwrap();
 
         assert_eq!(skipped, 0); // No valid JSON records were missing eval_key
         let stats = eval_stats.get("test_eval").unwrap();
@@ -656,7 +667,7 @@ mod tests {
         writeln!(file, r#"{{"eval_key": "", "question": "Empty eval_key"}}"#).unwrap(); // Empty eval_key, should be skipped
 
         let mut eval_stats = HashMap::new();
-        let skipped = process_file_for_stats(&file_path, &mut eval_stats).unwrap();
+        let skipped = process_file_for_stats(&file_path, &mut eval_stats, None).unwrap();
 
         assert_eq!(skipped, 2); // Two records without valid eval_key
         let stats = eval_stats.get("test_eval").unwrap();
@@ -677,7 +688,7 @@ mod tests {
         encoder.finish().unwrap();
 
         let mut eval_stats = HashMap::new();
-        let skipped = process_file_for_stats(&file_path, &mut eval_stats).unwrap();
+        let skipped = process_file_for_stats(&file_path, &mut eval_stats, None).unwrap();
 
         assert_eq!(skipped, 0);
         let stats = eval_stats.get("compressed_eval").unwrap();
@@ -703,8 +714,8 @@ mod tests {
         encoder.finish().unwrap();
 
         let mut eval_stats = HashMap::new();
-        let skipped1 = process_file_for_stats(&file1, &mut eval_stats).unwrap();
-        let skipped2 = process_file_for_stats(&file2, &mut eval_stats).unwrap();
+        let skipped1 = process_file_for_stats(&file1, &mut eval_stats, None).unwrap();
+        let skipped2 = process_file_for_stats(&file2, &mut eval_stats, None).unwrap();
 
         assert_eq!(skipped1 + skipped2, 0);
         assert_eq!(eval_stats.len(), 2); // Two different eval_keys
@@ -721,14 +732,14 @@ mod tests {
     #[test]
     fn test_collect_eval_stats_nonexistent_dir() {
         let nonexistent = PathBuf::from("/path/that/does/not/exist");
-        let result = collect_eval_stats(&nonexistent, false, None);
+        let result = collect_eval_stats(&nonexistent, false, None, None);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_collect_eval_stats_empty_dir() {
         let dir = tempdir().unwrap();
-        let result = collect_eval_stats(dir.path(), false, None);
+        let result = collect_eval_stats(dir.path(), false, None, None);
         assert!(result.is_ok()); // Should succeed but find no files
     }
 
@@ -747,7 +758,7 @@ mod tests {
         writeln!(f2, r#"{{"eval_key": "dataset2", "question": "Q2", "answer": "A2", "passage": "P2"}}"#).unwrap();
 
         // This should process both files without errors
-        let result = collect_eval_stats(dir.path(), false, None);
+        let result = collect_eval_stats(dir.path(), false, None, None);
         assert!(result.is_ok());
     }
 
@@ -763,7 +774,7 @@ mod tests {
         writeln!(file, r#"{{"eval_key": "test_eval", "question": "This is a very long question that should have the maximum length", "answer": "Long answer here"}}"#).unwrap();
 
         let mut eval_stats = HashMap::new();
-        process_file_for_stats(&file_path, &mut eval_stats).unwrap();
+        process_file_for_stats(&file_path, &mut eval_stats, None).unwrap();
 
         let stats = eval_stats.get("test_eval").unwrap();
 

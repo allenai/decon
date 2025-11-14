@@ -1,0 +1,7 @@
+# S3 report prefixes intentionally skipped because no contamination was detected.
+# Each entry should be a full S3 URI prefix (without trailing slash required).
+s3://ai2-decon-reports/sparkle-motion/midtraining-reasoning-tinyMATH-PoT-processed_data-processed
+s3://ai2-decon-reports/sparkle-motion/midtraining-reasoning-verifiable-o4-mini-high
+s3://ai2-decon-reports/sparkle-motion/reddit-rewrites-densesub_highthresh_microanneal_4omini_rewrite-documents
+s3://ai2-decon-reports/sparkle-motion/midtraining-reasoning-verifiable-gpt-41-cleaned-documents-decon-2
+

@@ -18,6 +18,7 @@ pub fn review_contamination(args: &ReviewArgs) -> Result<(), Error> {
     let min_score = args.min_score;
     let min_length = args.min_length;
     let eval_filter = args.eval.as_deref();
+    let split_filter = args.split.as_deref();
     let top_eval_examples = args.top_eval_examples;
     let sort_match_length_descending = args.sort_match_length_descending;
     let sort_match_length_ascending = args.sort_match_length_ascending;
@@ -81,6 +82,7 @@ pub fn review_contamination(args: &ReviewArgs) -> Result<(), Error> {
         min_score,
         min_length,
         eval_filter,
+        split_filter,
     );
 
     if all_results.is_empty() {
@@ -94,6 +96,9 @@ pub fn review_contamination(args: &ReviewArgs) -> Result<(), Error> {
         }
         if eval_filter.is_some() {
             println!("  - Eval dataset filter: {}", eval_filter.unwrap());
+        }
+        if split_filter.is_some() {
+            println!("  - Split filter: {}", split_filter.unwrap());
         }
         return Ok(());
     }
@@ -114,6 +119,9 @@ pub fn review_contamination(args: &ReviewArgs) -> Result<(), Error> {
         }
         if eval_filter.is_some() {
             filter_reasons.push(format!("eval dataset: {}", eval_filter.unwrap()));
+        }
+        if let Some(s) = split_filter {
+            filter_reasons.push(format!("split: {}", s));
         }
 
         if filter_reasons.is_empty() {

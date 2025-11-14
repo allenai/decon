@@ -51,6 +51,7 @@ pub fn execute_compare(args: &CompareArgs) -> Result<(), Error> {
         min_score,
         None, // min_length not supported in simplified version
         eval_filter,
+        None, // split filter not supported in compare; compare across all splits
     );
 
     results2 = filter_contamination_results_by_thresholds(
@@ -58,6 +59,7 @@ pub fn execute_compare(args: &CompareArgs) -> Result<(), Error> {
         min_score,
         None,
         eval_filter,
+        None, // split filter not supported in compare; compare across all splits
     );
 
     // Build lookup maps for efficient comparison

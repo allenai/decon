@@ -1,0 +1,13 @@
+{
+  "drop:mc": "drop_mc",
+  "drop::xlarge": "drop",
+  "coqa:mc": "coqa_mc",
+  "coqa::xlarge": "coqa",
+  "jeopardy:mc": "jeopardy_mc",
+  "jeopardy::xlarge": "jeopardy",
+  "naturalqs:mc": "nq_open",
+  "naturalqs::xlarge": "nq_open",
+  "squad:mc": "squad_mc",
+  "squad::xlarge": "squad"
+}
+
