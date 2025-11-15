@@ -193,6 +193,14 @@ def load_name_maps(root: Path) -> NameMaps:
     return maps
 
 
+def load_paper_name_to_display(root: Path) -> Dict[str, str]:
+    """Load mapping from CSV paper names to display names."""
+    path = root / "paper_name_to_display.json"
+    if not path.exists():
+        return {}
+    return read_json(path)
+
+
 def canonical_base(name: str) -> str:
     """Return base benchmark identifier (left of first colon)."""
     return name.split(":", 1)[0] if ":" in name else name
@@ -261,14 +269,18 @@ def load_midtrain_source_aliases(midtrain_csv: Path) -> Dict[str, str]:
     return aliases
 
 
-def build_source_display_names(per_source_root: Path, midtrain_csv: Path) -> Dict[str, str]:
+def build_source_display_names(per_source_root: Path, midtrain_csv: Path, name_maps_dir: Path) -> Dict[str, str]:
     """
-    Return mapping of per_source_stats directory name -> display name from midtrain CSV's
-    `Paper name`. Fallback to a prettified directory name when no mapping exists.
+    Return mapping of per_source_stats directory name -> display name.
+    Uses CSV paper names matched via slugified directory names, then translates
+    to display names via paper_name_to_display.json mapping.
     """
-    # Build reverse map: slug -> display
+    # Load paper name to display name mapping
+    paper_to_display = load_paper_name_to_display(name_maps_dir)
+    
+    # Build mapping: slugified directory name -> CSV paper name
     forward = load_midtrain_source_aliases(midtrain_csv)  # Paper -> slug
-    reverse: Dict[str, str] = {slugify_name(v): k for k, v in forward.items()}
+    slug_to_paper: Dict[str, str] = {slugify_name(v): k for k, v in forward.items()}
 
     def pretty_dir(name: str) -> str:
         # Replace underscores with spaces and normalize parentheses-like suffixes
@@ -279,8 +291,15 @@ def build_source_display_names(per_source_root: Path, midtrain_csv: Path) -> Dic
     for d in list_sources(per_source_root):
         key = d
         slug = slugify_name(d)
-        display = reverse.get(slug)
-        mapping[key] = display if display else pretty_dir(d)
+        # Match directory to CSV paper name via slug
+        paper_name = slug_to_paper.get(slug)
+        if paper_name:
+            # Translate paper name to display name
+            display_name = paper_to_display.get(paper_name, paper_name)
+            mapping[key] = display_name
+        else:
+            # Fall back to prettified directory name
+            mapping[key] = pretty_dir(d)
     return mapping
 
 
@@ -290,84 +309,94 @@ def shorten_canonical_label(canonical: str) -> str:
     - base benchmark name (left of first colon)
     - remove underscores and apply proper capitalization
     - add ' (MC)' if ':mc' present anywhere
-    - add ' (p@16)' if 'pass_at_16' present
+    - add ' (@16)' if 'pass_at_16' present (drop 'p')
+    - Condense names: deepseek leetcode -> leetcode, multipl-e-humaneval -> M-E-HumEval, codex humaneval -> HumEval
     """
     base = canonical.split(":", 1)[0]
-    # Remove underscores and apply title case
-    # Handle special cases: keep acronyms uppercase, handle multi-word names
-    words = base.replace("_", " ").split()
-    # Apply title case but handle special acronyms
-    formatted_words = []
-    for word in words:
-        # Keep common acronyms uppercase
-        if word.upper() in ["MC", "OCR", "FIM", "LLM", "AI"]:
-            formatted_words.append(word.upper())
-        # Handle special cases like "humaneval" -> "HumanEval", "mmlu" -> "MMLU"
-        elif word.lower() == "humaneval":
-            formatted_words.append("HumanEval")
-        elif word.lower() == "mmlu":
-            formatted_words.append("MMLU")
-        elif word.lower() == "gsm8k":
-            formatted_words.append("GSM8K")
-        elif word.lower() == "sciq":
-            formatted_words.append("SciQ")
-        elif word.lower() == "csqa":
-            formatted_words.append("CSQA")
-        elif word.lower() == "arc":
-            formatted_words.append("ARC")
-        elif word.lower() == "piqa":
-            formatted_words.append("PIQA")
-        elif word.lower() == "squad":
-            formatted_words.append("SQuAD")
-        elif word.lower() == "coqa":
-            formatted_words.append("CoQA")
-        elif word.lower() == "drop":
-            formatted_words.append("DROP")
-        elif word.lower() == "lambada":
-            formatted_words.append("LAMBADA")
-        elif word.lower() == "winogrande":
-            formatted_words.append("Winogrande")
-        elif word.lower() == "socialiqa":
-            formatted_words.append("SocialIQA")
-        elif word.lower() == "hellaswag":
-            formatted_words.append("HellaSwag")
-        elif word.lower() == "medmcqa":
-            formatted_words.append("MedMCQA")
-        elif word.lower() == "medqa":
-            formatted_words.append("MedQA")
-        elif word.lower() == "deepseek":
-            formatted_words.append("DeepSeek")
-        elif word.lower() == "leetcode":
-            formatted_words.append("LeetCode")
-        elif word.lower() == "multipl":
-            formatted_words.append("MultiPL")
-        elif word.lower() == "codex":
-            formatted_words.append("Codex")
-        elif word.lower() == "minerva":
-            formatted_words.append("Minerva")
-        elif word.lower() == "jeopardy":
-            formatted_words.append("Jeopardy")
-        else:
-            # Default: title case
-            formatted_words.append(word.capitalize())
-    base_formatted = " ".join(formatted_words)
+    
+    # Handle special condensed names first
+    base_lower = base.lower()
+    if "deepseek" in base_lower and "leetcode" in base_lower:
+        # deepseek leetcode -> leetcode
+        base_formatted = "LeetCode"
+    elif "multipl" in base_lower and "humaneval" in base_lower:
+        # multipl-e-humaneval -> M-E-HumEval
+        base_formatted = "M-E-HumEval"
+    elif "codex" in base_lower and "humaneval" in base_lower:
+        # codex humaneval -> HumEval
+        base_formatted = "HumEval"
+    else:
+        # Remove underscores and apply title case
+        # Handle special cases: keep acronyms uppercase, handle multi-word names
+        words = base.replace("_", " ").split()
+        # Apply title case but handle special acronyms
+        formatted_words = []
+        for word in words:
+            # Keep common acronyms uppercase
+            if word.upper() in ["MC", "OCR", "FIM", "LLM", "AI"]:
+                formatted_words.append(word.upper())
+            # Handle special cases like "humaneval" -> "HumanEval", "mmlu" -> "MMLU"
+            elif word.lower() == "humaneval":
+                formatted_words.append("HumanEval")
+            elif word.lower() == "mmlu":
+                formatted_words.append("MMLU")
+            elif word.lower() == "gsm8k":
+                formatted_words.append("GSM8K")
+            elif word.lower() == "sciq":
+                formatted_words.append("SciQ")
+            elif word.lower() == "csqa":
+                formatted_words.append("CSQA")
+            elif word.lower() == "arc":
+                formatted_words.append("ARC")
+            elif word.lower() == "piqa":
+                formatted_words.append("PIQA")
+            elif word.lower() == "squad":
+                formatted_words.append("SQuAD")
+            elif word.lower() == "coqa":
+                formatted_words.append("CoQA")
+            elif word.lower() == "drop":
+                formatted_words.append("DROP")
+            elif word.lower() == "lambada":
+                formatted_words.append("LAMBADA")
+            elif word.lower() == "winogrande":
+                formatted_words.append("Winogrande")
+            elif word.lower() == "socialiqa":
+                formatted_words.append("SocialIQA")
+            elif word.lower() == "hellaswag":
+                formatted_words.append("HellaSwag")
+            elif word.lower() == "medmcqa":
+                formatted_words.append("MedMCQA")
+            elif word.lower() == "medqa":
+                formatted_words.append("MedQA")
+            elif word.lower() == "deepseek":
+                formatted_words.append("DeepSeek")
+            elif word.lower() == "leetcode":
+                formatted_words.append("LeetCode")
+            elif word.lower() == "multipl":
+                formatted_words.append("MultiPL")
+            elif word.lower() == "codex":
+                formatted_words.append("Codex")
+            elif word.lower() == "minerva":
+                formatted_words.append("Minerva")
+            elif word.lower() == "jeopardy":
+                formatted_words.append("Jeopardy")
+            else:
+                # Default: title case
+                formatted_words.append(word.capitalize())
+        base_formatted = " ".join(formatted_words)
     
     parts: List[str] = []
     if ":mc" in canonical:
         parts.append("MC")
     if "pass_at_16" in canonical:
-        parts.append("p@16")
+        parts.append("@16")  # Drop 'p' from p@16
     suffix = f" ({', '.join(parts)})" if parts else ""
     return f"{base_formatted}{suffix}"
 
 
 def format_canonical_display(canonical: str, maps: NameMaps) -> str:
-    """Short label plus eval split tag from canonical_to_eval_splits."""
+    """Short label without eval split tag (split info shown separately)."""
     base = shorten_canonical_label(canonical)
-    split = maps.canonical_to_eval_splits.get(canonical)
-    if split:
-        split_short = {"validation": "val", "test": "test", "train": "train", "all": "all"}.get(split, split)
-        return f"{base} [{split_short}]"
     return base
 
 
@@ -482,6 +511,7 @@ def allocate_occurrences_per_suite(total_occurrences: float, suite_weights: Dict
 def aggregate_for_split(
     split_stats: SplitStats,
     eval_to_canonical: Mapping[str, List[str]],
+    canonical_to_contam: Mapping[str, List[str]],
     included_canonicals: Set[str],
     metric: str,
 ) -> Dict[str, float]:
@@ -490,16 +520,28 @@ def aggregate_for_split(
     metric: "occurrences" (allocated by training_docs; fallback to unique weights) or "unique"
     """
     # Determine observed suites and keep only those that map to an included canonical
+    # Build reverse mapping from canonical_to_contam: suite -> list of canonicals
+    suite_to_canonicals_map: Dict[str, List[str]] = defaultdict(list)
+    for canonical, suites_list in canonical_to_contam.items():
+        for suite in suites_list:
+            suite_to_canonicals_map[suite].append(canonical)
+    
     observed_suites = set(split_stats.suite_unique.keys()) | set(split_stats.suite_docs.keys())
     suites = []
     for s in sorted(observed_suites):
-        mapped = suite_to_canonicals(s, NameMaps(
-            eval_to_canonical=eval_to_canonical,
-            perf_to_canonical={},  # unused here
-            canonical_to_contam={},  # unused here
-            canonical_benchmarks=[],
-            canonical_to_eval_splits={},  # unused here
-        ))
+        # First try reverse mapping from canonical_to_contam (most authoritative)
+        mapped = suite_to_canonicals_map.get(s, [])
+        
+        # Fallback to eval_to_canonical if not found in canonical_to_contam
+        if not mapped:
+            mapped = suite_to_canonicals(s, NameMaps(
+                eval_to_canonical=eval_to_canonical,
+                perf_to_canonical={},  # unused here
+                canonical_to_contam={},  # unused here
+                canonical_benchmarks=[],
+                canonical_to_eval_splits={},  # unused here
+            ))
+        
         if any(c in included_canonicals for c in mapped):
             suites.append(s)
     if not suites:
@@ -520,16 +562,28 @@ def aggregate_for_split(
             else:
                 suite_values[s] = float(split_stats.suite_unique.get(s, 0.0))
 
-    # Map to canonical
+    # Map to canonical (using the reverse mapping already built above)
     canonical_values: Dict[str, float] = defaultdict(float)
     for suite, value in suite_values.items():
-        canonicals = suite_to_canonicals(suite, NameMaps(
-            eval_to_canonical=eval_to_canonical,
-            perf_to_canonical={},
-            canonical_to_contam={},
-            canonical_benchmarks=[],
-            canonical_to_eval_splits={},
-        ))
+        # Use reverse mapping from canonical_to_contam (most authoritative)
+        # This ensures suites like "squad_mc" map ONLY to "squad:mc::gen2mc", not to "squad::xlarge"
+        canonicals = suite_to_canonicals_map.get(suite, [])
+        
+        # Only fallback to eval_to_canonical if suite is NOT in canonical_to_contam at all
+        # This prevents suites like "squad" from mapping to both canonicals when they should only map to one
+        if not canonicals:
+            # Check if this suite appears in ANY canonical's suite list
+            suite_in_any_canonical = any(suite in suites_list for suites_list in canonical_to_contam.values())
+            if not suite_in_any_canonical:
+                # Suite not in canonical_to_contam, use eval_to_canonical fallback
+                canonicals = suite_to_canonicals(suite, NameMaps(
+                    eval_to_canonical=eval_to_canonical,
+                    perf_to_canonical={},
+                    canonical_to_contam={},
+                    canonical_benchmarks=[],
+                    canonical_to_eval_splits={},
+                ))
+        
         for c in canonicals:
             if c in included_canonicals:
                 canonical_values[c] += float(value)
@@ -571,36 +625,44 @@ def compute_denominators_for_percent_unique(
             except Exception:
                 suite_questions_by_split[split][suite] = 0.0
 
+    # Compute denominators for all canonicals in included_canonicals
     for canonical in included_canonicals:
         split = maps.canonical_to_eval_splits.get(canonical)
-        if split not in ("test", "validation", "train"):
-            continue  # skip 'all' or 'train_heavy' for percent computation
         suites = maps.canonical_to_contam.get(canonical, [])
         denom = 0.0
-        for suite in suites:
-            denom += float(suite_questions_by_split.get(split, {}).get(suite, 0.0))
-        # Fallback: prefix/normalized-name matching if denom is still zero (handles social_i_qa etc.)
-        if denom == 0.0:
-            rows = suite_questions_by_split.get(split, {})
-            base = canonical_base(canonical)
-            base_norm = base.replace("_", "").lower()
-            for name, val in rows.items():
-                name_norm = name.replace("_", "").lower()
-                if base_norm and base_norm in name_norm:
-                    denom += float(val or 0.0)
-            # Special families
-            if "minerva" in canonical and denom == 0.0:
+        
+        if split in ("test", "validation", "train"):
+            # For specific splits: sum questions from that split's eval_stats
+            for suite in suites:
+                denom += float(suite_questions_by_split.get(split, {}).get(suite, 0.0))
+            # Fallback: prefix/normalized-name matching if denom is still zero (handles social_i_qa etc.)
+            if denom == 0.0:
+                rows = suite_questions_by_split.get(split, {})
+                base = canonical_base(canonical)
+                base_norm = base.replace("_", "").lower()
                 for name, val in rows.items():
-                    if name.startswith("hendrycks_math_"):
+                    name_norm = name.replace("_", "").lower()
+                    if base_norm and base_norm in name_norm:
                         denom += float(val or 0.0)
-            if "humaneval" in canonical and denom == 0.0:
-                for name, val in rows.items():
-                    if "humaneval" in name:
-                        denom += float(val or 0.0)
-            if "multipl-e-humaneval" in canonical and denom == 0.0:
-                for name, val in rows.items():
-                    if name.startswith("multipl_e_humaneval_"):
-                        denom += float(val or 0.0)
+                # Special families
+                if "minerva" in canonical and denom == 0.0:
+                    for name, val in rows.items():
+                        if name.startswith("hendrycks_math_"):
+                            denom += float(val or 0.0)
+                if "humaneval" in canonical and denom == 0.0:
+                    for name, val in rows.items():
+                        if "humaneval" in name:
+                            denom += float(val or 0.0)
+                if "multipl-e-humaneval" in canonical and denom == 0.0:
+                    for name, val in rows.items():
+                        if name.startswith("multipl_e_humaneval_"):
+                            denom += float(val or 0.0)
+        elif split == "all":
+            # For "all" splits: sum questions across test, validation, train from eval_stats
+            for suite in suites:
+                suite_denom = sum(float(suite_questions_by_split.get(sp, {}).get(suite, 0.0)) for sp in ("test", "validation", "train"))
+                denom += suite_denom
+        
         if denom > 0:
             denominators[canonical] = denom
     return denominators, suite_questions_by_split
@@ -719,6 +781,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         all_split_data = aggregate_for_split(
             split_stats.get("all", SplitStats(0, 0, {}, {})),
             maps.eval_to_canonical,
+            maps.canonical_to_contam,
             included_canonicals,
             args.value,
         )
@@ -732,6 +795,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             agg = aggregate_for_split(
                 split_stats.get(split, SplitStats(0, 0, {}, {})),
                 maps.eval_to_canonical,
+                maps.canonical_to_contam,
                 {canonical},
                 args.value,
             )
@@ -838,26 +902,28 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         num = unique_eval_numerators.get(c, 0.0)
         
         # Compute denominator: total questions from eval_stats
-        if split in ("test", "validation", "train"):
-            # For specific splits: sum questions from that split's eval_stats
-            denom = sum(float(suite_questions_by_split.get(split, {}).get(s, 0.0)) for s in suites)
-            # family-based fallback when denom is zero
-            if denom == 0.0:
-                rows = suite_questions_by_split.get(split, {})
-                if "minerva" in c:
-                    denom = sum(float(rows.get(name, 0.0)) for name in rows.keys() if name.startswith("hendrycks_math_"))
-                if "codex_humaneval" in c and denom == 0.0:
-                    denom = sum(float(rows.get(name, 0.0)) for name in rows.keys() if "humaneval" in name)
-                if "multipl-e-humaneval" in c and denom == 0.0:
-                    denom = sum(float(rows.get(name, 0.0)) for name in rows.keys() if name.startswith("multipl_e_humaneval_"))
-        elif split == "all":
-            # For "all" splits: sum questions across test, validation, train from eval_stats
-            denom = 0.0
-            for s in suites:
-                s_denom = sum(float(suite_questions_by_split.get(sp, {}).get(s, 0.0)) for sp in ("test", "validation", "train"))
-                denom += s_denom
+        denom = 0.0
+        if c in percent_unique_denoms:
+            denom = percent_unique_denoms[c]
         else:
-            denom = 0.0
+                if split in ("test", "validation", "train"):
+                    # For specific splits: sum questions from that split's eval_stats
+                    denom = sum(float(suite_questions_by_split.get(split, {}).get(s, 0.0)) for s in suites)
+                    # family-based fallback when denom is zero
+                    if denom == 0.0:
+                        rows = suite_questions_by_split.get(split, {})
+                        if "minerva" in c:
+                            denom = sum(float(rows.get(name, 0.0)) for name in rows.keys() if name.startswith("hendrycks_math_"))
+                        if "codex_humaneval" in c and denom == 0.0:
+                            denom = sum(float(rows.get(name, 0.0)) for name in rows.keys() if "humaneval" in name)
+                        if "multipl-e-humaneval" in c and denom == 0.0:
+                            denom = sum(float(rows.get(name, 0.0)) for name in rows.keys() if name.startswith("multipl_e_humaneval_"))
+                elif split == "all":
+                    # For "all" splits: sum questions across test, validation, train from eval_stats
+                    denom = 0.0
+                    for s in suites:
+                        s_denom = sum(float(suite_questions_by_split.get(sp, {}).get(s, 0.0)) for sp in ("test", "validation", "train"))
+                        denom += s_denom
         
         # Calculate percentage: unique / total * 100
         if denom > 0:
@@ -1005,7 +1071,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # val_test_count is the index where "all" group starts (0-indexed)
 
     # Build display labels (filtered)
-    source_display = build_source_display_names(args.per_source_stats_dir, args.midtrain_csv)
+    source_display = build_source_display_names(args.per_source_stats_dir, args.midtrain_csv, args.name_maps_dir)
     y_labels = [source_display.get(s, s) for s in plot_sources]
     x_labels = [format_canonical_display(c, maps) for c in plot_canonicals]
 
@@ -1272,12 +1338,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     fig.canvas.draw()
     ax_bottom.set_yticks([0, 1])
     ax_bottom.set_yticklabels(["% contam", "Perf Δ"], fontsize=14)
-    ax_bottom.set_xlabel("Benchmark (metric) [split]", fontsize=18, fontweight='bold')
+    # Remove default xlabel, we'll position it manually
+    ax_bottom.set_xlabel("")
     # Keep y labels on the left; ensure they do not overflow by slightly reducing font size
     ax_bottom.tick_params(axis="y", labelleft=True, labelright=False, labelsize=13, pad=2)
     ax_bottom.set_xticks(range(n_cols))
     ax_bottom.set_xticklabels(x_labels, rotation=45, ha="right", fontsize=14)
     ax_bottom.tick_params(axis="x", labelbottom=True, bottom=True, top=False)
+    
+    # Manually position the x-axis label: right and up
+    pos_bottom = ax_bottom.get_position()
+    # Position label: right side of the plot, slightly above the bottom
+    label_x = pos_bottom.x1 - 0.125  # Move right (subtract from right edge)
+    label_y = pos_bottom.y0 - 0.175  # Move up (add to bottom)
+    fig.text(label_x, label_y, "Benchmark (Metric)", 
+            ha="right", va="bottom", fontsize=18, fontweight='bold', 
+            transform=fig.transFigure)
     for spine in ("top",):
         ax_bottom.spines[spine].set_linewidth(2.0)
 
@@ -1290,6 +1366,36 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         ax_main.axvline(x=split_x, color='black', linewidth=3, linestyle='-', zorder=10)
         # Draw on bottom marginal rows (full height of bottom section)
         ax_bottom.axvline(x=split_x, color='black', linewidth=3, linestyle='-', zorder=10)
+        
+        # Add label above bottom margin rows: "Evaluated splits: Val/Test       All"
+        # Position it between main heatmap and bottom margin rows
+        # Calculate positions: "Val/Test" should align with left side, "All" with right side
+        pos_main = ax_main.get_position()
+        pos_bottom = ax_bottom.get_position()
+        # Label goes above bottom margin, centered vertically between main and bottom
+        label_y = (pos_main.y0 + pos_bottom.y1) / 2
+        
+        # Calculate x positions for alignment
+        # Left side: align with start of val/test group (x=0 in data coordinates)
+        # Right side: align with start of all group (x=val_test_count in data coordinates)
+        # Convert data coordinates to figure coordinates
+        x_left_data = -0.5  # Start of first column
+        x_right_data = val_test_count - 0.5  # Start of all group
+        
+        # Get transform to convert from data to figure coordinates
+        trans_main = ax_main.transData + fig.transFigure.inverted()
+        x_left_fig, _ = trans_main.transform((x_left_data, 0))
+        x_right_fig, _ = trans_main.transform((x_right_data, 0))
+        
+        # Add label with manual spacing to align text
+        # "Evaluated splits: Val/Test" on left, "All" on right
+        # Use figure coordinates for positioning
+        fig.text(x_left_fig, label_y, "Evaluated splits:        Val/Test", 
+                ha="left", va="center", fontsize=14, fontweight='bold', 
+                transform=fig.transFigure)
+        fig.text(x_right_fig, label_y, "                      All", 
+                ha="left", va="center", fontsize=14, fontweight='bold', 
+                transform=fig.transFigure)
     
     # Remove colorbar - use right spine label instead
     # cbar = plt.colorbar(im_main, ax=[ax_main, ax_left], fraction=0.046, pad=0.04)
@@ -1298,7 +1404,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # Add label to right spine
     ax_main.spines['right'].set_visible(True)
     ax_main.yaxis.set_label_position("right")
-    ax_main.set_ylabel("Occurrences of contamination", fontsize=18, fontweight='bold', rotation=-90, va="bottom")
+    ax_main.set_ylabel("Occurrences Of Contamination", fontsize=18, fontweight='bold', rotation=-90, va="bottom")
 
     # Optionally annotate cells for small matrices
     def _format_val(v: float) -> str:

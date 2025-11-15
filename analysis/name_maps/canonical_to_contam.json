@@ -7,7 +7,7 @@
   "jeopardy:mc::gen2mc": ["jeopardy_mc"],
   "naturalqs::xlarge": ["nq_open"],
   "naturalqs:mc::gen2mc": ["nq_open_mc"],
-  "squad::xlarge": ["squad"],
+  "squad::xlarge": ["squad", "squad_v2"],
   "squad:mc::gen2mc": ["squad_mc"],
   "csqa:mc::xlarge": ["commonsense_qa"],
   "piqa:mc::xlarge": ["piqa"],
