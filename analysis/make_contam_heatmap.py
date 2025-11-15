@@ -288,17 +288,77 @@ def shorten_canonical_label(canonical: str) -> str:
     """
     Produce a compact x-axis label:
     - base benchmark name (left of first colon)
+    - remove underscores and apply proper capitalization
     - add ' (MC)' if ':mc' present anywhere
     - add ' (p@16)' if 'pass_at_16' present
     """
     base = canonical.split(":", 1)[0]
+    # Remove underscores and apply title case
+    # Handle special cases: keep acronyms uppercase, handle multi-word names
+    words = base.replace("_", " ").split()
+    # Apply title case but handle special acronyms
+    formatted_words = []
+    for word in words:
+        # Keep common acronyms uppercase
+        if word.upper() in ["MC", "OCR", "FIM", "LLM", "AI"]:
+            formatted_words.append(word.upper())
+        # Handle special cases like "humaneval" -> "HumanEval", "mmlu" -> "MMLU"
+        elif word.lower() == "humaneval":
+            formatted_words.append("HumanEval")
+        elif word.lower() == "mmlu":
+            formatted_words.append("MMLU")
+        elif word.lower() == "gsm8k":
+            formatted_words.append("GSM8K")
+        elif word.lower() == "sciq":
+            formatted_words.append("SciQ")
+        elif word.lower() == "csqa":
+            formatted_words.append("CSQA")
+        elif word.lower() == "arc":
+            formatted_words.append("ARC")
+        elif word.lower() == "piqa":
+            formatted_words.append("PIQA")
+        elif word.lower() == "squad":
+            formatted_words.append("SQuAD")
+        elif word.lower() == "coqa":
+            formatted_words.append("CoQA")
+        elif word.lower() == "drop":
+            formatted_words.append("DROP")
+        elif word.lower() == "lambada":
+            formatted_words.append("LAMBADA")
+        elif word.lower() == "winogrande":
+            formatted_words.append("Winogrande")
+        elif word.lower() == "socialiqa":
+            formatted_words.append("SocialIQA")
+        elif word.lower() == "hellaswag":
+            formatted_words.append("HellaSwag")
+        elif word.lower() == "medmcqa":
+            formatted_words.append("MedMCQA")
+        elif word.lower() == "medqa":
+            formatted_words.append("MedQA")
+        elif word.lower() == "deepseek":
+            formatted_words.append("DeepSeek")
+        elif word.lower() == "leetcode":
+            formatted_words.append("LeetCode")
+        elif word.lower() == "multipl":
+            formatted_words.append("MultiPL")
+        elif word.lower() == "codex":
+            formatted_words.append("Codex")
+        elif word.lower() == "minerva":
+            formatted_words.append("Minerva")
+        elif word.lower() == "jeopardy":
+            formatted_words.append("Jeopardy")
+        else:
+            # Default: title case
+            formatted_words.append(word.capitalize())
+    base_formatted = " ".join(formatted_words)
+    
     parts: List[str] = []
     if ":mc" in canonical:
         parts.append("MC")
     if "pass_at_16" in canonical:
         parts.append("p@16")
     suffix = f" ({', '.join(parts)})" if parts else ""
-    return f"{base}{suffix}"
+    return f"{base_formatted}{suffix}"
 
 
 def format_canonical_display(canonical: str, maps: NameMaps) -> str:
@@ -718,8 +778,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return (group, -total, c)  # Negative total for descending order
     
     sorted_canonicals = sorted(included_canonicals, key=canonical_sort_key)
-    if args.topk_rows is not None:
-        sorted_sources = sorted_sources[: args.topk_rows]
+    # Limit to top 10 rows
+    sorted_sources = sorted_sources[:10]
     if args.topk_cols is not None:
         sorted_canonicals = sorted_canonicals[: args.topk_cols]
 
@@ -1028,7 +1088,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ax_main.set_ylim(n_rows - 0.5, -0.5)  # Match imshow extent (top > bottom)
     # Ticks and labels
     ax_main.set_xticks(range(n_cols))
-    ax_main.set_xticklabels([], rotation=45, ha="right", fontsize=9)
+    ax_main.set_xticklabels([], rotation=45, ha="right", fontsize=14)
     ax_main.set_yticks(range(n_rows))
     # Show row labels only on the left totals panel to reduce clutter
     ax_main.set_yticklabels([])
@@ -1040,10 +1100,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # No plot title - title is on colorbar instead
 
     ax_left.set_xticks([])
-    ax_left.set_xlabel("Total", fontsize=9)
+    ax_left.set_xlabel("Total\ncontam", fontsize=14)
     ax_left.set_yticks(range(n_rows))
-    ax_left.set_yticklabels(y_labels, fontsize=9)
-    ax_left.set_ylabel("Midtraining Data Sources", fontsize=10)
+    ax_left.set_yticklabels(y_labels, fontsize=14, rotation=45, ha="right")
+    ax_left.set_ylabel("Midtraining Data Sources", fontsize=18, fontweight='bold')
     # CRITICAL: Set y-limits to match main heatmap exactly for same cell size
     ax_left.set_ylim(n_rows - 0.5, -0.5)  # Match main heatmap y-limits exactly
     ax_left.set_xlim(-0.5, 0.5)  # Match left extent
@@ -1205,18 +1265,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     pos_b_final = ax_bottom.get_position()
     # Fine-tune x alignment if needed (should already be aligned, but check)
     # <-- FINE-TUNE X ALIGNMENT HERE if bottom rows are slightly off:
-    x_fine_tune = -0.02  # <-- ADJUST THIS: positive moves right, negative moves left (in figure coords)
+    x_fine_tune = 0.0 # <-- ADJUST THIS: positive moves right, negative moves left (in figure coords)
     y_fine_tune = 0.03  # <-- ADJUST THIS: positive moves up, negative moves down (in figure coords)
     ax_bottom.set_position([pos_m_final.x0 + x_fine_tune, pos_b_final.y0 + y_fine_tune, pos_m_final.width, pos_b_final.height])
     # Redraw after position change
     fig.canvas.draw()
     ax_bottom.set_yticks([0, 1])
-    ax_bottom.set_yticklabels(["% contam", "Perf Δ"], fontsize=9)
-    ax_bottom.set_xlabel("Benchmark (metric) [split]", fontsize=10)
+    ax_bottom.set_yticklabels(["% contam", "Perf Δ"], fontsize=14)
+    ax_bottom.set_xlabel("Benchmark (metric) [split]", fontsize=18, fontweight='bold')
     # Keep y labels on the left; ensure they do not overflow by slightly reducing font size
-    ax_bottom.tick_params(axis="y", labelleft=True, labelright=False, labelsize=8, pad=2)
+    ax_bottom.tick_params(axis="y", labelleft=True, labelright=False, labelsize=13, pad=2)
     ax_bottom.set_xticks(range(n_cols))
-    ax_bottom.set_xticklabels(x_labels, rotation=45, ha="right", fontsize=9)
+    ax_bottom.set_xticklabels(x_labels, rotation=45, ha="right", fontsize=14)
     ax_bottom.tick_params(axis="x", labelbottom=True, bottom=True, top=False)
     for spine in ("top",):
         ax_bottom.spines[spine].set_linewidth(2.0)
@@ -1231,15 +1291,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         # Draw on bottom marginal rows (full height of bottom section)
         ax_bottom.axvline(x=split_x, color='black', linewidth=3, linestyle='-', zorder=10)
     
-    # Colorbar referencing main image
-    cbar = plt.colorbar(im_main, ax=[ax_main, ax_left], fraction=0.046, pad=0.04)
-    cbar.set_label("Occurrences of benchmark contamination")
+    # Remove colorbar - use right spine label instead
+    # cbar = plt.colorbar(im_main, ax=[ax_main, ax_left], fraction=0.046, pad=0.04)
+    # cbar.set_label("Occurrences of benchmark contamination", fontsize=15)
+    
+    # Add label to right spine
+    ax_main.spines['right'].set_visible(True)
+    ax_main.yaxis.set_label_position("right")
+    ax_main.set_ylabel("Occurrences of contamination", fontsize=18, fontweight='bold', rotation=-90, va="bottom")
 
     # Optionally annotate cells for small matrices
     def _format_val(v: float) -> str:
-        if v >= 1e4:
-            s = f"{v:.1e}"
-            # Normalize exponent style: 1.2e+06 -> 1.2e6
+        if v >= 1e3:  # Switch to scientific notation at 1000 (3 digits)
+            s = f"{v:.0e}"  # 1 significant digit, no decimal
+            # Normalize exponent style: 1e+06 -> 1e6, 2e+03 -> 2e3
             s = s.replace("e+0", "e").replace("e+", "e").replace("e-0", "e-")
             return s
         return f"{int(round(v))}"
@@ -1272,7 +1337,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                         ha="center",
                         va="center",
                         color=_contrast_color(val, norm if use_log else (lambda x: (x - vmin) / (max(vmax - vmin, 1e-12))), cmap),
-                        fontsize=7,
+                        fontsize=12,
                         clip_on=True,
                     )
         # Left totals annotations
@@ -1286,10 +1351,35 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     ha="center",
                     va="center",
                     color=_contrast_color(val, norm if use_log else (lambda x: (x - vmin) / (max(vmax - vmin, 1e-12))), cmap),
-                    fontsize=7,
+                    fontsize=12,
                     clip_on=True,
                 )
         # Bottom row annotations: only % contam and Perf Δ
+        # Format helpers to fit 3 characters max
+        def format_percent(v: float) -> str:
+            """Format percentage to fit 3 chars: '12%' or '-1%'"""
+            rounded = round(v)
+            if rounded < 0:
+                # Negative: max 1 digit before %, e.g., "-1%"
+                return f"{rounded}%"
+            else:
+                # Positive: max 2 digits before %, e.g., "12%"
+                return f"{rounded}%"
+        
+        def format_perf_delta(v: float) -> str:
+            """Format performance delta to always use 1 decimal place for all values"""
+            # Always format with one decimal place: 14 -> 14.0, -1 -> -1.0, 0 -> 0.0
+            # For values >= 10, round down slightly to fit better (e.g., 14.0 -> 13.9)
+            abs_v = abs(v)
+            
+            if abs_v >= 10:
+                # Round down by 0.1 to fit: 14.0 -> 13.9, 15.0 -> 14.9, etc.
+                rounded_val = round(v, 1) - 0.1 if v > 0 else round(v, 1) + 0.1
+                return f"{rounded_val:.1f}"
+            else:
+                # Always show one decimal place
+                return f"{v:.1f}"
+        
         # Row 0: % contam - use dark pink for values > 10%
         dark_pink = '#8B008B'  # Dark magenta/pink color
         for j in range(n_cols):
@@ -1300,11 +1390,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 ax_bottom.text(
                     j,
                     0,
-                    f"{val:.1f}%",
+                    format_percent(val),
                     ha="center",
                     va="center",
                     color=text_color,
-                    fontsize=7,
+                    fontsize=12,
                     clip_on=True,
                 )
         # Row 1: Perf Δ - use dark pink for values > 1.0
@@ -1317,11 +1407,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 ax_bottom.text(
                     j,
                     1,
-                    f"{perf_delta:.2f}",
+                    format_perf_delta(perf_delta),
                     ha="center",
                     va="center",
                     color=text_color,
-                    fontsize=7,
+                    fontsize=12,
                     clip_on=True,
                 )
 
@@ -1329,12 +1419,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     fig.canvas.draw()
     
     # Save with bbox_inches='tight' to ensure all labels are visible
+    # Increased padding to accommodate larger bold labels
     plot_png = output_dir / "heatmap.png"
-    fig.savefig(plot_png, dpi=200, bbox_inches='tight', pad_inches=0.1)
+    fig.savefig(plot_png, dpi=200, bbox_inches='tight', pad_inches=0.2)
     logging.info("Wrote %s", plot_png)
+    
+    # Save PDF version
+    plot_pdf = output_dir / "heatmap.pdf"
+    fig.savefig(plot_pdf, bbox_inches='tight', pad_inches=0.2)
+    logging.info("Wrote %s", plot_pdf)
+    
     if args.save_svg:
         plot_svg = output_dir / "heatmap.svg"
-        fig.savefig(plot_svg, bbox_inches='tight', pad_inches=0.1)
+        fig.savefig(plot_svg, bbox_inches='tight', pad_inches=0.2)
         logging.info("Wrote %s", plot_svg)
     plt.close(fig)
 
