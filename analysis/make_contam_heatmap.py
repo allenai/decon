@@ -1079,6 +1079,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     cell_in = 0.45
     width_in = max(8.0, len(plot_canonicals) * cell_in + 4.0)
     height_in = max(6.0, len(plot_sources) * cell_in + 3.5)
+    # Add extra space for vertical x-axis labels and y-axis labels
+    width_in += 1.0  # Extra width for vertical x-axis labels
+    height_in += 1.5  # Extra height for y-axis labels
     fig = plt.figure(figsize=(width_in, height_in))
     # Determine whether to use log scale automatically if dynamic range is extreme
     use_log = bool(args.log_scale)
@@ -1104,7 +1107,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     masked_bottom = np.ma.masked_where(bottom_cond, bottom_arr)
     # Use white-to-hot-pink colormap (white at zero, hot pink at high values)
     from matplotlib.colors import LinearSegmentedColormap
-    colors = ['white', '#FF1493']  # white to hot pink/deep pink
+    colors = ['white', '#FF69B4']  # white to hot pink (lighter than deep pink)
     n_bins = 256
     cmap = LinearSegmentedColormap.from_list('white_to_pink', colors, N=n_bins)
     cmap.set_bad(color="white", alpha=0.0)
@@ -1139,13 +1142,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if use_log and LogNorm is not None:
         norm = LogNorm(vmin=vmin, vmax=max(vmax, vmin * 10))
         im_main = ax_main.imshow(masked_main, aspect="equal", cmap=cmap, norm=norm, extent=main_extent)
-        # Use aspect="equal" for left margin to maintain square cells
+        # Use aspect="equal" for left margin to maintain square cells matching main heatmap
         im_left = ax_left.imshow(masked_left, aspect="equal", cmap=cmap, norm=norm, extent=left_extent)
         im_total = None
     else:
         norm = None
         im_main = ax_main.imshow(masked_main, aspect="equal", cmap=cmap, extent=main_extent)
-        # Use aspect="equal" for left margin to maintain square cells
+        # Use aspect="equal" for left margin to maintain square cells matching main heatmap
         im_left = ax_left.imshow(masked_left, aspect="equal", cmap=cmap, extent=left_extent)
         im_total = None
 
@@ -1166,10 +1169,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # No plot title - title is on colorbar instead
 
     ax_left.set_xticks([])
-    ax_left.set_xlabel("Total\ncontam", fontsize=14)
+    ax_left.set_xlabel("Total\ncontam", fontsize=14, labelpad=5)
     ax_left.set_yticks(range(n_rows))
-    ax_left.set_yticklabels(y_labels, fontsize=14, rotation=45, ha="right")
-    ax_left.set_ylabel("Midtraining Data Sources", fontsize=18, fontweight='bold')
+    ax_left.set_yticklabels(y_labels, fontsize=14, rotation=0, ha="right", va="center")
+    ax_left.set_ylabel("Midtraining Data Sources", fontsize=18, fontweight='bold', labelpad=10)
     # CRITICAL: Set y-limits to match main heatmap exactly for same cell size
     ax_left.set_ylim(n_rows - 0.5, -0.5)  # Match main heatmap y-limits exactly
     ax_left.set_xlim(-0.5, 0.5)  # Match left extent
@@ -1193,7 +1196,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # Bottom margin spacing: increase to move bottom rows further up (more gap)
     fig_width_inches = fig.get_figwidth()
     fig_height_inches = fig.get_figheight()
-    left_spacing_cm = 1.0  # <-- ADJUST THIS: spacing between left margin and main (in cm)
+    left_spacing_cm = 0.5  # <-- ADJUST THIS: spacing between left margin and main (in cm)
     bottom_spacing_cm = 1.0  # <-- ADJUST THIS: spacing between main and bottom (in cm)
     
     left_spacing = (left_spacing_cm * 0.3937) / fig_width_inches  # Convert cm to figure coords
@@ -1226,7 +1229,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # Position bottom margin: use EXACT same width and x-position as main heatmap
     bot_rows = 2  # Only % contam and Perf Δ
     main_cell_height = pos_main.height / n_rows
-    bottom_height = main_cell_height * bot_rows  # Height for 2 rows
+    # Increase height to accommodate vertical x-axis labels
+    # Calculate extra space needed: estimate label height + padding
+    fig_height_inches = fig.get_figheight()
+    extra_height_fraction = 0.25 / fig_height_inches  # ~0.25 inches for vertical labels
+    bottom_height = main_cell_height * bot_rows + extra_height_fraction
     bottom_y0 = pos_bottom_initial.y0 + bottom_spacing
     ax_bottom.set_position([pos_main.x0, bottom_y0, pos_main.width, bottom_height])
     # Ensure limits match exactly
@@ -1337,20 +1344,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # Redraw after position change
     fig.canvas.draw()
     ax_bottom.set_yticks([0, 1])
-    ax_bottom.set_yticklabels(["% contam", "Perf Δ"], fontsize=14)
+    ax_bottom.set_yticklabels(["% contam", "Perf Δ"], fontsize=14, rotation=0, va="center")
     # Remove default xlabel, we'll position it manually
     ax_bottom.set_xlabel("")
     # Keep y labels on the left; ensure they do not overflow by slightly reducing font size
-    ax_bottom.tick_params(axis="y", labelleft=True, labelright=False, labelsize=13, pad=2)
+    ax_bottom.tick_params(axis="y", labelleft=True, labelright=False, labelsize=13, pad=5, left=True)
     ax_bottom.set_xticks(range(n_cols))
-    ax_bottom.set_xticklabels(x_labels, rotation=45, ha="right", fontsize=14)
+    ax_bottom.set_xticklabels(x_labels, rotation=90, ha="center", va="top", fontsize=12)
     ax_bottom.tick_params(axis="x", labelbottom=True, bottom=True, top=False)
     
     # Manually position the x-axis label: right and up
     pos_bottom = ax_bottom.get_position()
     # Position label: right side of the plot, slightly above the bottom
-    label_x = pos_bottom.x1 - 0.125  # Move right (subtract from right edge)
-    label_y = pos_bottom.y0 - 0.175  # Move up (add to bottom)
+    label_x = pos_bottom.x1 - 0.35  # Move right (subtract from right edge)
+    label_y = pos_bottom.y0 - 0.2  # Move up (add to bottom)
     fig.text(label_x, label_y, "Benchmark (Metric)", 
             ha="right", va="bottom", fontsize=18, fontweight='bold', 
             transform=fig.transFigure)
@@ -1449,16 +1456,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         # Left totals annotations
         for i in range(n_rows):
             val = row_totals_plot[i]
-            if np.isfinite(val) and val > 0:
+            if np.isfinite(val):
+                # Show zero values as "0", positive values as formatted
+                if val == 0:
+                    text_val = "0"
+                else:
+                    text_val = _format_val(val)
                 ax_left.text(
                     0,
                     i,
-                    _format_val(val),
+                    text_val,
                     ha="center",
                     va="center",
                     color=_contrast_color(val, norm if use_log else (lambda x: (x - vmin) / (max(vmax - vmin, 1e-12))), cmap),
                     fontsize=12,
-                    clip_on=True,
+                    clip_on=False,  # Don't clip to allow text to be visible
                 )
         # Bottom row annotations: only % contam and Perf Δ
         # Format helpers to fit 3 characters max
@@ -1486,8 +1498,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 # Always show one decimal place
                 return f"{v:.1f}"
         
-        # Row 0: % contam - use dark pink for values > 10%
-        dark_pink = '#8B008B'  # Dark magenta/pink color
+        # Row 0: % contam - use medium pink for values > 10%
+        dark_pink = '#C71585'  # Medium violet red (lighter than dark magenta)
         for j in range(n_cols):
             val = percent_vec[j]
             if np.isfinite(val):
