@@ -1397,10 +1397,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         # Add label with manual spacing to align text
         # "Evaluated splits: Val/Test" on left, "All" on right
         # Use figure coordinates for positioning
-        fig.text(x_left_fig, label_y, "Evaluated splits:        Val/Test", 
+        fig.text(x_left_fig, label_y, "Evaluated splits:              Val/Test", 
                 ha="left", va="center", fontsize=14, fontweight='bold', 
                 transform=fig.transFigure)
-        fig.text(x_right_fig, label_y, "                      All", 
+        fig.text(x_right_fig, label_y, "                            All", 
                 ha="left", va="center", fontsize=14, fontweight='bold', 
                 transform=fig.transFigure)
     
