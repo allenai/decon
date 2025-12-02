@@ -32,12 +32,21 @@ from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 import itertools
 import numpy as np
 
+import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
+
+# Import AI2 theme
+theme_path = Path(__file__).resolve().parents[2] / "oe-data-internal" / "plots"
+if theme_path.exists():
+    sys.path.append(str(theme_path))
+
 try:
-    import matplotlib.pyplot as plt
-    from matplotlib.colors import LogNorm
-except Exception:  # pragma: no cover
-    plt = None
-    LogNorm = None
+    from ai2_theme.ai2_theme import apply_ai2_theme, get_shade
+except ImportError:
+    raise ImportError(
+        "Could not import ai2_theme. Ensure oe-data-internal/plots is accessible."
+    )
+
 
 def _is_base_name(name: str) -> bool:
     n = (name or "").lower()
@@ -1039,9 +1048,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     logging.info("Wrote %s", metadata_json)
 
     # Plot heatmap
-    if plt is None:
-        logging.warning("matplotlib is not available; skipping plot.")
-        return 0
+    apply_ai2_theme()
+
 
     # Build matrix in sorted order
     values_2d = np.array(
@@ -1107,7 +1115,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     masked_bottom = np.ma.masked_where(bottom_cond, bottom_arr)
     # Use white-to-hot-pink colormap (white at zero, hot pink at high values)
     from matplotlib.colors import LinearSegmentedColormap
-    colors = ['white', '#FF69B4']  # white to hot pink (lighter than deep pink)
+    
+    # get_shade returns a list of hex strings
+    pink_color = get_shade("pink", n=1)[0]
+
+    colors = ['white', pink_color]
     n_bins = 256
     cmap = LinearSegmentedColormap.from_list('white_to_pink', colors, N=n_bins)
     cmap.set_bad(color="white", alpha=0.0)
@@ -1499,7 +1511,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 return f"{v:.1f}"
         
         # Row 0: % contam - use medium pink for values > 10%
-        dark_pink = '#C71585'  # Medium violet red (lighter than dark magenta)
+        # Use a darker shade from the pink palette for text contrast
+        dark_pink = "#a8396d"
+
         for j in range(n_cols):
             val = percent_vec[j]
             if np.isfinite(val):
