@@ -1145,6 +1145,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ax_main = fig.add_subplot(gs[0, 1], sharey=ax_left)
     ax_bottom = fig.add_subplot(gs[1, 1], sharex=ax_main)
     ax_corner = fig.add_subplot(gs[1, 0]); ax_corner.axis("off")
+    
+    # Disable grid for all plots
+    ax_left.grid(False)
+    ax_main.grid(False)
+    ax_bottom.grid(False)
 
     # Draw heatmaps with explicit extent to ensure alignment
     # Define extent explicitly: [left, right, bottom, top] in data coordinates
