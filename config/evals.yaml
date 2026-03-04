@@ -538,6 +538,342 @@ evals:
     no_answer_splits:
     - test
     prompt: prompt
+  dolma_eval_code_perplexity_blade:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: blade
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_c:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: c
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_clojure:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: clojure
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_common_lisp:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: common_lisp
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_cpp:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: cpp
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_csharp:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: csharp
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_css:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: css
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_dart:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: dart
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_erlang:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: erlang
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_fortran:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: fortran
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_go:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: go
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_haskell:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: haskell
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_html:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: html
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_java:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: java
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_java_server_page:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: java_server_page
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_javascript:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: javascript
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_julia:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: julia
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_kotlin:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: kotlin
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_lua:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: lua
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_markdown:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: markdown
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_mathematica:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: mathematica
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_matlab:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: matlab
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_objective_c:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: objective_c
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_objective_cpp:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: objective_cpp
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_ocaml:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: ocaml
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_perl:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: perl
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_php:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: php
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_powershell:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: powershell
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_python:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: python
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_restructuredtext:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: restructuredtext
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_ruby:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: ruby
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_rust:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: rust
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_scala:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: scala
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_scheme:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: scheme
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_swift:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: swift
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_systemverilog:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: systemverilog
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_tcl:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: tcl
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_tex:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: tex
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_typescript:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: typescript
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_verilog:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: verilog
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_vhdl:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: vhdl
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
+  dolma_eval_code_perplexity_vue:
+    hf_path: allenai/code_fresh_0825_1225
+    hf_config: vue
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
   drop:
     hf_path: EleutherAI/drop
     splits:
