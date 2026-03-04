@@ -538,6 +538,13 @@ evals:
     no_answer_splits:
     - test
     prompt: prompt
+  dolma_eval_code_perplexity_T3_2025_1M:
+    hf_path: allenai/dolma_eval_code_perplexity_T3_2025_1M_file
+    splits:
+    - train
+    prompt: file_contents
+    no_answer_splits:
+    - train
   drop:
     hf_path: EleutherAI/drop
     splits:
