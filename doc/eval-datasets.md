@@ -14,11 +14,11 @@ In some situations, an eval may include multiple choice answers. In general, the
 
 ## Preparing Eval References
 
-Decon reads a directory provided by the `--eval-dir` option or, if not specified, reads from a default directory which has a few pre-bundled and formatted evals.
+Decon reads a directory provided by the `--evals-dir` option or, if not specified, reads from a default directory which has a few pre-bundled and formatted evals.
 
 It ingests all of the jsonl files in the directory.
 
-**You can produce these records any way that is convenient for you, just make sure they have the appropriate keys and are placed in the provided `--eval-dirs` directory.**
+**You can produce these records any way that is convenient for you, just make sure they have the appropriate keys and are placed in the provided `--evals-dir` directory.**
 
 Decon includes some tooling for downloading and transforming hugging face datasets in a declarative fashion for convenience, discussed later.
 
@@ -110,12 +110,24 @@ decon evals --download
 decon evals --download --config /path/my-evals.yaml
 
 # To download a specific key from evals yaml file
-decon evals --download --eval mmlu
+decon evals --eval mmlu
 
 # To download evals to a specific directory for a custom reference set path
 decon evals --download --output-dir /path/my-eval-set
 ```
 
-### Note
+### Reproducible exports
 
-decon does not provide any facility for overwriting or deleting eval datasets. So you must manually clear a directory if using the default or re-using a directory if you want to remove entries already present.
+Set `hf_revision` to a full Hugging Face commit SHA in an eval entry to pin its source.
+The downloader forwards it as `load_dataset(..., revision=...)` and records it in
+normalized rows. Existing entries without `hf_revision` retain their unpinned behavior.
+See [the supplemental config](../config/post-training-evals.yaml) for pinned AIME 2026,
+HMMT February 2026, single-turn IFBench, and both VGraf IFEval multi-turn
+configurations. It can be passed to `--config` like any other eval config.
+
+Exports are staged before publication. A missing dataset, requested split, or empty
+normalized split makes the command exit nonzero and leaves previous references intact.
+`--download` replaces the output directory with the complete configured set only after
+all exports succeed. `--eval NAME` replaces that eval's chunks and preserves other
+references. The output path must be a directory, not a symlink, and its parent
+must be writable so the staged directory can be published by rename.

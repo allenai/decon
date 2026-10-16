@@ -47,10 +47,8 @@ from datasets import load_dataset, Dataset
 from pathlib import Path
 import os
 import shutil
-
-
-# Global config that will be loaded in main()
-EVAL_CONFIG = None
+import sys
+import tempfile
 
 
 class ChunkedFileWriter:
@@ -708,6 +706,11 @@ def extract_answer(example, config, answer_info=None):
 def process_eval_dataset(eval_name, eval_config, output_dir, document_id_counter):
     """Process a single evaluation dataset. Returns True if successful, False if failed."""
 
+    splits = eval_config.get('splits', [])
+    if not splits:
+        print(f"ERROR: No splits requested for {eval_name}")
+        return False
+
     if 'local_path' in eval_config:
         local_path = eval_config['local_path']
 
@@ -727,12 +730,30 @@ def process_eval_dataset(eval_name, eval_config, output_dir, document_id_counter
             # Extract the prefix pattern (e.g., 'agi_eval_' from 'bundled_evals/agi_eval_')
             prefix = local_path.split('/')[-1]
 
-            # Find all matching files
-            pattern = f"{prefix}*.jsonl.gz"
-            matching_files = list(bundled_dir.glob(pattern))
+            # Require each requested split, just as for Hugging Face sources.
+            matching_files = []
+            for split in splits:
+                split_files = list(bundled_dir.glob(f"{prefix}{split}-*.jsonl.gz"))
+                if not split_files:
+                    print(f"ERROR: Bundled split '{split}' not found for {eval_name}")
+                    return False
+                matching_files.extend(split_files)
 
-            if not matching_files:
-                print(f"Warning: No bundled files found matching pattern: {pattern}")
+            split_counts = dict.fromkeys(splits, 0)
+            for src_file in matching_files:
+                with gzip.open(src_file, 'rt', encoding='utf-8') as stream:
+                    for line in stream:
+                        if not line.strip():
+                            continue
+                        record = json.loads(line)
+                        split = record.get('split')
+                        question = record.get('question')
+                        if split not in split_counts or not isinstance(question, str) or not question.strip():
+                            print(f"ERROR: Invalid normalized bundled reference in {src_file.name}")
+                            return False
+                        split_counts[split] += 1
+            if any(count == 0 for count in split_counts.values()):
+                print(f"ERROR: Empty bundled split for {eval_name}")
                 return False
 
             # Ensure output directory exists
@@ -755,6 +776,7 @@ def process_eval_dataset(eval_name, eval_config, output_dir, document_id_counter
                 files_copied += 1
                 print(f"  Copied {src_file.name} -> {dest_filename}")
 
+            document_id_counter[0] += sum(split_counts.values())
             print(f"  Total files copied: {files_copied}")
             return True
         else:
@@ -769,10 +791,13 @@ def process_eval_dataset(eval_name, eval_config, output_dir, document_id_counter
         print(f"Loading {eval_name} from {eval_config['hf_path']}...")
         # Load dataset from HuggingFace
         try:
+            load_kwargs = {}
+            if 'hf_revision' in eval_config:
+                load_kwargs['revision'] = eval_config['hf_revision']
             if 'hf_config' in eval_config:
-                dataset = load_dataset(eval_config['hf_path'], eval_config['hf_config'])
+                dataset = load_dataset(eval_config['hf_path'], eval_config['hf_config'], **load_kwargs)
             else:
-                dataset = load_dataset(eval_config['hf_path'])
+                dataset = load_dataset(eval_config['hf_path'], **load_kwargs)
         except Exception as e:
             print(f"ERROR: Failed to load {eval_name}: {e}")
             return False
@@ -798,12 +823,14 @@ def process_eval_dataset(eval_name, eval_config, output_dir, document_id_counter
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Process each split
-    for split in eval_config.get('splits', []):
+    # Every requested split must exist before writing any of this dataset.
+    for split in splits:
         if split not in dataset:
-            print(f"Warning: Split '{split}' not found in {eval_name}")
-            continue
+            print(f"ERROR: Split '{split}' not found in {eval_name}")
+            return False
 
+    # Process each split
+    for split in splits:
         print(f"Processing {eval_name} {split} split ({len(dataset[split])} examples)...")
 
         # Output file path
@@ -845,6 +872,9 @@ def process_eval_dataset(eval_name, eval_config, output_dir, document_id_counter
                         'doc_id': document_id_counter[0]
                     }
 
+                    if 'hf_revision' in eval_config:
+                        record['hf_revision'] = eval_config['hf_revision']
+
                     # Add sub_index if this came from parallel arrays
                     if 'sub_index' in answer_info:
                         record['sub_index'] = answer_info['sub_index']
@@ -867,6 +897,10 @@ def process_eval_dataset(eval_name, eval_config, output_dir, document_id_counter
         finally:
             writer.close()
 
+        if records_written == 0:
+            print(f"ERROR: No reference records produced for {eval_name} split '{split}'")
+            return False
+
         print(f"  Saved {records_written} records to {output_file}")
 
         # Print chunk information if multiple chunks
@@ -879,116 +913,89 @@ def process_eval_dataset(eval_name, eval_config, output_dir, document_id_counter
     return True
 
 
+def publish_reference_directory(staged_dir, output_dir):
+    """Publish a completed export, restoring the previous directory on rename failure."""
+    backup_dir = None
+    if output_dir.exists():
+        backup_dir = Path(tempfile.mkdtemp(prefix=f".{output_dir.name}-backup-", dir=output_dir.parent))
+        backup_dir.rmdir()
+        output_dir.rename(backup_dir)
+    try:
+        staged_dir.rename(output_dir)
+    except OSError:
+        if backup_dir is not None:
+            backup_dir.rename(output_dir)
+        raise
+    if backup_dir is not None:
+        shutil.rmtree(backup_dir)
+
+
 def main():
-    """Main function with CLI."""
+    """Export requested references; never publish a partial or failed download."""
     parser = argparse.ArgumentParser(
         description="Process eval datasets with simplified configuration"
     )
-
-    parser.add_argument(
-        "--download",
-        action="store_true",
-        help="Download and process all evaluation datasets"
-    )
-
-    parser.add_argument(
-        "--eval",
-        type=str,
-        help="Process a specific evaluation dataset by name"
-    )
-
-    parser.add_argument(
-        "--output-dir",
-        type=str,
-        help="Output directory for downloaded datasets (default: ~/.local/share/decon/references)"
-    )
-
-    parser.add_argument(
-        "--config",
-        type=str,
-        help="Configuration file for evaluation datasets (default: config/evals.yaml)"
-    )
-
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument("--download", action="store_true", help="Download and process all evaluation datasets")
+    selection.add_argument("--eval", type=str, help="Process a specific evaluation dataset by name")
+    parser.add_argument("--output-dir", type=str,
+                        help="Output directory for downloaded datasets (default: ~/.local/share/decon/references)")
+    parser.add_argument("--config", type=str,
+                        help="Configuration file for evaluation datasets (default: config/evals.yaml)")
     args = parser.parse_args()
-
-    if not any(vars(args).values()):
+    if not args.download and not args.eval:
         parser.print_help()
-        return
+        return 0
 
-    # Load configuration from specified or default path
-    global EVAL_CONFIG
-    if args.config:
-        config_path = Path(args.config).expanduser().absolute()
-    else:
-        # Default to bundled config
-        config_path = Path(__file__).parent.parent / 'config' / 'evals.yaml'
-
-    if not config_path.exists():
-        print(f"Error: Config file not found: {config_path}")
-        return
-
-    with open(config_path, 'r') as f:
-        EVAL_CONFIG = yaml.safe_load(f)
-
-    print(f"Loaded eval configuration from {config_path}")
-
-    # Initialize document ID counter
-    document_id_counter = [1]
-
-    # Determine output directory
-    if args.output_dir:
-        output_dir = Path(args.output_dir).expanduser().absolute()
-    else:
-        # Default to ~/.local/share/decon/references
-        output_dir = Path.home() / ".local" / "share" / "decon" / "references"
-
-    if args.download:
-        print(f"Processing {len(EVAL_CONFIG['evals'])} eval datasets...")
+    config_path = (Path(args.config).expanduser().absolute() if args.config else
+                   Path(__file__).parent.parent / 'config' / 'evals.yaml')
+    output_dir = (Path(args.output_dir).expanduser().absolute() if args.output_dir else
+                  Path.home() / ".local" / "share" / "decon" / "references")
+    try:
+        with open(config_path, 'r') as f:
+            eval_config = yaml.safe_load(f)
+        evals = eval_config['evals']
+        if not isinstance(evals, dict) or not evals:
+            raise ValueError("Configuration must contain a non-empty 'evals' mapping")
+        if args.eval and args.eval not in evals:
+            raise ValueError(f"Dataset '{args.eval}' not found in {config_path}")
+        selected = {args.eval: evals[args.eval]} if args.eval else evals
+        if output_dir.is_symlink() or (output_dir.exists() and not output_dir.is_dir()):
+            raise ValueError(f"Output path must be a directory, not a file or symlink: {output_dir}")
+        output_dir.parent.mkdir(parents=True, exist_ok=True)
+        print(f"Loaded eval configuration from {config_path}")
         print(f"Output directory: {output_dir}")
-
-        # Clear output directory
-        if output_dir.exists():
-            print(f"Clearing existing directory: {output_dir}")
-            shutil.rmtree(output_dir)
-
-        output_dir.mkdir(parents=True, exist_ok=True)
-        print("Created fresh output directory")
-
-        # Process all datasets
-        failed_datasets = []
-        successful_datasets = []
-
-        for eval_name, eval_config in EVAL_CONFIG['evals'].items():
-            success = process_eval_dataset(eval_name, eval_config, output_dir, document_id_counter)
-            if success:
-                successful_datasets.append(eval_name)
+        document_id_counter = [1]
+        # Stage beside the destination so publication uses same-filesystem renames.
+        with tempfile.TemporaryDirectory(prefix=f".{output_dir.name}-export-", dir=output_dir.parent) as temp:
+            staged_dir = Path(temp) / "references"
+            if args.eval and output_dir.exists():
+                shutil.copytree(output_dir, staged_dir)
+                # Re-exporting one eval must not retain old surplus chunks.
+                for path in staged_dir.iterdir():
+                    if path.is_file() and path.name.startswith(f"{args.eval}_") and (
+                            path.name.endswith('.jsonl') or path.name.endswith('.jsonl.gz')):
+                        # Names alone are ambiguous: mmlu_ also prefixes mmlu_pro_.
+                        opener = gzip.open if path.name.endswith('.gz') else open
+                        with opener(path, 'rt', encoding='utf-8') as existing:
+                            first = next((line for line in existing if line.strip()), '{}')
+                        if json.loads(first).get('eval_key') == args.eval:
+                            path.unlink()
             else:
-                failed_datasets.append(eval_name)
-
-        print(f"\nProcessing complete!")
-        print(f"  Total documents: {document_id_counter[0] - 1}")
-        print(f"  Successful datasets: {len(successful_datasets)}")
-        print(f"  Failed datasets: {len(failed_datasets)}")
-
-        if failed_datasets:
-            print(f"\nFailed to process the following datasets:")
-            for dataset in sorted(failed_datasets):
-                print(f"  - {dataset}")
-
-    elif args.eval:
-        if args.eval not in EVAL_CONFIG['evals']:
-            print(f"Error: Dataset '{args.eval}' not found.")
-            print("\nAvailable datasets:")
-            for name in sorted(EVAL_CONFIG['evals'].keys()):
-                print(f"  - {name}")
-            return
-
-        print(f"Output directory: {output_dir}")
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        eval_config = EVAL_CONFIG['evals'][args.eval]
-        process_eval_dataset(args.eval, eval_config, output_dir, document_id_counter)
+                staged_dir.mkdir()
+            failed = []
+            for name, config in selected.items():
+                if not process_eval_dataset(name, config, staged_dir, document_id_counter):
+                    failed.append(name)
+            if failed:
+                raise ValueError("Failed to export requested datasets: " + ", ".join(failed))
+            publish_reference_directory(staged_dir, output_dir)
+        print(f"Processing complete: {len(selected)} datasets, {document_id_counter[0] - 1} records")
+        return 0
+    except Exception as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -11,6 +11,7 @@
 #
 # Optional fields:
 #   - hf_config: HuggingFace dataset configuration name
+#   - hf_revision: HuggingFace revision (use a full commit SHA for reproducibility)
 #   - passage: Field containing supporting context/passage
 #   - answers: Field(s) containing the answer(s) - see below for options
 #   - no_answer_splits: Splits that don't have answers (e.g., some test splits) Optional for record keeping.

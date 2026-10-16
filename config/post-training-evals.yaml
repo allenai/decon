@@ -1,0 +1,35 @@
+# Supplemental public references missing from the default evaluation config.
+# Pin full Hugging Face commits; keep downloaded benchmark text out of Git.
+evals:
+  aime_2026:
+    hf_path: MathArena/aime_2026
+    hf_revision: d2de22f3c656b4f56cf8981212186377d1e23bc3
+    splits: [train]
+    prompt: problem
+    answers: [answer]
+  hmmt_feb_2026:
+    hf_path: MathArena/hmmt_feb_2026
+    hf_revision: 02fba4f74d8e68e73e66a02d540fd979c05c274c
+    splits: [train]
+    prompt: problem
+    answers: [answer]
+  ifbench:
+    hf_path: allenai/IFBench_test
+    hf_revision: 2e8a48de45ff3bf41242f927254ca81b59ca3ae2
+    splits: [train]
+    prompt: prompt
+    no_answer_splits: [train]
+  ifeval_mt:
+    hf_path: VGraf/ifeval_mt
+    hf_revision: c0845ba0644510f2890c46bed9f7d20322d28f8e
+    hf_config: wildchat_unused_withRewrite
+    splits: [test]
+    prompt: prompt
+    no_answer_splits: [test]
+  ifeval_mt_ood:
+    hf_path: VGraf/ifeval_mt
+    hf_revision: c0845ba0644510f2890c46bed9f7d20322d28f8e
+    hf_config: ood_wildchat_unused_withRewrite
+    splits: [test]
+    prompt: prompt
+    no_answer_splits: [test]
