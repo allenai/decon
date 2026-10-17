@@ -63,11 +63,11 @@ pub fn display_comparison_stats(data: &ComparisonData) -> Result<(), Error> {
         let filtered_count = original_count1 - map1.len();
         let mut filter_reasons = Vec::new();
 
-        if min_score.is_some() {
-            filter_reasons.push(format!("min score: {:.3}", min_score.unwrap()));
+        if let Some(min_score) = min_score {
+            filter_reasons.push(format!("min score: {:.3}", min_score));
         }
-        if eval_filter.is_some() {
-            filter_reasons.push(format!("eval dataset: {}", eval_filter.unwrap()));
+        if let Some(eval_filter) = eval_filter {
+            filter_reasons.push(format!("eval dataset: {}", eval_filter));
         }
 
         if filter_reasons.is_empty() {
@@ -87,11 +87,11 @@ pub fn display_comparison_stats(data: &ComparisonData) -> Result<(), Error> {
         let filtered_count = original_count2 - map2.len();
         let mut filter_reasons = Vec::new();
 
-        if min_score.is_some() {
-            filter_reasons.push(format!("min score: {:.3}", min_score.unwrap()));
+        if let Some(min_score) = min_score {
+            filter_reasons.push(format!("min score: {:.3}", min_score));
         }
-        if eval_filter.is_some() {
-            filter_reasons.push(format!("eval dataset: {}", eval_filter.unwrap()));
+        if let Some(eval_filter) = eval_filter {
+            filter_reasons.push(format!("eval dataset: {}", eval_filter));
         }
 
         if filter_reasons.is_empty() {
@@ -218,7 +218,7 @@ pub fn display_comparison_stats(data: &ComparisonData) -> Result<(), Error> {
         .collect();
 
     // Sort by delta in descending order (largest increases first, then smallest decreases)
-    training_deltas.sort_by(|a, b| b.3.cmp(&a.3));
+    training_deltas.sort_by_key(|a| std::cmp::Reverse(a.3));
 
     if !training_deltas.is_empty() {
         // Calculate column widths
@@ -323,7 +323,7 @@ pub fn display_comparison_stats(data: &ComparisonData) -> Result<(), Error> {
         .collect();
 
     // Sort by delta in descending order (largest increases first, then smallest decreases)
-    eval_deltas.sort_by(|a, b| b.3.cmp(&a.3));
+    eval_deltas.sort_by_key(|a| std::cmp::Reverse(a.3));
 
     if !eval_deltas.is_empty() {
         // Calculate column widths
@@ -517,7 +517,7 @@ pub fn display_only_in_first(
     }
 
     // Sort fingerprint groups by number of contamination instances (descending)
-    only_in_first.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
+    only_in_first.sort_by_key(|a| std::cmp::Reverse(a.1.len()));
 
     if only_in_first.is_empty() {
         println!("=== NO FINGERPRINTS UNIQUE TO FIRST DIRECTORY ===");
@@ -609,7 +609,7 @@ pub fn display_only_in_second(
     }
 
     // Sort fingerprint groups by number of contamination instances (descending)
-    only_in_second.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
+    only_in_second.sort_by_key(|a| std::cmp::Reverse(a.1.len()));
 
     if only_in_second.is_empty() {
         println!("=== NO FINGERPRINTS UNIQUE TO SECOND DIRECTORY ===");
