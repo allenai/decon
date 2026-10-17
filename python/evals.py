@@ -913,6 +913,30 @@ def process_eval_dataset(eval_name, eval_config, output_dir, document_id_counter
     return True
 
 
+def iter_reference_records(path):
+    """Yield a reference file's JSON records, skipping blank and '#' lines as decon does."""
+    opener = gzip.open if path.name.endswith('.gz') else open
+    with opener(path, 'rt', encoding='utf-8') as stream:
+        for line_num, line in enumerate(stream, 1):
+            if line.strip() and not line.startswith('#'):
+                try:
+                    yield json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(f"Invalid JSON in reference file {path} line {line_num}: {exc}") from exc
+
+
+def max_reference_doc_id(directory):
+    """Largest doc_id among the .jsonl/.jsonl.gz references under a directory, or 0."""
+    max_id = 0
+    for path in directory.rglob('*'):
+        if path.is_file() and (path.name.endswith('.jsonl') or path.name.endswith('.jsonl.gz')):
+            for record in iter_reference_records(path):
+                doc_id = record.get('doc_id')
+                if isinstance(doc_id, int):
+                    max_id = max(max_id, doc_id)
+    return max_id
+
+
 def publish_reference_directory(staged_dir, output_dir):
     """Publish a completed export, restoring the previous directory on rename failure."""
     backup_dir = None
@@ -976,13 +1000,14 @@ def main():
                     if path.is_file() and path.name.startswith(f"{args.eval}_") and (
                             path.name.endswith('.jsonl') or path.name.endswith('.jsonl.gz')):
                         # Names alone are ambiguous: mmlu_ also prefixes mmlu_pro_.
-                        opener = gzip.open if path.name.endswith('.gz') else open
-                        with opener(path, 'rt', encoding='utf-8') as existing:
-                            first = next((line for line in existing if line.strip()), '{}')
-                        if json.loads(first).get('eval_key') == args.eval:
+                        first = next(iter_reference_records(path), {})
+                        if first.get('eval_key') == args.eval:
                             path.unlink()
+                # Decon keys its index by doc_id, so number new rows after the preserved ones.
+                document_id_counter[0] = max_reference_doc_id(staged_dir) + 1
             else:
                 staged_dir.mkdir()
+            first_doc_id = document_id_counter[0]
             failed = []
             for name, config in selected.items():
                 if not process_eval_dataset(name, config, staged_dir, document_id_counter):
@@ -990,7 +1015,7 @@ def main():
             if failed:
                 raise ValueError("Failed to export requested datasets: " + ", ".join(failed))
             publish_reference_directory(staged_dir, output_dir)
-        print(f"Processing complete: {len(selected)} datasets, {document_id_counter[0] - 1} records")
+        print(f"Processing complete: {len(selected)} datasets, {document_id_counter[0] - first_doc_id} records")
         return 0
     except Exception as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

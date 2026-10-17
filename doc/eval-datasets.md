@@ -129,5 +129,8 @@ Exports are staged before publication. A missing dataset, requested split, or em
 normalized split makes the command exit nonzero and leaves previous references intact.
 `--download` replaces the output directory with the complete configured set only after
 all exports succeed. `--eval NAME` replaces that eval's chunks and preserves other
-references. The output path must be a directory, not a symlink, and its parent
-must be writable so the staged directory can be published by rename.
+references, numbering its `doc_id`s after the largest one already present; decon
+requires `doc_id`s to be unique across a reference directory. To add a supplemental eval
+to an existing set, run `--eval NAME --config` with that eval's config rather than
+merging separately exported directories. The output path must be a directory, not a
+symlink, and its parent must be writable so the staged directory can be published by rename.

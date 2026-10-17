@@ -84,15 +84,18 @@ class ReferenceExportTests(unittest.TestCase):
 
     def test_single_eval_preserves_other_references_and_removes_stale_chunks(self):
         self.output.mkdir()
-        (self.output / "example_test-2.jsonl").write_text(json.dumps({"eval_key": "example"}))
-        overlapping = json.dumps({"eval_key": "example_other", "question": "Other?"})
+        (self.output / "example_test-2.jsonl").write_text(json.dumps({"eval_key": "example", "doc_id": 50}))
+        overlapping = json.dumps({"eval_key": "example_other", "question": "Other?", "doc_id": 3})
         (self.output / "example_other_test-1.jsonl").write_text(overlapping)
-        (self.output / "other_test-1.jsonl").write_bytes(b"other reference\n")
+        other = b'# comment lines are skipped\n{"eval_key": "other", "question": "Other reference?", "doc_id": 7}\n'
+        (self.output / "other_test-1.jsonl").write_bytes(other)
         with mock.patch.object(evals, "load_dataset", return_value={"test": [{"question": "Example?"}]}):
             self.assertEqual(self.run_export({"example": self.dataset_config()}, "--eval", "example"), 0)
         self.assertEqual(sorted(p.name for p in self.output.iterdir()), ["example_other_test-1.jsonl", "example_test-1.jsonl", "other_test-1.jsonl"])
         self.assertEqual((self.output / "example_other_test-1.jsonl").read_text(), overlapping)
-        self.assertEqual((self.output / "other_test-1.jsonl").read_bytes(), b"other reference\n")
+        self.assertEqual((self.output / "other_test-1.jsonl").read_bytes(), other)
+        # New doc_ids follow the preserved references (max 7), not the removed stale chunk.
+        self.assertEqual(json.loads((self.output / "example_test-1.jsonl").read_text())["doc_id"], 8)
 
     def test_missing_split_fails_before_writing_and_empty_split_list_fails(self):
         with mock.patch.object(evals, "load_dataset", return_value={"test": [{"question": "Example?"}]}):
