@@ -24,12 +24,21 @@ evals:
     hf_revision: c0845ba0644510f2890c46bed9f7d20322d28f8e
     hf_config: wildchat_unused_withRewrite
     splits: [test]
-    prompt: prompt
+    # `prompt` is only the final templated rewrite constraint (250 distinct strings over
+    # 1,774 rows). The eval text is the WildChat conversation in `messages`, which ends with
+    # that turn, so concatenate it as the TurnWise entries in evals.yaml do.
+    prompt:
+      concat_messages:
+        field: messages
+        content_field: content
     no_answer_splits: [test]
   ifeval_mt_ood:
     hf_path: VGraf/ifeval_mt
     hf_revision: c0845ba0644510f2890c46bed9f7d20322d28f8e
     hf_config: ood_wildchat_unused_withRewrite
     splits: [test]
-    prompt: prompt
+    prompt:
+      concat_messages:
+        field: messages
+        content_field: content
     no_answer_splits: [test]

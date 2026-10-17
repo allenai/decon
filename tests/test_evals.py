@@ -153,9 +153,25 @@ class ReferenceExportTests(unittest.TestCase):
         for entry in config.values():
             self.assertRegex(entry["hf_revision"], r"^[0-9a-f]{40}$")
             self.assertIn(entry["splits"], (["train"], ["test"]))
-            self.assertIn(entry["prompt"], ("problem", "prompt"))
         self.assertEqual(config["ifeval_mt"]["hf_config"], "wildchat_unused_withRewrite")
         self.assertEqual(config["ifeval_mt_ood"]["hf_config"], "ood_wildchat_unused_withRewrite")
+
+    def test_multi_turn_ifeval_reference_uses_the_whole_conversation(self):
+        # VGraf/ifeval_mt rows: `prompt` repeats only the final templated turn of `messages`.
+        # Synthetic text: keep benchmark content out of this public repository.
+        constraint = "Rewrite your response. Use exactly three bullet points."
+        row = {"prompt": constraint, "messages": [
+            {"role": "user", "content": "Describe a fictional lighthouse on an invented island."},
+            {"role": "assistant", "content": "The lighthouse stands on a granite spur."},
+            {"role": "user", "content": constraint}]}
+        config = yaml.safe_load((ROOT / "config" / "post-training-evals.yaml").read_text())["evals"]
+        for name in ("ifeval_mt", "ifeval_mt_ood"):
+            with self.subTest(name=name):
+                with mock.patch.object(evals, "load_dataset", return_value={"test": [row]}):
+                    self.assertEqual(self.run_export({name: config[name]}, "--download"), 0)
+                record = json.loads((self.output / f"{name}_test-1.jsonl").read_text())
+                self.assertEqual(record["question"], " ".join(m["content"] for m in row["messages"]))
+                self.assertNotIn("answer", record)
 
 
 if __name__ == "__main__":
