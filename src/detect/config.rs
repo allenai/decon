@@ -1,4 +1,5 @@
 use anyhow::{Error, Result};
+use std::path::Path;
 use crate::common::{Config, read_config, create_default_config, validate_config};
 use crate::detect::args::DetectArgs;
 use crate::detect::common_args::apply_common_detection_overrides;
@@ -27,10 +28,10 @@ pub fn execute_detect(args: &DetectArgs) -> Result<(), Error> {
         loaded_config.cleaned_output_dir = Some(crate::common::generate_temp_dir("decon-cleaned"));
     }
 
-    contamination_detect_with_config(&loaded_config)
+    contamination_detect_with_config(&loaded_config, args.coverage_output_dir.as_deref())
 }
 
-fn contamination_detect_with_config(config_obj: &Config) -> Result<(), Error> {
+fn contamination_detect_with_config(config_obj: &Config, coverage_dir: Option<&Path>) -> Result<(), Error> {
     // Configure Rayon thread pool based on worker_threads setting
     rayon::ThreadPoolBuilder::new()
         .num_threads(config_obj.worker_threads)
@@ -122,7 +123,7 @@ fn contamination_detect_with_config(config_obj: &Config) -> Result<(), Error> {
                 crate::vprintln!();
             }
 
-            super::contamination_detect(config_obj)
+            super::detection::contamination_detect_with_coverage(config_obj, coverage_dir)
         }
         unknown_mode => {
             crate::vprintln!("Unknown mode: '{}'", unknown_mode);
