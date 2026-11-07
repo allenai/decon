@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use crate::detect::reference_index::{hash_ngram, AnswerTokenIdfMap};
-use crate::detect::scoring::calculate_answer_cluster_idf_overlap;
+use crate::detect::scoring::{calculate_answer_cluster_idf_overlap, stable_idf_sum};
 
 // Find answer boundaries using n-gram index for long answers.
 // Returns multiple boundary ranges where answer n-grams match
@@ -15,8 +15,6 @@ pub fn find_answer_boundaries_with_ngrams(
     ngram_size: usize,
     index: &super::reference_index::SimpleReferenceIndex,
 ) -> Option<(Vec<(usize, usize)>, f32)> {
-    use std::collections::HashSet;
-
     // Determine the search window
     let window_start = question_end_idx + 1;
     let window_end = (window_start + window_size).min(training_tokens.len());
@@ -32,17 +30,9 @@ pub fn find_answer_boundaries_with_ngrams(
     // Note: We use total eval documents (not just docs with answers) for IDF calculation.
     // Since we use IDF ratios for scoring, this constant scaling factor cancels out
     // and doesn't affect contamination detection.
-    let mut eval_total_idf = 0.0f32;
-
-    // Sort ngram_ids for deterministic iteration order
-    let mut sorted_ids: Vec<u32> = answer_ngram_ids.iter().copied().collect();
-    sorted_ids.sort_unstable();
-
-    for ngram_id in sorted_ids {
-        if let Some(idf_value) = index.answer_ngram_idf.get(&ngram_id) {
-            eval_total_idf += idf_value;
-        }
-    }
+    let eval_total_idf = stable_idf_sum(
+        answer_ngram_ids.iter().filter_map(|id| index.answer_ngram_idf.get(id).copied()),
+    );
 
     if eval_total_idf == 0.0 {
         return None;
@@ -58,23 +48,21 @@ pub fn find_answer_boundaries_with_ngrams(
     // Step 2: Process and collect matching n-grams WITH IDF VALUES
     let mut matched_ngrams = HashSet::new();
     let mut matched_positions = Vec::new();
-    let mut total_idf = 0.0;
 
     for (pos, ngram_hash) in ngram_hashes {
         if let Some(ngram_id) = index.question_ngram_to_id.get(&ngram_hash) {
             // Check if this n-gram is in the answer
             if answer_ngram_ids.contains(ngram_id) {
-                if matched_ngrams.insert(*ngram_id) {  // Only add IDF once per unique n-gram
-                    if let Some(idf_value) = index.answer_ngram_idf.get(ngram_id) {
-                        total_idf += idf_value;
-                    }
-                }
+                matched_ngrams.insert(*ngram_id);
                 matched_positions.push((pos, pos + ngram_size - 1));
             }
         }
     }
 
     // Calculate IDF overlap score
+    let total_idf = stable_idf_sum(
+        matched_ngrams.iter().filter_map(|id| index.answer_ngram_idf.get(id).copied()),
+    );
     let idf_overlap = if eval_total_idf > 0.0 {
         total_idf / eval_total_idf
     } else {
