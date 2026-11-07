@@ -9,6 +9,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
 
+use crate::detect::scoring::stable_idf_sum;
+
 // Struct to hold parsed reference entry data
 #[derive(Clone)]
 struct ReferenceEntry {
@@ -402,18 +404,11 @@ pub fn build_simple_index(config: &Config) -> Result<(SimpleReferenceIndex, Inde
     // We do this by computing IDF for each document's question ngrams
     eval_documents.par_iter_mut().for_each(|(doc_id, doc_tuple)| {
         if let Some(ngram_ids) = eval_doc_id_to_question_ngram_ids.get(doc_id) {
-            // Sort ngram_ids for deterministic iteration order
-            let mut sorted_ids: Vec<u32> = ngram_ids.iter().copied().collect();
-            sorted_ids.sort_unstable();
-
-            let mut total_idf = 0.0f32;
-            for ngram_id in sorted_ids {
-                if let Some(doc_set) = question_ngram_id_to_eval_doc_ids.get(&ngram_id) {
-                    let doc_freq = doc_set.len() as f32;
-                    let idf = (total_docs / doc_freq).ln();
-                    total_idf += idf;
-                }
-            }
+            let total_idf = stable_idf_sum(ngram_ids.iter().filter_map(|id| {
+                question_ngram_id_to_eval_doc_ids
+                    .get(id)
+                    .map(|documents| (total_docs / documents.len() as f32).ln())
+            }));
             // Update the question_idf_sum field (index 2) in the tuple
             doc_tuple.2 = total_idf;
         }
@@ -423,16 +418,9 @@ pub fn build_simple_index(config: &Config) -> Result<(SimpleReferenceIndex, Inde
     // Note: We cache passage IDF totals because passages tend to be substantially longer.
     // Now that we pre-calculate individual n-gram IDFs, we just sum them here.
     eval_doc_id_to_passage_ngram_ids.par_iter().for_each(|(doc_id, ngram_ids)| {
-        // Sort ngram_ids for deterministic iteration order
-        let mut sorted_ids: Vec<u32> = ngram_ids.iter().copied().collect();
-        sorted_ids.sort_unstable();
-
-        let mut total_idf = 0.0f32;
-        for ngram_id in sorted_ids {
-            if let Some(idf_value) = passage_ngram_idf.get(&ngram_id) {
-                total_idf += idf_value;
-            }
-        }
+        let total_idf = stable_idf_sum(
+            ngram_ids.iter().filter_map(|id| passage_ngram_idf.get(id).copied()),
+        );
         builder.eval_passage_idf_cache.insert(*doc_id, total_idf);
     });
 

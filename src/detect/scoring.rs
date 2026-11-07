@@ -32,6 +32,15 @@ const DEFAULT_WEIGHT_QP_PASSAGE: f32 = 0.15;
 // Note: calculate_eval_document_idf_sum has been removed because we now pre-compute
 // question IDF sums during index building and store them in EvalDocuments
 
+/// Accumulate weights independently of hash iteration and parallel n-gram ID assignment.
+/// IDs are allocated during indexing, so sorting IDs does not give a stable weight order.
+/// Use the same order for numerators and denominators, including complete matches.
+pub(crate) fn stable_idf_sum(values: impl IntoIterator<Item = f32>) -> f32 {
+    let mut values: Vec<f32> = values.into_iter().collect();
+    values.sort_unstable_by(f32::total_cmp);
+    values.into_iter().fold(0.0, |sum, value| sum + value)
+}
+
 /// Calculate question IDF overlap ratio between matched n-grams and eval document
 /// Returns the ratio of matched n-gram IDF sum to total eval document IDF sum
 pub fn calculate_question_idf_overlap(
@@ -40,22 +49,12 @@ pub fn calculate_question_idf_overlap(
     ngram_doc_frequencies: &HashMap<u32, usize>,  // Required cached frequencies
     total_docs: f32,
 ) -> Option<f32> {
-    // Calculate IDF sum for matched n-grams (shared between training and eval)
-    let mut matched_idf_sum = 0.0f32;
-
-    // Sort ngram_ids for deterministic iteration order
-    let mut sorted_ids: Vec<u32> = matched_ngram_ids.iter().copied().collect();
-    sorted_ids.sort_unstable();
-
-    for ngram_id in sorted_ids {
-        // Get the cached document frequency
-        if let Some(&doc_freq) = ngram_doc_frequencies.get(&ngram_id) {
-            // Standard IDF formula: ln(N/doc_freq)
-            let idf = (total_docs / doc_freq as f32).ln();
-            matched_idf_sum += idf;
-        }
-        // Skip ngrams not in the cache (shouldn't happen, but safe to ignore)
-    }
+    // Skip n-grams absent from the cache, as before.
+    let matched_idf_sum = stable_idf_sum(matched_ngram_ids.iter().filter_map(|id| {
+        ngram_doc_frequencies
+            .get(id)
+            .map(|&frequency| (total_docs / frequency as f32).ln())
+    }));
 
     // Calculate IDF overlap ratio using the pre-computed eval document total IDF
     if eval_total_idf > 0.0 {
@@ -322,6 +321,24 @@ mod tests {
         map.insert(3, 2);
 
         map
+    }
+
+    #[test]
+    fn question_overlap_is_invariant_to_parallel_ngram_id_assignment() {
+        let frequencies = [1, 2, 3, 4, 6, 7, 10, 30, 90, 99, 999, 1000];
+        let ids: HashSet<u32> = (0..frequencies.len() as u32).collect();
+        let mut expected = None;
+        for shift in 0..frequencies.len() {
+            // Parallel indexing can assign the same ID to a different n-gram.
+            // The matched multiset of document frequencies is unchanged.
+            let cache: HashMap<u32, usize> = (0..frequencies.len())
+                .map(|i| (i as u32, frequencies[(i + shift) % frequencies.len()]))
+                .collect();
+            let score = calculate_question_idf_overlap(&ids, 100.0, &cache, 1000.0)
+                .unwrap()
+                .to_bits();
+            assert_eq!(*expected.get_or_insert(score), score, "ID permutation {shift}");
+        }
     }
 
     #[test]
