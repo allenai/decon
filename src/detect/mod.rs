@@ -15,6 +15,7 @@ pub(crate) mod cluster;
 pub(crate) mod hot_bucket_stats;
 
 // Private implementation modules
+mod coverage;
 mod answer_boundary;
 mod passage_boundary;
 mod utils;
