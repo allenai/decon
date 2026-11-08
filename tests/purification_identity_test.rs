@@ -74,7 +74,7 @@ fn same_basename_files_keep_their_own_contaminated_lines() -> Result<()> {
 }
 
 #[test]
-fn colliding_output_names_fail_before_any_cleaned_file_is_written() -> Result<()> {
+fn colliding_output_names_fail_before_training_files_are_read() -> Result<()> {
     let env = common::setup_test_with_fixtures(
         "passage_question_answer_reference.jsonl",
         "clean.jsonl",
@@ -82,7 +82,8 @@ fn colliding_output_names_fail_before_any_cleaned_file_is_written() -> Result<()
     )?;
     let plain = env.training_dir.join("clean.jsonl");
     let compressed = env.training_dir.join("clean.jsonl.gz");
-    gzip(&compressed, &fs::read_to_string(&plain)?)?;
+    // Invalid gzip proves that collision validation precedes training input reads.
+    fs::write(&compressed, "not a gzip stream")?;
     fs::write(
         env.training_dir.join("unrelated.jsonl"),
         "{\"text\":\"unrelated\"}\n",
@@ -92,12 +93,23 @@ fn colliding_output_names_fail_before_any_cleaned_file_is_written() -> Result<()
     let mut args = common::create_default_args(env.config_path.clone());
     args.common.purify = true;
     args.common.cleaned_output_dir = Some(env.cleaned_dir.clone());
+    let coverage = env.report_dir.with_file_name("coverage");
+    args.coverage_output_dir = Some(coverage.clone());
     let error = execute_detect(&args).expect_err("Colliding destinations must fail purification");
     let message = format!("{error:#}");
+    assert!(message.contains("Purified output collision"), "{message}");
     for path in [&plain, &compressed, &destination] {
         assert!(message.contains(path.to_str().unwrap()), "{message}");
     }
     assert_eq!(fs::read_to_string(destination)?, "previous output");
     assert!(!env.cleaned_dir.join("unrelated.jsonl.gz").exists());
+    assert!(fs::read_dir(&env.report_dir)?.next().is_none());
+    assert!(!coverage.exists() || fs::read_dir(&coverage)?.next().is_none());
+
+    // Output-name collisions are irrelevant when purification is disabled.
+    gzip(&compressed, &fs::read_to_string(&plain)?)?;
+    args.common.purify = false;
+    args.coverage_output_dir = None;
+    execute_detect(&args)?;
     Ok(())
 }

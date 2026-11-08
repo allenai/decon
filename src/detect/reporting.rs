@@ -141,17 +141,14 @@ pub fn save_contamination_results(
     Ok(output_file)
 }
 
-pub fn create_purified_files_streaming(config: &Config, contaminated_files: &Arc<DashMap<PathBuf, HashSet<usize>>>, training_files: &[PathBuf]) -> Result<(), Error> {
-    crate::vprintln!("\nCreating purified files...");
-
-    // Determine output directory for cleaned files
+pub(crate) fn validate_purified_output_paths(config: &Config, training_files: &[PathBuf]) -> Result<()> {
     let cleaned_dir = config
         .cleaned_output_dir
         .as_ref()
         .unwrap_or(&config.report_output_dir);
 
     // Different source names can normalize to the same gzip output name.
-    // Reject the whole purification phase before opening any output files.
+    // Validate immediately after discovery, before scanning any training files.
     let mut output_sources = HashMap::new();
     for file_path in training_files {
         let output_path = cleaned_dir.join(crate::common::file_io::generate_purified_filename(
@@ -164,6 +161,16 @@ pub fn create_purified_files_streaming(config: &Config, contaminated_files: &Arc
             );
         }
     }
+    Ok(())
+}
+
+pub fn create_purified_files_streaming(config: &Config, contaminated_files: &Arc<DashMap<PathBuf, HashSet<usize>>>, training_files: &[PathBuf]) -> Result<(), Error> {
+    crate::vprintln!("\nCreating purified files...");
+
+    let cleaned_dir = config
+        .cleaned_output_dir
+        .as_ref()
+        .unwrap_or(&config.report_output_dir);
 
     let pbar = build_pbar_quiet(training_files.len(), "Purifying files");
 

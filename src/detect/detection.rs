@@ -33,6 +33,7 @@ use crate::detect::utils::{
 use crate::detect::reporting::{
     save_contamination_results,
     create_purified_files_streaming,
+    validate_purified_output_paths,
 };
 use crate::detect::scoring::{
     calculate_question_idf_overlap,
@@ -247,6 +248,10 @@ fn detect_simple_contamination(config: &Config, index: &SimpleReferenceIndex, co
         vec![config.training_dir.clone()],
         Some(crate::common::EXPAND_DIRS_EXTENSIONS),
     )?;
+
+    if config.purify {
+        validate_purified_output_paths(config, &training_files)?;
+    }
 
     create_dir_all(&config.report_output_dir)?;
 
