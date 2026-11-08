@@ -1,4 +1,4 @@
-use anyhow::{Error, Result};
+use anyhow::{Context, Error, Result};
 use dashmap::DashMap;
 use rayon::prelude::*;
 use serde_json::Value;
@@ -86,6 +86,7 @@ pub(crate) type AnswerTokenIdfMap = HashMap<usize, f32>; // Maps answer token ID
 /// Builder struct to hold all the data structures needed for building the reference index
 /// This reduces the number of parameters passed to process_simple_reference_file
 pub(crate) struct ReferenceIndexBuilder {
+    pub seen_doc_ids: DashMap<u32, (PathBuf, usize)>,
     pub question_ngram_to_id: DashMap<u64, u32>,
     pub question_ngram_id_to_eval_doc_ids: DashMap<u32, HashSet<u32>>,
     pub eval_doc_id_to_answer_tokens: DashMap<u32, HashSet<usize>>,
@@ -120,6 +121,7 @@ impl ReferenceIndexBuilder {
     /// Create a new ReferenceIndexBuilder with initialized data structures
     pub fn new(config: &Config) -> Result<Self> {
         Ok(Self {
+            seen_doc_ids: DashMap::new(),
             question_ngram_to_id: DashMap::new(),
             question_ngram_id_to_eval_doc_ids: DashMap::new(),
             eval_doc_id_to_answer_tokens: DashMap::new(),
@@ -298,19 +300,19 @@ pub fn build_simple_index(config: &Config) -> Result<(SimpleReferenceIndex, Inde
 
     let pbar = build_pbar_quiet(reference_files.len(), "Reference files");
 
-    reference_files.par_iter().enumerate().for_each(|(file_idx, file_path)| {
-        if let Err(e) = process_simple_reference_file(
+    let ingestion = reference_files.par_iter().enumerate().try_for_each(|(file_idx, file_path)| {
+        let result = process_simple_reference_file(
             file_path,
             file_idx,
             config,
             &builder,
-        ) {
-            println!("Error processing reference file {:?}: {:?}", file_path, e);
-        }
+        ).with_context(|| format!("Error processing reference file {}", file_path.display()));
         pbar.inc(1);
+        result
     });
 
     pbar.finish_with_message("Index building complete");
+    ingestion?;
 
     // Collect statistics for return
     let mut stats = IndexBuildingStats {
@@ -461,7 +463,7 @@ pub fn build_simple_index(config: &Config) -> Result<(SimpleReferenceIndex, Inde
             .collect();
 
         // Sort by document count (descending)
-        hot_ngrams.sort_by(|a, b| b.1.cmp(&a.1));
+        hot_ngrams.sort_by_key(|a| std::cmp::Reverse(a.1));
 
         // Just use placeholder text since we're not displaying examples anymore
         for (_ngram_id, doc_count) in hot_ngrams.iter().take(100) {
@@ -544,8 +546,11 @@ fn parse_reference_entry(
     let doc_id = json_obj
         .get("doc_id")
         .and_then(|v| v.as_u64())
-        .ok_or_else(|| anyhow::anyhow!("Missing or invalid doc_id field in reference file"))?
-        as u32;
+        .filter(|id| *id < u32::MAX as u64)
+        .ok_or_else(|| anyhow::anyhow!(
+            "Missing or invalid doc_id field: expected an integer in 0..{} (upper bound reserved)",
+            u32::MAX
+        ))? as u32;
 
     // Read the actual dataset instance index
     let eval_instance_index = json_obj
@@ -633,6 +638,20 @@ fn process_simple_reference_file(
 
         let json_obj: Value = serde_json::from_str(&line)?;
         let entry = parse_reference_entry(&json_obj, line_num, &fallback_eval_name)?;
+
+        match builder.seen_doc_ids.entry(entry.doc_id) {
+            dashmap::mapref::entry::Entry::Occupied(previous) => {
+                let (previous_path, previous_line) = previous.get();
+                anyhow::bail!(
+                    "Duplicate reference doc_id {} at {}:{} and {}:{}; IDs must be globally unique",
+                    entry.doc_id, previous_path.display(), previous_line + 1,
+                    file_path.display(), line_num + 1
+                );
+            }
+            dashmap::mapref::entry::Entry::Vacant(slot) => {
+                slot.insert((file_path.clone(), line_num));
+            }
+        }
 
         let combined_cleaned_text = build_combined_text_for_filtering(
             &entry.passage_text,
@@ -1191,6 +1210,39 @@ mod tests {
     // Helper to create test tokenizer
     fn create_test_tokenizer() -> OmniTokenizer {
         OmniTokenizer::new("cl100k").unwrap()
+    }
+
+    #[test]
+    fn reference_ingestion_rejects_duplicate_ids_across_files() {
+        let dir = TempDir::new().unwrap();
+        for name in ["first", "second"] {
+            fs::write(dir.path().join(format!("{name}.jsonl")), format!(
+                "{{\"doc_id\":3,\"eval_key\":\"{name}\",\"question\":\"A reference question with several distinct words\"}}\n"
+            )).unwrap();
+        }
+        let mut config = create_test_config();
+        config.evals_dir = dir.path().to_path_buf();
+        let error = build_simple_index(&config).err().expect("duplicate ID must fail ingestion");
+        assert!(format!("{error:#}").contains("Duplicate reference doc_id 3"));
+    }
+
+    #[test]
+    fn reference_ingestion_propagates_invalid_file_errors() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("invalid.jsonl"), "{\"question\":\"missing document ID\"}\n").unwrap();
+        let mut config = create_test_config();
+        config.evals_dir = dir.path().to_path_buf();
+        assert!(build_simple_index(&config).is_err());
+    }
+
+    #[test]
+    fn reference_ids_cannot_wrap_or_use_the_hot_bucket_sentinel() {
+        for id in [u32::MAX as u64, u32::MAX as u64 + 1] {
+            let row = serde_json::json!({"doc_id": id, "question": "test"});
+            assert!(parse_reference_entry(&row, 0, "suite").is_err());
+        }
+        let valid = serde_json::json!({"doc_id": 7, "question": "test"});
+        assert_eq!(parse_reference_entry(&valid, 0, "suite").unwrap().doc_id, 7);
     }
 
     #[test]

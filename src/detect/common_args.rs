@@ -227,6 +227,12 @@ pub struct CommonDetectionArgs {
     pub verbose: bool,
 }
 
+fn explicit_evals_dir(config: &crate::common::Config, args: &CommonDetectionArgs) -> Option<PathBuf> {
+    args.evals_dir.clone().or_else(|| {
+        args.config.as_ref().map(|_| config.evals_dir.clone())
+    })
+}
+
 /// Apply common detection overrides from command-line args to config
 pub fn apply_common_detection_overrides(loaded_config: &mut crate::common::Config, args: &CommonDetectionArgs) {
     // Apply command-line overrides
@@ -238,12 +244,12 @@ pub fn apply_common_detection_overrides(loaded_config: &mut crate::common::Confi
     }
     // Evaluation directory resolution with precedence:
     // 1. User-provided --evals-dir flag
-    // 2. ~/.local/share/decon/references if it exists and has files
-    // 3. Default bundled evals
-    if let Some(ref ed) = args.evals_dir {
-        // User explicitly provided a directory
+    // 2. The explicit configuration file
+    // 3. ~/.local/share/decon/references if it exists and has files
+    // 4. Default bundled evals
+    if let Some(ed) = explicit_evals_dir(loaded_config, args) {
         loaded_config.evals_dir = ed.clone();
-        eprintln!("Using evaluation directory from --evals-dir: {}\n", ed.display());
+        eprintln!("Using explicitly configured evaluation directory: {}\n", ed.display());
     } else {
         // Check for user-downloaded references
         let user_ref_dir = dirs::data_local_dir()
@@ -370,4 +376,41 @@ pub fn apply_common_detection_overrides(loaded_config: &mut crate::common::Confi
     use crate::detect::scoring::calculate_minimum_question_idf_threshold;
     loaded_config.minimum_question_idf_threshold =
         calculate_minimum_question_idf_threshold(loaded_config.contamination_score_threshold);
+}
+
+#[cfg(test)]
+mod reference_directory_tests {
+    use super::{explicit_evals_dir, CommonDetectionArgs};
+    use crate::common::create_default_config;
+    use clap::Parser;
+    use std::path::PathBuf;
+
+    #[derive(Parser)]
+    struct TestCli {
+        #[command(flatten)]
+        common: CommonDetectionArgs,
+    }
+
+    #[test]
+    fn explicit_config_prevents_user_directory_fallback() {
+        let mut config = create_default_config();
+        config.evals_dir = PathBuf::from("configured-references");
+        let args = TestCli::parse_from(["decon", "--config", "config.yaml"]).common;
+        assert_eq!(explicit_evals_dir(&config, &args), Some(config.evals_dir.clone()));
+    }
+
+    #[test]
+    fn command_line_references_override_config() {
+        let config = create_default_config();
+        let args = TestCli::parse_from([
+            "decon", "--config", "config.yaml", "--evals-dir", "cli-references",
+        ]).common;
+        assert_eq!(explicit_evals_dir(&config, &args), Some(PathBuf::from("cli-references")));
+    }
+
+    #[test]
+    fn no_explicit_configuration_allows_fallback() {
+        let args = TestCli::parse_from(["decon"]).common;
+        assert!(explicit_evals_dir(&create_default_config(), &args).is_none());
+    }
 }
