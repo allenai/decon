@@ -178,6 +178,7 @@ pub fn assert_no_contamination(report_dir: &Path) -> bool {
 
 pub fn create_default_args(config_path: PathBuf) -> DetectArgs {
     DetectArgs {
+        coverage_output_dir: None,
         common: CommonDetectionArgs {
             config: Some(config_path),
             training_dir: None,

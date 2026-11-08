@@ -135,7 +135,7 @@ fn write_purified_file_internal(
     output_path: PathBuf,
     contaminated_lines: &std::collections::HashSet<usize>,
 ) -> Result<PathBuf, anyhow::Error> {
-    use flate2::read::GzDecoder;
+    use flate2::read::MultiGzDecoder;
     use flate2::write::GzEncoder;
     use flate2::Compression;
     use std::fs::File;
@@ -144,7 +144,7 @@ fn write_purified_file_internal(
     // Open input file with streaming reader
     let file = File::open(input_path)?;
     let mut reader: Box<dyn BufRead> = match input_path.extension().and_then(|s| s.to_str()) {
-        Some("gz") => Box::new(BufReader::new(GzDecoder::new(file))),
+        Some("gz") => Box::new(BufReader::new(MultiGzDecoder::new(file))),
         Some("zst") | Some("zstd") => Box::new(BufReader::new(ZstdDecoder::new(file)?)),
         _ => Box::new(BufReader::new(file)),
     };
@@ -172,9 +172,19 @@ fn write_purified_file_internal(
         line_num += 1;
     }
 
-    writer.flush()?;
+    finish_purified_output(writer)?;
 
     Ok(output_path)
+}
+
+fn finish_purified_output<W: std::io::Write>(
+    mut writer: std::io::BufWriter<flate2::write::GzEncoder<W>>,
+) -> Result<()> {
+    use std::io::Write;
+    writer.flush()?;
+    // Drop cannot report errors writing the final compressed bytes and gzip trailer.
+    writer.into_inner().map_err(|error| error.into_error())?.finish()?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -185,6 +195,34 @@ mod tests {
     use std::fs;
     use std::io::Write;
     use tempfile::tempdir;
+
+    #[test]
+    fn purification_gzip_finalization_errors_are_returned() {
+        // Accept all data and the explicit flush, then fail when gzip writes its ending.
+        // Dropping GzEncoder silently ignores this error; explicit finish must return it.
+        #[derive(Default)]
+        struct FailAfterFlush(bool);
+        impl std::io::Write for FailAfterFlush {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                if self.0 {
+                    Err(std::io::Error::other("injected gzip finalization failure"))
+                } else {
+                    Ok(bytes.len())
+                }
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                self.0 = true;
+                Ok(())
+            }
+        }
+        let encoder = flate2::write::GzEncoder::new(
+            FailAfterFlush::default(), flate2::Compression::default(),
+        );
+        let mut writer = std::io::BufWriter::new(encoder);
+        writer.write_all(b"kept input row\n").unwrap();
+        let error = finish_purified_output(writer).expect_err("gzip finalization must be checked");
+        assert!(error.to_string().contains("injected gzip finalization failure"));
+    }
 
     fn create_test_config(mode: &str, contamination_threshold: f32) -> Config {
         use crate::detect::scoring::calculate_minimum_question_idf_threshold;

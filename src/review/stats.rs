@@ -29,7 +29,7 @@ pub fn display_eval_dataset_stats(contamination_results: &[ContaminationResult])
 
     // Sort by count (descending)
     let mut sorted_counts: Vec<(String, usize)> = eval_counts.into_iter().collect();
-    sorted_counts.sort_by(|a, b| b.1.cmp(&a.1));
+    sorted_counts.sort_by_key(|a| std::cmp::Reverse(a.1));
 
     // Compute metrics for header display
     let metrics = compute_contamination_metrics(contamination_results);
@@ -94,7 +94,7 @@ pub fn display_eval_dataset_stats(contamination_results: &[ContaminationResult])
         .into_iter()
         .map(|(suite, instances)| (suite, instances.len()))
         .collect();
-    unique_sorted_counts.sort_by(|a, b| b.1.cmp(&a.1));
+    unique_sorted_counts.sort_by_key(|a| std::cmp::Reverse(a.1));
 
     println!("=== CONTAMINATED EVAL INSTANCES BY SUITE ===");
     println!("(Unique eval examples found in training data)");

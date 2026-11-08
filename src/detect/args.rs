@@ -1,4 +1,5 @@
 use clap::Args;
+use std::path::PathBuf;
 use crate::detect::common_args::CommonDetectionArgs;
 
 #[derive(Args, Debug)]
@@ -10,4 +11,6 @@ use crate::detect::common_args::CommonDetectionArgs;
 pub struct DetectArgs {
     #[command(flatten)]
     pub common: CommonDetectionArgs,
+    #[arg(long, help = "New output directory for per-line examined/skipped coverage receipts (JSONL gzip)")]
+    pub coverage_output_dir: Option<PathBuf>,
 }

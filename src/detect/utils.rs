@@ -1,6 +1,6 @@
 use anyhow::{Error, Result};
 use bzip2::read::BzDecoder;
-use flate2::read::GzDecoder;
+use flate2::read::MultiGzDecoder;
 use indicatif::ProgressBar;
 use std::fs::File;
 use std::io::Read;
@@ -15,7 +15,8 @@ pub fn read_compressed_file(path: &PathBuf) -> Result<Vec<u8>, Error> {
 
     match path.extension().and_then(|s| s.to_str()) {
         Some("gz") => {
-            let mut decoder = GzDecoder::new(file);
+            // Concatenated gzip members are one logical input stream.
+            let mut decoder = MultiGzDecoder::new(file);
             decoder.read_to_end(&mut buffer)?;
         }
         Some("zst") | Some("zstd") => {

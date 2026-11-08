@@ -32,7 +32,7 @@ pub fn display_dataset_counts(
         .into_iter()
         .map(|(dataset, removals)| (dataset, removals.len()))
         .collect();
-    sorted_counts.sort_by(|a, b| b.1.cmp(&a.1));
+    sorted_counts.sort_by_key(|a| std::cmp::Reverse(a.1));
 
     let total_unique_removals: usize = sorted_counts.iter().map(|(_, count)| count).sum();
 
