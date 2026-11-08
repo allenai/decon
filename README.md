@@ -104,6 +104,9 @@ paths (including compression suffixes). Every physical input line has a zero-bas
 An examined receipt is not a clean verdict: join it with the contamination matches and the chosen
 reference/configuration contract. Short inputs remain unexamined; matching thresholds are unchanged.
 
+Concatenated gzip members are read as one continuous input stream for detection and purification.
+Corrupt or truncated later members fail the scan instead of silently omitting their documents.
+
 Input read, coverage write and returned match-report write failures fail the command. A failed run
 may leave partial receipts/reports; they must not be used as complete results. Coverage directories
 cannot be reused or overwritten. The existing library entry point retains its behavior without

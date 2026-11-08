@@ -135,7 +135,7 @@ fn write_purified_file_internal(
     output_path: PathBuf,
     contaminated_lines: &std::collections::HashSet<usize>,
 ) -> Result<PathBuf, anyhow::Error> {
-    use flate2::read::GzDecoder;
+    use flate2::read::MultiGzDecoder;
     use flate2::write::GzEncoder;
     use flate2::Compression;
     use std::fs::File;
@@ -144,7 +144,7 @@ fn write_purified_file_internal(
     // Open input file with streaming reader
     let file = File::open(input_path)?;
     let mut reader: Box<dyn BufRead> = match input_path.extension().and_then(|s| s.to_str()) {
-        Some("gz") => Box::new(BufReader::new(GzDecoder::new(file))),
+        Some("gz") => Box::new(BufReader::new(MultiGzDecoder::new(file))),
         Some("zst") | Some("zstd") => Box::new(BufReader::new(ZstdDecoder::new(file)?)),
         _ => Box::new(BufReader::new(file)),
     };
