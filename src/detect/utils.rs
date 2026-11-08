@@ -1,41 +1,13 @@
 use anyhow::{Error, Result};
-use bzip2::read::BzDecoder;
-use flate2::read::MultiGzDecoder;
 use indicatif::ProgressBar;
-use std::fs::File;
 use std::io::Read;
-use std::path::PathBuf;
-use xz2::read::XzDecoder;
-use zstd::stream::read::Decoder as ZstdDecoder;
+use std::path::Path;
 
 /// Helper function to read compressed files (supporting .gz, .zst, .bz2, and .xz)
-pub fn read_compressed_file(path: &PathBuf) -> Result<Vec<u8>, Error> {
-    let mut file = File::open(path)?;
+pub fn read_compressed_file(path: &Path) -> Result<Vec<u8>, Error> {
+    let mut reader = crate::common::file_io::open_training_reader(path)?;
     let mut buffer = Vec::new();
-
-    match path.extension().and_then(|s| s.to_str()) {
-        Some("gz") => {
-            // Concatenated gzip members are one logical input stream.
-            let mut decoder = MultiGzDecoder::new(file);
-            decoder.read_to_end(&mut buffer)?;
-        }
-        Some("zst") | Some("zstd") => {
-            let mut decoder = ZstdDecoder::new(file)?;
-            decoder.read_to_end(&mut buffer)?;
-        }
-        Some("bz2") => {
-            let mut decoder = BzDecoder::new(file);
-            decoder.read_to_end(&mut buffer)?;
-        }
-        Some("xz") => {
-            let mut decoder = XzDecoder::new(file);
-            decoder.read_to_end(&mut buffer)?;
-        }
-        _ => {
-            // No compression, read file directly
-            file.read_to_end(&mut buffer)?;
-        }
-    }
+    reader.read_to_end(&mut buffer)?;
 
     Ok(buffer)
 }
@@ -105,6 +77,7 @@ pub fn display_timing_stats(stats: &crate::detect::stats::AggregatedStats) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use std::fs;
     use std::io::Write;
     use tempfile::NamedTempFile;
