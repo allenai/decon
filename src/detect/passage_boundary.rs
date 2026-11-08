@@ -1,4 +1,7 @@
+use std::collections::HashSet;
+
 use crate::detect::reference_index::hash_ngram;
+use crate::detect::scoring::stable_idf_sum;
 
 // Finds the boundaries of a matching passage and also its (start idx, end idx, idf overlap score).
 pub fn find_passage_boundaries_with_ngrams(
@@ -10,8 +13,6 @@ pub fn find_passage_boundaries_with_ngrams(
     passage_max_consecutive_misses: usize,
     index: &super::reference_index::SimpleReferenceIndex,
 ) -> Option<(usize, usize, f32)> {
-    use std::collections::HashSet;
-
     // Determine the search window (prefix before question)
     let window_end = question_start_idx.saturating_sub(1);
     let window_start = window_end.saturating_sub(window_size);
@@ -35,7 +36,6 @@ pub fn find_passage_boundaries_with_ngrams(
     let mut first_match_pos = None;
     let mut last_match_pos = None;
     let mut consecutive_misses = 0;
-    let mut total_idf = 0.0;
 
     // Traverse backwards from just before question start
     for i in (window_start..=window_end.saturating_sub(passage_ngram_size)).rev() {
@@ -46,12 +46,7 @@ pub fn find_passage_boundaries_with_ngrams(
             // Check if this n-gram is in the passage
             if passage_ngram_ids.contains(ngram_id) {
                 // Found a match
-                if matched_ngrams.insert(*ngram_id) {  // Only add IDF once per unique n-gram
-                    // Use pre-calculated IDF
-                    if let Some(idf_value) = index.passage_ngram_idf.get(ngram_id) {
-                        total_idf += idf_value;
-                    }
-                }
+                matched_ngrams.insert(*ngram_id);
 
                 // Update boundaries
                 if first_match_pos.is_none() {
@@ -82,6 +77,9 @@ pub fn find_passage_boundaries_with_ngrams(
     }
 
     // Calculate IDF overlap score
+    let total_idf = stable_idf_sum(
+        matched_ngrams.iter().filter_map(|id| index.passage_ngram_idf.get(id).copied()),
+    );
     let idf_overlap = if eval_total_idf > 0.0 {
         total_idf / eval_total_idf
     } else {
