@@ -87,10 +87,13 @@ Sensible defaults are provided for [decon parameters](config/default.yaml), with
 
 ### Purification failures
 
-With `--purify`, failures reading inputs, creating or writing cleaned files, or finalizing
-their gzip streams fail the command. The error identifies the input and output directory.
+With `--purify`, failures reading inputs, creating or writing cleaned files, finalizing
+their gzip streams, or synchronizing them to storage fail the command. Each cleaned file
+is synchronized after its gzip trailer is written, which can add filesystem latency.
+The error identifies the input and output directory.
 A failed run can leave partial reports and cleaned files; use the outputs only after a
-successful command exit.
+successful command exit. Per-file synchronization does not make publication atomic or
+synchronize parent directory entries.
 
 ### Recording input coverage
 
