@@ -17,7 +17,7 @@ pub fn display_top_eval_examples(
 
     // Sort by count (descending)
     let mut sorted_counts: Vec<((String, usize), usize)> = eval_counts.into_iter().collect();
-    sorted_counts.sort_by(|a, b| b.1.cmp(&a.1));
+    sorted_counts.sort_by_key(|a| std::cmp::Reverse(a.1));
 
     println!("=== TOP {} MOST COMMONLY MATCHED EVAL EXAMPLES ===", top_n);
     println!();

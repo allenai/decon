@@ -461,7 +461,7 @@ pub fn build_simple_index(config: &Config) -> Result<(SimpleReferenceIndex, Inde
             .collect();
 
         // Sort by document count (descending)
-        hot_ngrams.sort_by(|a, b| b.1.cmp(&a.1));
+        hot_ngrams.sort_by_key(|a| std::cmp::Reverse(a.1));
 
         // Just use placeholder text since we're not displaying examples anymore
         for (_ngram_id, doc_count) in hot_ngrams.iter().take(100) {
