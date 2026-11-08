@@ -1,4 +1,4 @@
-use anyhow::{Error, Result};
+use anyhow::{Context, Error, Result};
 use dashmap::DashMap;
 use rayon::prelude::*;
 use serde_json::json;
@@ -157,7 +157,7 @@ pub fn create_purified_files_streaming(config: &Config, contaminated_files: &Arc
     let total_lines_removed = Arc::new(AtomicUsize::new(0));
     let total_clean_files = Arc::new(AtomicUsize::new(0));
 
-    training_files.par_iter().for_each(|file_path| {
+    let purification = training_files.par_iter().try_for_each(|file_path| -> Result<()> {
         // Match the same logic used in process_training_file
         let file_name = match file_path.extension().and_then(|s| s.to_str()) {
             Some("gz") | Some("zst") | Some("zstd") => file_path
@@ -182,23 +182,25 @@ pub fn create_purified_files_streaming(config: &Config, contaminated_files: &Arc
         let lines_removed = contaminated_lines.len();
 
         // Always create a purified file when purify mode is enabled
-        match write_purified_file(file_path,cleaned_dir, &contaminated_lines,&config.training_dir) {
-            Ok(_) => {
-                total_files_processed.fetch_add(1, Ordering::Relaxed);
-                if is_clean {
-                    total_clean_files.fetch_add(1, Ordering::Relaxed);
-                } else {
-                    total_lines_removed.fetch_add(lines_removed, Ordering::Relaxed);
-                }
-            }
-            Err(e) => {
-                eprintln!("Error purifying file {:?}: {:?}", file_path, e);
-            }
+        write_purified_file(file_path, cleaned_dir, &contaminated_lines, &config.training_dir)
+            .with_context(|| format!(
+                "Error purifying file {} into {}", file_path.display(), cleaned_dir.display()
+            ))?;
+        total_files_processed.fetch_add(1, Ordering::Relaxed);
+        if is_clean {
+            total_clean_files.fetch_add(1, Ordering::Relaxed);
+        } else {
+            total_lines_removed.fetch_add(lines_removed, Ordering::Relaxed);
         }
 
         pbar.inc(1);
+        Ok(())
     });
 
+    if let Err(error) = purification {
+        pbar.abandon_with_message("Purification failed");
+        return Err(error);
+    }
     pbar.finish_with_message("Purification complete");
 
     // Print summary statistics

@@ -85,6 +85,13 @@ Sensible defaults are provided for [decon parameters](config/default.yaml), with
 
 ## Advanced Usage
 
+### Purification failures
+
+With `--purify`, failures reading inputs, creating or writing cleaned files, or finalizing
+their gzip streams fail the command. The error identifies the input and output directory.
+A failed run can leave partial reports and cleaned files; use the outputs only after a
+successful command exit.
+
 ### Recording input coverage
 
 A missing contamination match does not establish that a document was examined. Parsing failures,
