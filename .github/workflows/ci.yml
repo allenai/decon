@@ -38,3 +38,12 @@ jobs:
 
     - name: Run tests
       run: cargo test --verbose
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Run reference export tests
+      run: |
+        python3 -m pip install 'pyyaml>=6.0'
+        python3 -m unittest discover -s tests -p 'test_evals.py'

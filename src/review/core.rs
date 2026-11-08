@@ -86,14 +86,14 @@ pub fn review_contamination(args: &ReviewArgs) -> Result<(), Error> {
     if all_results.is_empty() {
         println!("No contamination results matched the filter criteria.");
         println!("Original count: {}", original_count);
-        if min_score.is_some() {
-            println!("  - Minimum contamination score: {:.3}", min_score.unwrap());
+        if let Some(min_score) = min_score {
+            println!("  - Minimum contamination score: {:.3}", min_score);
         }
-        if min_length.is_some() {
-            println!("  - Minimum n-gram matches: {}", min_length.unwrap());
+        if let Some(min_length) = min_length {
+            println!("  - Minimum n-gram matches: {}", min_length);
         }
-        if eval_filter.is_some() {
-            println!("  - Eval dataset filter: {}", eval_filter.unwrap());
+        if let Some(eval_filter) = eval_filter {
+            println!("  - Eval dataset filter: {}", eval_filter);
         }
         return Ok(());
     }
@@ -106,14 +106,14 @@ pub fn review_contamination(args: &ReviewArgs) -> Result<(), Error> {
         let filtered_count = original_count - all_results.len();
         let mut filter_reasons = Vec::new();
 
-        if min_score.is_some() {
-            filter_reasons.push(format!("min score: {:.3}", min_score.unwrap()));
+        if let Some(min_score) = min_score {
+            filter_reasons.push(format!("min score: {:.3}", min_score));
         }
-        if min_length.is_some() {
-            filter_reasons.push(format!("min {} n-grams", min_length.unwrap()));
+        if let Some(min_length) = min_length {
+            filter_reasons.push(format!("min {} n-grams", min_length));
         }
-        if eval_filter.is_some() {
-            filter_reasons.push(format!("eval dataset: {}", eval_filter.unwrap()));
+        if let Some(eval_filter) = eval_filter {
+            filter_reasons.push(format!("eval dataset: {}", eval_filter));
         }
 
         if filter_reasons.is_empty() {
