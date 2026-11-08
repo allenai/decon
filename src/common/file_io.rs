@@ -129,25 +129,33 @@ pub fn write_purified_file_with_job_id(
     write_purified_file_internal(input_path, purified_path, contaminated_lines)
 }
 
+/// Use the same decompressed byte stream for detection and purification.
+pub(crate) fn open_training_reader(path: &Path) -> Result<Box<dyn std::io::BufRead>> {
+    use std::fs::File;
+    use std::io::BufReader;
+    let file = File::open(path)?;
+    Ok(match path.extension().and_then(|extension| extension.to_str()) {
+        Some("gz") => Box::new(BufReader::new(flate2::read::MultiGzDecoder::new(file))),
+        Some("zst") | Some("zstd") => Box::new(BufReader::new(ZstdDecoder::new(file)?)),
+        Some("bz2") => Box::new(BufReader::new(bzip2::read::MultiBzDecoder::new(file))),
+        Some("xz") => Box::new(BufReader::new(xz2::read::XzDecoder::new_multi_decoder(file))),
+        _ => Box::new(BufReader::new(file)),
+    })
+}
+
 // Internal function to write a purified file with contaminated lines removed
 fn write_purified_file_internal(
     input_path: &Path,
     output_path: PathBuf,
     contaminated_lines: &std::collections::HashSet<usize>,
 ) -> Result<PathBuf, anyhow::Error> {
-    use flate2::read::MultiGzDecoder;
     use flate2::write::GzEncoder;
     use flate2::Compression;
     use std::fs::File;
-    use std::io::{BufRead, BufReader, BufWriter, Write};
+    use std::io::{BufWriter, Write};
 
     // Open input file with streaming reader
-    let file = File::open(input_path)?;
-    let mut reader: Box<dyn BufRead> = match input_path.extension().and_then(|s| s.to_str()) {
-        Some("gz") => Box::new(BufReader::new(MultiGzDecoder::new(file))),
-        Some("zst") | Some("zstd") => Box::new(BufReader::new(ZstdDecoder::new(file)?)),
-        _ => Box::new(BufReader::new(file)),
-    };
+    let mut reader = open_training_reader(input_path)?;
 
     // Create output file with gzip compression
     let output_file = File::create(&output_path)?;
