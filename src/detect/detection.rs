@@ -1,4 +1,4 @@
-use anyhow::{Error, Result};
+use anyhow::{Context, Error, Result};
 use dashmap::DashMap;
 use rayon::prelude::*;
 use serde_json::Value;
@@ -39,6 +39,7 @@ use crate::detect::scoring::{
     interpolate_threshold,
 };
 use crate::detect::stats::{StatsContainer, AggregatedStats};
+use crate::detect::coverage::CoverageWriter;
 
 pub type ContaminationResults = DashMap<String, Vec<SimpleContaminationEntry>>;
 
@@ -67,6 +68,18 @@ struct OverlapExtractionContext<'a> {
 /// Entrypoint to main contamination detection activity.
 /// Builds an index, then iterates over training documents and records contamination.
 pub fn contamination_detect(config: &Config) -> Result<(), Error> {
+    contamination_detect_with_coverage(config, None)
+}
+
+/// Detect contamination with optional, explicit per-line input coverage.
+/// The output directory must be new. Receipts from a failed run are incomplete.
+pub fn contamination_detect_with_coverage(config: &Config, coverage_dir: Option<&Path>) -> Result<(), Error> {
+    if let Some(directory) = coverage_dir {
+        if let Some(parent) = directory.parent() {
+            create_dir_all(parent)?;
+        }
+        std::fs::create_dir(directory).context("Coverage output directory must be new")?;
+    }
     let start_main = Instant::now();
 
     // Step 1: Process eval datasets and build n-gram mappings
@@ -87,7 +100,7 @@ pub fn contamination_detect(config: &Config) -> Result<(), Error> {
 
     // Step 2: Process training data and detect contamination
     let detection_start = Instant::now();
-    let (total_contaminations, contaminated_documents, contaminated_lines, aggregated_stats, lines_processed) = detect_simple_contamination(config, &index)?;
+    let (total_contaminations, contaminated_documents, contaminated_lines, aggregated_stats, lines_processed) = detect_simple_contamination(config, &index, coverage_dir)?;
     let detection_time = detection_start.elapsed();
 
     let total_time = start_main.elapsed();
@@ -189,14 +202,14 @@ fn track_contaminated_lines_for_purification(
 
 /// Update counters and statistics and write a contamination report file.
 fn handle_successful_file_processing(
-    file_path: &PathBuf,
+    file_path: &Path,
     lines_processed: usize,
     file_contamination_results: &ContaminationResults,
     config: &Config,
     index: &SimpleReferenceIndex,
     state: &FileProcessingState,
     stats: Option<&StatsContainer>,
-) {
+) -> Result<(), Error> {
     state.total_lines_processed.fetch_add(lines_processed, std::sync::atomic::Ordering::SeqCst);
 
     if let Some(stats) = stats {
@@ -205,28 +218,18 @@ fn handle_successful_file_processing(
     }
 
     if file_contamination_results.is_empty() {
-        return;
+        return Ok(());
     }
 
-    let unique_filename = match crate::common::generate_report_filename(file_path, config, &config.training_dir) {
-        Ok(filename) => filename,
-        Err(e) => {
-            eprintln!("Error generating unique filename for {:?}: {:?}", file_path, e);
-            return;
-        }
-    };
-
-    if let Err(e) = save_contamination_results(
+    let unique_filename = crate::common::generate_report_filename(file_path, config, &config.training_dir)?;
+    save_contamination_results(
         config,
         file_contamination_results,
         &unique_filename,
         &index.eval_text_snippets,
         &index.eval_answer_text_snippets,
         &index.eval_passage_text_snippets,
-    ) {
-        eprintln!("Error saving results for {:?}: {:?}", file_path, e);
-        return;
-    }
+    ).with_context(|| format!("Error saving results for {}", file_path.display()))?;
 
     update_contamination_count(file_contamination_results, state.total_contaminations);
     let (file_name, contaminated_lines) = track_contaminated_lines_for_purification(file_path, file_contamination_results);
@@ -237,9 +240,10 @@ fn handle_successful_file_processing(
     if let Some(stats) = stats {
         stats.add_contaminations_found(file_contamination_results.len());
     }
+    Ok(())
 }
 
-fn detect_simple_contamination(config: &Config, index: &SimpleReferenceIndex,) -> Result<(usize, usize, usize, AggregatedStats, usize), Error> {
+fn detect_simple_contamination(config: &Config, index: &SimpleReferenceIndex, coverage_dir: Option<&Path>) -> Result<(usize, usize, usize, AggregatedStats, usize), Error> {
     let stats_container = if config.verbose {
         Some(StatsContainer::new())
     } else {
@@ -259,33 +263,29 @@ fn detect_simple_contamination(config: &Config, index: &SimpleReferenceIndex,) -
     let pbar = build_pbar_quiet(training_files.len(), "Training files");
 
     let processing_start = Instant::now();
-    training_files.par_iter().for_each(|file_path| {
+    training_files.par_iter().try_for_each(|file_path| -> Result<(), Error> {
         let file_contamination_results = DashMap::new();
         let stats = stats_container.as_ref();
-
-        match process_simple_training_file(file_path, config, index, &file_contamination_results, stats) {
-            Ok(lines_processed) => {
-                let state = FileProcessingState {
-                    total_lines_processed: &total_lines_processed,
-                    total_contaminations: &total_contaminations,
-                    contaminated_files: &contaminated_files,
-                };
-                handle_successful_file_processing(
-                    file_path,
-                    lines_processed,
-                    &file_contamination_results,
-                    config,
-                    index,
-                    &state,
-                    stats,
-                );
-            }
-            Err(e) => {
-                eprintln!("Error processing training file {:?}: {:?}", file_path, e);
-            }
+        let mut coverage = coverage_dir.map(|root| {
+            CoverageWriter::new(root, file_path, &config.training_dir, &extract_base_filename(file_path))
+        }).transpose()?;
+        let lines_processed = process_training_file_with_coverage(
+            file_path, config, index, &file_contamination_results, stats, coverage.as_mut(),
+        ).with_context(|| format!("Error processing training file {}", file_path.display()))?;
+        let state = FileProcessingState {
+            total_lines_processed: &total_lines_processed,
+            total_contaminations: &total_contaminations,
+            contaminated_files: &contaminated_files,
+        };
+        handle_successful_file_processing(
+            file_path, lines_processed, &file_contamination_results, config, index, &state, stats,
+        )?;
+        if let Some(writer) = coverage {
+            writer.finish()?;
         }
         pbar.inc(1);
-    });
+        Ok(())
+    })?;
     let _processing_time = processing_start.elapsed();
 
     pbar.finish();
@@ -317,6 +317,14 @@ fn detect_simple_contamination(config: &Config, index: &SimpleReferenceIndex,) -
 }
 
 pub fn process_simple_training_file(file_path: &PathBuf, config: &Config, index: &SimpleReferenceIndex, contamination_results: &ContaminationResults, stats: Option<&StatsContainer>) -> Result<usize, Error> {
+    process_training_file_with_coverage(file_path, config, index, contamination_results, stats, None)
+}
+
+fn process_training_file_with_coverage(
+    file_path: &PathBuf, config: &Config, index: &SimpleReferenceIndex,
+    contamination_results: &ContaminationResults, stats: Option<&StatsContainer>,
+    mut coverage: Option<&mut CoverageWriter>,
+) -> Result<usize, Error> {
     let data = read_compressed_file(file_path)?;
     let file_name = extract_base_filename(file_path);
 
@@ -332,12 +340,20 @@ pub fn process_simple_training_file(file_path: &PathBuf, config: &Config, index:
 
         // Prepare line: parse JSON, extract text, clean (strip punctuation), and tokenize
         let (cleaned_text, training_tokens) = match prepare_line_for_processing(&line, line_num, file_path, config, &index.tokenizer) {
-            Some(result) => result,
-            None => continue,  // Skip lines that fail preparation
+            Ok(result) => result,
+            Err(reason) => {
+                if let Some(writer) = coverage.as_mut() {
+                    writer.record(line_num, Some(reason), None)?;
+                }
+                continue;
+            }
         };
 
         // Skip entries with insufficient tokens to make a meaningful detection.
         if training_tokens.len() < min_token_count {
+            if let Some(writer) = coverage.as_mut() {
+                writer.record(line_num, Some("insufficient_tokens"), Some(training_tokens.len()))?;
+            }
             continue;
         }
 
@@ -409,6 +425,9 @@ pub fn process_simple_training_file(file_path: &PathBuf, config: &Config, index:
                     .extend(cluster_results);
             }
         }
+        if let Some(writer) = coverage.as_mut() {
+            writer.record(line_num, None, Some(training_tokens.len()))?;
+        }
     }
 
     Ok(lines_processed)
@@ -421,11 +440,14 @@ fn prepare_line_for_processing(
     file_path: &PathBuf,
     config: &Config,
     tokenizer: &OmniTokenizer,
-) -> Option<(String, Vec<usize>)> {
-    let json_obj: Value = serde_json::from_str(line).ok()?;
+) -> std::result::Result<(String, Vec<usize>), &'static str> {
+    if line.trim().is_empty() {
+        return Err("blank_line");
+    }
+    let json_obj: Value = serde_json::from_str(line).map_err(|_| "invalid_json")?;
 
     // Extract text from configured field
-    let line_text = get_nested_json_val(&json_obj, &config.content_key.to_string()).ok()?;
+    let line_text = get_nested_json_val(&json_obj, &config.content_key.to_string()).map_err(|_| "missing_or_nonstring_content")?;
 
     let cleaned_text = clean_text(&line_text, &config.punctuation_chars);
 
@@ -440,10 +462,10 @@ fn prepare_line_for_processing(
             "Tokenization failed on {:?} | line {:?}",
             file_path, line_num
         );
-        return None;
+        return Err("tokenization_failed");
     };
 
-    Some((cleaned_text, training_tokens))
+    Ok((cleaned_text, training_tokens))
 }
 
 fn build_contamination_entry_from_match(

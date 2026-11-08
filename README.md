@@ -85,6 +85,33 @@ Sensible defaults are provided for [decon parameters](config/default.yaml), with
 
 ## Advanced Usage
 
+### Recording input coverage
+
+A missing contamination match does not establish that a document was examined. Parsing failures,
+missing/nonstring content and documents shorter than twice the configured n-gram size are skipped.
+Use a new coverage directory outside the inputs to distinguish examined documents from those skips:
+
+```bash
+decon detect --training-dir INPUTS --evals-dir REFERENCES \
+  --report-output-dir REPORTS --coverage-output-dir NEW_COVERAGE_DIRECTORY
+```
+
+The opt-in output contains one compressed JSONL receipt per input file, retaining relative input
+paths (including compression suffixes). Every physical input line has a zero-based `training_line`,
+`source_file`, the legacy report `training_file`, `status` (`examined` or `skipped`), `reason`, and
+`token_count` where tokenization succeeded. Skip reasons are `blank_line`, `invalid_json`,
+`missing_or_nonstring_content`, `tokenization_failed`, or `insufficient_tokens`. `schema_version` is 1.
+An examined receipt is not a clean verdict: join it with the contamination matches and the chosen
+reference/configuration contract. Short inputs remain unexamined; matching thresholds are unchanged.
+
+Concatenated gzip members are read as one continuous input stream for detection and purification.
+Corrupt or truncated later members fail the scan instead of silently omitting their documents.
+
+Input read, coverage write and returned match-report write failures fail the command. A failed run
+may leave partial receipts/reports; they must not be used as complete results. Coverage directories
+cannot be reused or overwritten. The existing library entry point retains its behavior without
+coverage; `detect::detection::contamination_detect_with_coverage` adds the optional receipts.
+
 ### Preparing Datasets
 
 #### Training Documents
