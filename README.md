@@ -115,6 +115,12 @@ Detection and purification share decompression for gzip, Zstandard, bzip2, and X
 Concatenated gzip, bzip2, and XZ streams are read as one continuous input stream.
 Corrupt or truncated later members fail the scan instead of silently omitting their documents.
 
+Purification tracks contaminated lines by input path, so identically named files in different
+subdirectories keep separate removal lists. If two inputs map to the same cleaned filename
+(for example, `part.jsonl` and `part.jsonl.gz`), the command fails immediately after discovering
+the training files, before scanning them or writing reports, coverage receipts, or cleaned files.
+This check applies only when purification is enabled; reference indexing still runs first.
+
 Input read, coverage write and returned match-report write failures fail the command. A failed run
 may leave partial receipts/reports; they must not be used as complete results. Coverage directories
 cannot be reused or overwritten. The existing library entry point retains its behavior without
