@@ -114,6 +114,11 @@ reference/configuration contract. Short inputs remain unexamined; matching thres
 Concatenated gzip members are read as one continuous input stream for detection and purification.
 Corrupt or truncated later members fail the scan instead of silently omitting their documents.
 
+Purification tracks contaminated lines by input path, so identically named files in different
+subdirectories keep separate removal lists. If two inputs map to the same cleaned filename
+(for example, `part.jsonl` and `part.jsonl.gz`), purification fails before writing any cleaned files.
+Detection reports may already have been written when that conflict is reported.
+
 Input read, coverage write and returned match-report write failures fail the command. A failed run
 may leave partial receipts/reports; they must not be used as complete results. Coverage directories
 cannot be reused or overwritten. The existing library entry point retains its behavior without

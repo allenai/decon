@@ -47,7 +47,7 @@ pub type ContaminationResults = DashMap<String, Vec<SimpleContaminationEntry>>;
 pub struct FileProcessingState<'a> {
     pub total_lines_processed: &'a Arc<std::sync::atomic::AtomicUsize>,
     pub total_contaminations: &'a Arc<AtomicU32>,
-    pub contaminated_files: &'a Arc<DashMap<String, HashSet<usize>>>,
+    pub contaminated_files: &'a Arc<DashMap<PathBuf, HashSet<usize>>>,
 }
 
 /// Context for contamination evaluation to reduce function parameters
@@ -179,14 +179,10 @@ fn extract_base_filename(file_path: &Path) -> String {
 
 /// Track contaminated lines for the purification feature
 fn track_contaminated_lines_for_purification(
-    file_path: &Path,
     file_contamination_results: &ContaminationResults,
-) -> (String, HashSet<usize>) {
-    // Extract filename using the shared helper
-    let file_name = extract_base_filename(file_path);
-
+) -> HashSet<usize> {
     // Collect all contaminated line numbers
-    let contaminated_lines: HashSet<usize> = file_contamination_results
+    file_contamination_results
         .iter()
         .flat_map(|entry| {
             entry
@@ -195,9 +191,7 @@ fn track_contaminated_lines_for_purification(
                 .map(|e| e.training_line)
                 .collect::<Vec<_>>()
         })
-        .collect();
-
-    (file_name, contaminated_lines)
+        .collect()
 }
 
 /// Update counters and statistics and write a contamination report file.
@@ -232,9 +226,9 @@ fn handle_successful_file_processing(
     ).with_context(|| format!("Error saving results for {}", file_path.display()))?;
 
     update_contamination_count(file_contamination_results, state.total_contaminations);
-    let (file_name, contaminated_lines) = track_contaminated_lines_for_purification(file_path, file_contamination_results);
+    let contaminated_lines = track_contaminated_lines_for_purification(file_contamination_results);
 
-    state.contaminated_files.insert(file_name, contaminated_lines);
+    state.contaminated_files.insert(file_path.to_path_buf(), contaminated_lines);
 
     // Update contamination count in stats if available
     if let Some(stats) = stats {
@@ -257,7 +251,7 @@ fn detect_simple_contamination(config: &Config, index: &SimpleReferenceIndex, co
     create_dir_all(&config.report_output_dir)?;
 
     let total_lines_processed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let contaminated_files: Arc<DashMap<String, HashSet<usize>>> = Arc::new(DashMap::new());
+    let contaminated_files: Arc<DashMap<PathBuf, HashSet<usize>>> = Arc::new(DashMap::new());
     let total_contaminations = Arc::new(AtomicU32::new(0));
 
     let pbar = build_pbar_quiet(training_files.len(), "Training files");

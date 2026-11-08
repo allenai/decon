@@ -2,7 +2,7 @@ use anyhow::{Context, Error, Result};
 use dashmap::DashMap;
 use rayon::prelude::*;
 use serde_json::json;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::create_dir_all;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -141,7 +141,7 @@ pub fn save_contamination_results(
     Ok(output_file)
 }
 
-pub fn create_purified_files_streaming(config: &Config, contaminated_files: &Arc<DashMap<String, HashSet<usize>>>, training_files: &[PathBuf]) -> Result<(), Error> {
+pub fn create_purified_files_streaming(config: &Config, contaminated_files: &Arc<DashMap<PathBuf, HashSet<usize>>>, training_files: &[PathBuf]) -> Result<(), Error> {
     crate::vprintln!("\nCreating purified files...");
 
     // Determine output directory for cleaned files
@@ -149,6 +149,21 @@ pub fn create_purified_files_streaming(config: &Config, contaminated_files: &Arc
         .cleaned_output_dir
         .as_ref()
         .unwrap_or(&config.report_output_dir);
+
+    // Different source names can normalize to the same gzip output name.
+    // Reject the whole purification phase before opening any output files.
+    let mut output_sources = HashMap::new();
+    for file_path in training_files {
+        let output_path = cleaned_dir.join(crate::common::file_io::generate_purified_filename(
+            file_path, &config.training_dir,
+        )?);
+        if let Some(previous) = output_sources.insert(output_path.clone(), file_path) {
+            anyhow::bail!(
+                "Purified output collision: {} and {} both map to {}",
+                previous.display(), file_path.display(), output_path.display(),
+            );
+        }
+    }
 
     let pbar = build_pbar_quiet(training_files.len(), "Purifying files");
 
@@ -158,31 +173,16 @@ pub fn create_purified_files_streaming(config: &Config, contaminated_files: &Arc
     let total_clean_files = Arc::new(AtomicUsize::new(0));
 
     let purification = training_files.par_iter().try_for_each(|file_path| -> Result<()> {
-        // Match the same logic used in process_training_file
-        let file_name = match file_path.extension().and_then(|s| s.to_str()) {
-            Some("gz") | Some("zst") | Some("zstd") => file_path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown")
-                .to_string(),
-            _ => file_path
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown")
-                .to_string(),
-        };
-
-        let contaminated_lines = if let Some(entry) = contaminated_files.get(&file_name) {
-            entry.value().clone()
-        } else {
-            HashSet::new()
-        };
+        // Detection and purification use the same discovered input path as identity.
+        let entry = contaminated_files.get(file_path);
+        let empty = HashSet::new();
+        let contaminated_lines = entry.as_ref().map(|entry| entry.value()).unwrap_or(&empty);
 
         let is_clean = contaminated_lines.is_empty();
         let lines_removed = contaminated_lines.len();
 
         // Always create a purified file when purify mode is enabled
-        write_purified_file(file_path, cleaned_dir, &contaminated_lines, &config.training_dir)
+        write_purified_file(file_path, cleaned_dir, contaminated_lines, &config.training_dir)
             .with_context(|| format!(
                 "Error purifying file {} into {}", file_path.display(), cleaned_dir.display()
             ))?;
