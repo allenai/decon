@@ -180,19 +180,20 @@ fn write_purified_file_internal(
         line_num += 1;
     }
 
-    finish_purified_output(writer)?;
+    let output_file = finish_purified_output(writer)?;
+    // Surface delayed filesystem errors before reporting this output as complete.
+    output_file.sync_all()?;
 
     Ok(output_path)
 }
 
 fn finish_purified_output<W: std::io::Write>(
     mut writer: std::io::BufWriter<flate2::write::GzEncoder<W>>,
-) -> Result<()> {
+) -> Result<W> {
     use std::io::Write;
     writer.flush()?;
     // Drop cannot report errors writing the final compressed bytes and gzip trailer.
-    writer.into_inner().map_err(|error| error.into_error())?.finish()?;
-    Ok(())
+    Ok(writer.into_inner().map_err(|error| error.into_error())?.finish()?)
 }
 
 #[cfg(test)]
@@ -208,7 +209,7 @@ mod tests {
     fn purification_gzip_finalization_errors_are_returned() {
         // Accept all data and the explicit flush, then fail when gzip writes its ending.
         // Dropping GzEncoder silently ignores this error; explicit finish must return it.
-        #[derive(Default)]
+        #[derive(Default, Debug)]
         struct FailAfterFlush(bool);
         impl std::io::Write for FailAfterFlush {
             fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
