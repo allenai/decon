@@ -34,12 +34,15 @@ fn purification_failure_exits_nonzero() -> Result<()> {
         "default.yaml",
     )?;
     fs::create_dir(env.cleaned_dir.join("clean.jsonl.gz"))?;
-    let output = Command::new(env!("CARGO_BIN_EXE_decon"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_decon"));
+    command
+        .env_remove("DECON_TEST")
+        .env_remove("DECON_QUIET")
         .args(["detect", "--config"])
         .arg(&env.config_path)
         .args(["--purify", "--cleaned-output-dir"])
-        .arg(&env.cleaned_dir)
-        .output()?;
+        .arg(&env.cleaned_dir);
+    let output = command.output()?;
     assert!(
         !output.status.success(),
         "Purification failure must reach the CLI exit status"
@@ -48,6 +51,17 @@ fn purification_failure_exits_nonzero() -> Result<()> {
     assert!(stderr.contains("Error purifying file"), "{stderr}");
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(!stdout.contains("Purification Summary:"));
+
+    // A successful run must print the summary, proving quiet mode cannot make
+    // the failure-case assertion pass without exercising summary suppression.
+    fs::remove_dir(env.cleaned_dir.join("clean.jsonl.gz"))?;
+    let success = command.output()?;
+    assert!(
+        success.status.success(),
+        "{}",
+        String::from_utf8_lossy(&success.stderr)
+    );
+    assert!(String::from_utf8_lossy(&success.stdout).contains("Purification Summary:"));
     Ok(())
 }
 
