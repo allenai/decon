@@ -716,8 +716,8 @@ def process_eval_dataset(eval_name, eval_config, output_dir, document_id_counter
 
         # Check if this is a bundled prefix pattern (e.g., bundled_evals/agi_eval_)
         if local_path.startswith('bundled_evals/') and local_path.endswith('_'):
-            # Handle bundled files by copying them directly
-            print(f"Copying bundled files for {eval_name} with prefix: {local_path}...")
+            # Preserve normalized bundled records, but allocate IDs for this export.
+            print(f"Exporting bundled files for {eval_name} with prefix: {local_path}...")
 
             # Find the bundled-evals directory relative to the script
             script_dir = Path(__file__).parent.parent
@@ -733,7 +733,7 @@ def process_eval_dataset(eval_name, eval_config, output_dir, document_id_counter
             # Require each requested split, just as for Hugging Face sources.
             matching_files = []
             for split in splits:
-                split_files = list(bundled_dir.glob(f"{prefix}{split}-*.jsonl.gz"))
+                split_files = sorted(bundled_dir.glob(f"{prefix}{split}-*.jsonl.gz"))
                 if not split_files:
                     print(f"ERROR: Bundled split '{split}' not found for {eval_name}")
                     return False
@@ -760,10 +760,11 @@ def process_eval_dataset(eval_name, eval_config, output_dir, document_id_counter
             output_dir = Path(output_dir)
             output_dir.mkdir(parents=True, exist_ok=True)
 
-            # Copy all matching files to output directory
-            files_copied = 0
+            # Bundled IDs are local to their source files. Use the same counter as
+            # downloaded records so appends and mixed exports cannot collide.
+            files_exported = 0
             for src_file in matching_files:
-                # For agi_eval, just copy with the same name since the files already have the full dataset names
+                # For agi_eval, keep the full dataset filenames.
                 # For other datasets, replace the prefix with eval_name in the destination filename
                 if eval_name == 'agi_eval':
                     dest_filename = src_file.name
@@ -772,12 +773,15 @@ def process_eval_dataset(eval_name, eval_config, output_dir, document_id_counter
                     dest_filename = src_file.name.replace(prefix, f"{eval_name}_", 1)
                 dest_file = output_dir / dest_filename
 
-                shutil.copy2(src_file, dest_file)
-                files_copied += 1
-                print(f"  Copied {src_file.name} -> {dest_filename}")
+                with gzip.open(dest_file, 'wt', encoding='utf-8') as stream:
+                    for record in iter_reference_records(src_file):
+                        record['doc_id'] = document_id_counter[0]
+                        stream.write(json.dumps(record, ensure_ascii=False) + '\n')
+                        document_id_counter[0] += 1
+                files_exported += 1
+                print(f"  Exported {src_file.name} -> {dest_filename}")
 
-            document_id_counter[0] += sum(split_counts.values())
-            print(f"  Total files copied: {files_copied}")
+            print(f"  Total files exported: {files_exported}")
             return True
         else:
             # Handle regular local file

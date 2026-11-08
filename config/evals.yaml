@@ -73,7 +73,7 @@ evals:
     local_path: bundled_evals/agi_eval_
     splits:
     - train
-    # Note: This uses pre-processed bundled files that are copied directly.
+    # Note: This uses pre-processed bundled records with fresh export-local doc_ids.
     # The individual AGI-Eval datasets (aqua_rat, gaokao_english, logiqa_en, etc.)
     # are all included in the bundled files with appropriate processing already applied.
   ai2_arc_challenge:

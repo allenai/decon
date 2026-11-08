@@ -124,6 +124,54 @@ class ReferenceExportTests(unittest.TestCase):
             self.assertEqual(self.run_export(config, "--download"), 1)
         self.assertFalse(self.output.exists())
 
+    def make_bundled_references(self):
+        bundled = self.root / "bundled-evals"
+        bundled.mkdir()
+        records = []
+        # Create chunks out of order, with IDs that are neither unique nor contiguous.
+        for chunk, doc_id in [(2, 1), (1, 1), (3, 900)]:
+            record = {"doc_id": doc_id, "eval_key": "agi_eval_synthetic", "split": "train",
+                      "question": f"Synthetic question {chunk}?", "answer": "A synthetic answer",
+                      "eval_instance_index": chunk, "fingerprint": f"synthetic-{chunk}"}
+            with gzip.open(bundled / f"agi_eval_train-{chunk}.jsonl.gz", "wt") as stream:
+                stream.write(json.dumps(record) + "\n")
+            records.append(record)
+        return sorted(records, key=lambda record: record["eval_instance_index"])
+
+    def test_bundled_append_assigns_fresh_ids_and_preserves_records(self):
+        source_records = self.make_bundled_references()
+        bundled = self.root / "bundled-evals"
+        source_bytes = {path.name: path.read_bytes() for path in bundled.iterdir()}
+        self.output.mkdir()
+        (self.output / "nested").mkdir()
+        existing = self.output / "nested/other_train-1.jsonl.gz"
+        with gzip.open(existing, "wt") as stream:
+            stream.write(json.dumps({"doc_id": 7, "eval_key": "other", "question": "Other?"}) + "\n")
+        existing_bytes = existing.read_bytes()
+        config = {"agi_eval": {"local_path": "bundled_evals/agi_eval_", "splits": ["train"]}}
+        with mock.patch.object(evals, "__file__", str(self.root / "python/evals.py")):
+            self.assertEqual(self.run_export(config, "--eval", "agi_eval"), 0)
+        exported = [record for path in sorted(self.output.glob("agi_eval_*.gz"))
+                    for record in evals.iter_reference_records(path)]
+        self.assertEqual(exported, [dict(record, doc_id=8 + i) for i, record in enumerate(source_records)])
+        self.assertEqual(existing.read_bytes(), existing_bytes)
+        self.assertEqual({path.name: path.read_bytes() for path in bundled.iterdir()}, source_bytes)
+
+    def test_mixed_download_assigns_unique_ids_in_either_dataset_order(self):
+        self.make_bundled_references()
+        bundled_config = {"local_path": "bundled_evals/agi_eval_", "splits": ["train"]}
+        for bundled_first in (True, False):
+            with self.subTest(bundled_first=bundled_first):
+                entries = [("agi_eval", bundled_config), ("downloaded", self.dataset_config())]
+                if not bundled_first:
+                    entries.reverse()
+                with mock.patch.object(evals, "__file__", str(self.root / "python/evals.py")), \
+                     mock.patch.object(evals, "load_dataset", return_value={"test": [{"question": "Downloaded?"}]}):
+                    self.assertEqual(self.run_export(dict(entries), "--download"), 0)
+                records = [record for path in self.output.iterdir()
+                           for record in evals.iter_reference_records(path)]
+                self.assertEqual(sorted(record["doc_id"] for record in records), [1, 2, 3, 4])
+
     def test_unknown_eval_and_missing_config_fail(self):
         self.assertEqual(self.run_export({"example": self.dataset_config()}, "--eval", "missing"), 1)
         self.config.unlink()
