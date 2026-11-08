@@ -77,6 +77,7 @@ pub fn display_timing_stats(stats: &crate::detect::stats::AggregatedStats) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use std::fs;
     use std::io::Write;
     use tempfile::NamedTempFile;
